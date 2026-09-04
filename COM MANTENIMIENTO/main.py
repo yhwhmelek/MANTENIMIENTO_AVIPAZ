@@ -131,8 +131,18 @@ def obtener_variable(nombre: str) -> str:
 
 
 def obtener_conexion() -> pyodbc.Connection:
+    cadena_conexion = obtener_variable("SQLSERVER_CONNECTION_STRING")
+
+    # Permite ejecutar el proyecto en equipos que tienen Driver 17 aunque el
+    # .env haya sido creado originalmente para Driver 18.
+    drivers_instalados = set(pyodbc.drivers())
+    driver_18 = "ODBC Driver 18 for SQL Server"
+    driver_17 = "ODBC Driver 17 for SQL Server"
+    if driver_18 not in drivers_instalados and driver_17 in drivers_instalados:
+        cadena_conexion = cadena_conexion.replace(driver_18, driver_17)
+
     return pyodbc.connect(
-        obtener_variable("SQLSERVER_CONNECTION_STRING"),
+        cadena_conexion,
         timeout=5,
     )
 
