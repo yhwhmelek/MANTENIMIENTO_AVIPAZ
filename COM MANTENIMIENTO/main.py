@@ -18,7 +18,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 
-load_dotenv()
+load_dotenv(Path(__file__).with_name(".env"), override=True)
 
 app = FastAPI(
     title="API de Mantenimiento",
