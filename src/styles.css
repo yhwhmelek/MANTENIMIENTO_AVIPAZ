@@ -123,6 +123,7 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .row-actions button.danger { color: #a13f3f; background: #faeeee; }
 .modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(10, 27, 21, .62); }
 .motor-modal { width: min(960px, 100%); max-height: calc(100vh - 44px); overflow-y: auto; padding: 26px; background: #f8f9f7; border-radius: 12px; box-shadow: 0 24px 70px rgba(0,0,0,.25); }
+.category-modal { width: min(620px, 100%); }
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; }
 .modal-header h2 { margin: 0; font: 700 27px 'Manrope', sans-serif; }
 .motor-form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -130,6 +131,9 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .motor-form-grid input, .motor-form-grid select, .motor-form-grid textarea { width: 100%; min-height: 43px; padding: 9px 11px; color: #18201c; background: #fff; border: 1px solid #cad1cd; border-radius: 6px; font: inherit; }
 .motor-form-grid textarea { resize: vertical; }
 .motor-form-grid .full-field { grid-column: 1 / -1; }
+.motor-form-grid .checkbox-field { flex-direction: row; align-items: center; align-self: end; min-height: 43px; }
+.motor-form-grid .checkbox-field input { width: 18px; min-height: 18px; accent-color: #214c3f; }
+.category-form-grid { grid-template-columns: 1fr; }
 .field-help { color: #78827d; font-size: 12px; font-weight: 400; }
 .nameplate-thumb { width: 58px; height: 44px; display: block; object-fit: cover; border: 1px solid #d9dfdb; border-radius: 5px; }
 .nameplate-download { display: inline-block; padding: 0; background: transparent; border: 0; border-radius: 6px; cursor: pointer; }

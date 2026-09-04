@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 load_dotenv(Path(__file__).with_name(".env"), override=True)
 
@@ -118,6 +118,49 @@ class MotorResponse(MotorBase):
 
 class MotorWrite(MotorBase):
     nameplate_image_data: str | None = Field(default=None, max_length=14_000_000)
+
+
+class SparePartBase(BaseModel):
+    internal_code: str = Field(min_length=1, max_length=50)
+    category_id: int
+    description: str = Field(min_length=1, max_length=255)
+    brand: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, max_length=100)
+    part_number: str | None = Field(default=None, max_length=100)
+    unit_of_measure: str = Field(min_length=1, max_length=20)
+    minimum_stock: Decimal = Field(ge=0)
+    maximum_stock: Decimal | None = Field(default=None, ge=0)
+    unit_cost: Decimal | None = Field(default=None, ge=0)
+    storage_location: str | None = Field(default=None, max_length=150)
+    active: bool = True
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def validar_existencias(self):
+        if self.maximum_stock is not None and self.maximum_stock < self.minimum_stock:
+            raise ValueError("El stock maximo no puede ser menor que el stock minimo")
+        return self
+
+
+class SparePartResponse(SparePartBase):
+    spare_part_id: int
+    image_path: str | None = None
+    created_at: datetime
+
+
+class SparePartWrite(SparePartBase):
+    image_data: str | None = Field(default=None, max_length=14_000_000)
+
+
+class SparePartCategoryResponse(BaseModel):
+    category_id: int
+    name: str
+    description: str | None = None
+
+
+class SparePartCategoryWrite(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=255)
 
 
 seguridad_bearer = HTTPBearer()
@@ -270,6 +313,27 @@ def convertir_motor(motor) -> MotorResponse:
     )
 
 
+def convertir_repuesto(repuesto) -> SparePartResponse:
+    return SparePartResponse(
+        spare_part_id=repuesto.SparePartId,
+        internal_code=repuesto.InternalCode,
+        category_id=repuesto.CategoryId,
+        description=repuesto.Description,
+        brand=repuesto.Brand,
+        model=repuesto.Model,
+        part_number=repuesto.PartNumber,
+        unit_of_measure=repuesto.UnitOfMeasure,
+        minimum_stock=repuesto.MinimumStock,
+        maximum_stock=repuesto.MaximumStock,
+        unit_cost=repuesto.UnitCost,
+        storage_location=repuesto.StorageLocation,
+        active=bool(repuesto.Active),
+        notes=repuesto.Notes,
+        image_path=repuesto.ImagePath,
+        created_at=repuesto.CreatedAt,
+    )
+
+
 def guardar_imagen_placa(asset_code: str, image_data: str | None) -> str | None:
     if not image_data:
         return None
@@ -298,6 +362,33 @@ def guardar_imagen_placa(asset_code: str, image_data: str | None) -> str | None:
     return str(ruta)
 
 
+def guardar_imagen_repuesto(internal_code: str, image_data: str | None) -> str | None:
+    if not image_data:
+        return None
+    coincidencia = re.fullmatch(
+        r"data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)", image_data
+    )
+    if not coincidencia:
+        raise HTTPException(status_code=422, detail="La imagen debe ser JPG, PNG o WEBP")
+    extension = {"jpeg": ".jpg", "png": ".png", "webp": ".webp"}[coincidencia.group(1)]
+    try:
+        contenido = base64.b64decode(coincidencia.group(2), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=422, detail="La imagen del repuesto no es valida")
+    if len(contenido) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="La imagen no puede superar 10 MB")
+
+    nombre_seguro = re.sub(r"[^A-Za-z0-9._-]", "_", internal_code.strip())
+    carpeta = Path(os.getenv("SPARE_PART_IMAGE_DIR", r"D:\MANTENIMIENTO\IMAGES\REPUESTOS"))
+    try:
+        carpeta.mkdir(parents=True, exist_ok=True)
+        ruta = carpeta / f"{nombre_seguro}{extension}"
+        ruta.write_bytes(contenido)
+    except OSError:
+        raise HTTPException(status_code=503, detail="No se pudo guardar la imagen del repuesto")
+    return str(ruta)
+
+
 MOTOR_SELECT = """
     SELECT MotorId, AssetCode, Description, Brand, Model, SerialNumber,
            Area, Location, AssociatedEquipment, PowerKW, PowerHP,
@@ -306,6 +397,14 @@ MOTOR_SELECT = """
            InstallationDate, CommissioningDate, Criticality, Status,
            Notes, NameplateImagePath, CreatedAt
     FROM dbo.Motors
+"""
+
+
+SPARE_PART_SELECT = """
+    SELECT SparePartId, InternalCode, CategoryId, Description, Brand, Model,
+           PartNumber, UnitOfMeasure, MinimumStock, MaximumStock, UnitCost,
+           StorageLocation, ImagePath, Active, Notes, CreatedAt
+    FROM dbo.SpareParts
 """
 
 
@@ -670,6 +769,300 @@ def ver_imagen_placa(
     ruta = Path(motor.NameplateImagePath)
     if not ruta.is_file():
         raise HTTPException(status_code=404, detail="No se encontro el archivo de la placa")
+    return FileResponse(ruta)
+
+
+@app.get("/repuestos", response_model=list[SparePartResponse])
+def listar_repuestos(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            repuestos = conexion.cursor().execute(
+                SPARE_PART_SELECT + " ORDER BY InternalCode"
+            ).fetchall()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar la lista de repuestos")
+    return [convertir_repuesto(repuesto) for repuesto in repuestos]
+
+
+@app.get("/categorias-repuestos", response_model=list[SparePartCategoryResponse])
+def listar_categorias_repuestos(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            categorias = conexion.cursor().execute(
+                """
+                SELECT CategoryId, Name, Description
+                FROM dbo.SparePartCategories
+                ORDER BY Name
+                """
+            ).fetchall()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar la lista de categorias")
+    return [
+        SparePartCategoryResponse(
+            category_id=categoria.CategoryId,
+            name=categoria.Name,
+            description=categoria.Description,
+        )
+        for categoria in categorias
+    ]
+
+
+@app.post(
+    "/categorias-repuestos",
+    response_model=SparePartCategoryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_categoria_repuesto(
+    datos: SparePartCategoryWrite,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    nombre = datos.name.strip()
+    descripcion = datos.description.strip() if datos.description else None
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute(
+                "SELECT CategoryId FROM dbo.SparePartCategories WHERE LOWER(Name) = LOWER(?)",
+                nombre,
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="Ya existe una categoria con ese nombre")
+            categoria = cursor.execute(
+                """
+                INSERT INTO dbo.SparePartCategories (Name, Description)
+                OUTPUT INSERTED.CategoryId, INSERTED.Name, INSERTED.Description
+                VALUES (?, ?)
+                """,
+                nombre,
+                descripcion,
+            ).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo crear la categoria")
+    return SparePartCategoryResponse(
+        category_id=categoria.CategoryId,
+        name=categoria.Name,
+        description=categoria.Description,
+    )
+
+
+@app.put("/categorias-repuestos/{category_id}", response_model=SparePartCategoryResponse)
+def actualizar_categoria_repuesto(
+    category_id: int,
+    datos: SparePartCategoryWrite,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    nombre = datos.name.strip()
+    descripcion = datos.description.strip() if datos.description else None
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute(
+                """
+                SELECT CategoryId FROM dbo.SparePartCategories
+                WHERE LOWER(Name) = LOWER(?) AND CategoryId <> ?
+                """,
+                nombre,
+                category_id,
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="Ya existe una categoria con ese nombre")
+            categoria = cursor.execute(
+                """
+                UPDATE dbo.SparePartCategories SET Name=?, Description=?
+                OUTPUT INSERTED.CategoryId, INSERTED.Name, INSERTED.Description
+                WHERE CategoryId=?
+                """,
+                nombre,
+                descripcion,
+                category_id,
+            ).fetchone()
+            if categoria is None:
+                raise HTTPException(status_code=404, detail="Categoria no encontrada")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar la categoria")
+    return SparePartCategoryResponse(
+        category_id=categoria.CategoryId,
+        name=categoria.Name,
+        description=categoria.Description,
+    )
+
+
+@app.delete("/categorias-repuestos/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_categoria_repuesto(
+    category_id: int,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cantidad = cursor.execute(
+                "SELECT COUNT(*) FROM dbo.SpareParts WHERE CategoryId = ?", category_id
+            ).fetchone()[0]
+            if cantidad:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"No se puede eliminar: la categoria tiene {cantidad} "
+                        "repuesto(s) asociado(s). Reasignalos primero."
+                    ),
+                )
+            cursor.execute(
+                "DELETE FROM dbo.SparePartCategories WHERE CategoryId = ?", category_id
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Categoria no encontrada")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo eliminar la categoria")
+
+
+@app.get("/repuestos/{spare_part_id}", response_model=SparePartResponse)
+def obtener_repuesto(spare_part_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            repuesto = conexion.cursor().execute(
+                SPARE_PART_SELECT + " WHERE SparePartId = ?", spare_part_id
+            ).fetchone()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar el repuesto")
+    if repuesto is None:
+        raise HTTPException(status_code=404, detail="Repuesto no encontrado")
+    return convertir_repuesto(repuesto)
+
+
+@app.post("/repuestos", response_model=SparePartResponse, status_code=status.HTTP_201_CREATED)
+def crear_repuesto(datos: SparePartWrite, usuario_id: int = Depends(obtener_usuario_activo)):
+    valores = datos.model_dump(exclude={"image_data"})
+    valores["internal_code"] = valores["internal_code"].strip()
+    valores["description"] = valores["description"].strip()
+    valores["unit_of_measure"] = valores["unit_of_measure"].strip()
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute(
+                "SELECT SparePartId FROM dbo.SpareParts WHERE InternalCode = ?",
+                valores["internal_code"],
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="El codigo interno ya existe")
+            imagen_ruta = guardar_imagen_repuesto(valores["internal_code"], datos.image_data)
+            repuesto_id = cursor.execute(
+                """
+                SET NOCOUNT ON;
+                INSERT INTO dbo.SpareParts (
+                    InternalCode, CategoryId, Description, Brand, Model, PartNumber,
+                    UnitOfMeasure, MinimumStock, MaximumStock, UnitCost,
+                    StorageLocation, Active, Notes, ImagePath
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?);
+                SELECT CAST(SCOPE_IDENTITY() AS int)
+                """,
+                valores["internal_code"], valores["category_id"], valores["description"],
+                valores["brand"], valores["model"], valores["part_number"],
+                valores["unit_of_measure"], valores["minimum_stock"],
+                valores["maximum_stock"], valores["unit_cost"],
+                valores["storage_location"], valores["active"], valores["notes"],
+                imagen_ruta,
+            ).fetchone()[0]
+            repuesto = cursor.execute(
+                SPARE_PART_SELECT + " WHERE SparePartId = ?", repuesto_id
+            ).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo crear el repuesto")
+    return convertir_repuesto(repuesto)
+
+
+@app.put("/repuestos/{spare_part_id}", response_model=SparePartResponse)
+def actualizar_repuesto(
+    spare_part_id: int,
+    datos: SparePartWrite,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    valores = datos.model_dump(exclude={"image_data"})
+    valores["internal_code"] = valores["internal_code"].strip()
+    valores["description"] = valores["description"].strip()
+    valores["unit_of_measure"] = valores["unit_of_measure"].strip()
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute(
+                "SELECT SparePartId FROM dbo.SpareParts WHERE InternalCode = ? AND SparePartId <> ?",
+                valores["internal_code"], spare_part_id,
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="El codigo interno ya existe")
+            actual = cursor.execute(
+                "SELECT ImagePath FROM dbo.SpareParts WHERE SparePartId = ?", spare_part_id
+            ).fetchone()
+            if actual is None:
+                raise HTTPException(status_code=404, detail="Repuesto no encontrado")
+            imagen_ruta = (
+                guardar_imagen_repuesto(valores["internal_code"], datos.image_data)
+                if datos.image_data else actual.ImagePath
+            )
+            cursor.execute(
+                """
+                UPDATE dbo.SpareParts SET InternalCode=?, CategoryId=?, Description=?,
+                    Brand=?, Model=?, PartNumber=?, UnitOfMeasure=?, MinimumStock=?,
+                    MaximumStock=?, UnitCost=?, StorageLocation=?, Active=?, Notes=?, ImagePath=?
+                WHERE SparePartId=?
+                """,
+                valores["internal_code"], valores["category_id"], valores["description"],
+                valores["brand"], valores["model"], valores["part_number"],
+                valores["unit_of_measure"], valores["minimum_stock"],
+                valores["maximum_stock"], valores["unit_cost"],
+                valores["storage_location"], valores["active"], valores["notes"],
+                imagen_ruta, spare_part_id,
+            )
+            repuesto = cursor.execute(
+                SPARE_PART_SELECT + " WHERE SparePartId = ?", spare_part_id
+            ).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar el repuesto")
+    return convertir_repuesto(repuesto)
+
+
+@app.delete("/repuestos/{spare_part_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_repuesto(spare_part_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute("DELETE FROM dbo.SpareParts WHERE SparePartId = ?", spare_part_id)
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Repuesto no encontrado")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo eliminar el repuesto")
+
+
+@app.get("/repuestos/{spare_part_id}/imagen", response_class=FileResponse)
+def ver_imagen_repuesto(
+    spare_part_id: int,
+    usuario_id: int = Depends(obtener_usuario_activo),
+):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            repuesto = conexion.cursor().execute(
+                "SELECT ImagePath FROM dbo.SpareParts WHERE SparePartId = ?", spare_part_id
+            ).fetchone()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar la imagen")
+    if repuesto is None or not repuesto.ImagePath:
+        raise HTTPException(status_code=404, detail="El repuesto no tiene imagen")
+    ruta = Path(repuesto.ImagePath)
+    if not ruta.is_file():
+        raise HTTPException(status_code=404, detail="No se encontro el archivo de la imagen")
     return FileResponse(ruta)
 
 
