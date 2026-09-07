@@ -2,6 +2,7 @@ import os
 import base64
 import binascii
 import re
+from uuid import uuid4
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -141,6 +142,31 @@ class SparePartBase(BaseModel):
             raise ValueError("El stock maximo no puede ser menor que el stock minimo")
         return self
 
+
+class MachineWrite(BaseModel):
+    asset_code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+    manufacturer: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, max_length=100)
+    serial_number: str | None = Field(default=None, max_length=100)
+    area: str | None = Field(default=None, max_length=100)
+    production_line: str | None = Field(default=None, max_length=100)
+    location: str | None = Field(default=None, max_length=200)
+    installation_date: date | None = None
+    commissioning_date: date | None = None
+    criticality: Literal["BAJA", "MEDIA", "ALTA", "CRITICA"] | None = None
+    status: Literal["ACTIVA", "PARADA", "MANTENIMIENTO", "FUERA_SERVICIO"] = "ACTIVA"
+    notes: str | None = None
+    image_data: str | None = Field(default=None, max_length=14_000_000)
+
+    @model_validator(mode="after")
+    def validar_identificacion(self):
+        self.asset_code = self.asset_code.strip()
+        self.name = self.name.strip()
+        if not self.asset_code or not self.name:
+            raise ValueError("El codigo y el nombre son obligatorios")
+        return self
 
 class SparePartResponse(SparePartBase):
     spare_part_id: int
@@ -666,6 +692,493 @@ def cambiar_rol(
         correo=usuario.Correo,
         rol=usuario.Rol,
     )
+
+
+class MachineElementTypeWrite(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=300)
+    active: bool = True
+
+    @model_validator(mode="after")
+    def validar_nombre(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("El nombre es obligatorio")
+        return self
+
+
+class MachineElementTypeResponse(MachineElementTypeWrite):
+    element_type_id: int
+
+
+ELEMENT_TYPE_SELECT = "SELECT ElementTypeId, Name, Description, Active FROM dbo.MachineElementTypes"
+
+
+def convertir_tipo_elemento(row):
+    return MachineElementTypeResponse(element_type_id=row.ElementTypeId, name=row.Name, description=row.Description, active=row.Active)
+
+
+@app.get("/tipos-elementos", response_model=list[MachineElementTypeResponse])
+def listar_tipos_elementos(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            rows = conexion.cursor().execute(ELEMENT_TYPE_SELECT + " ORDER BY Name").fetchall()
+            return [convertir_tipo_elemento(row) for row in rows]
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudieron consultar los tipos de elementos")
+
+
+@app.post("/tipos-elementos", response_model=MachineElementTypeResponse, status_code=status.HTTP_201_CREATED)
+def crear_tipo_elemento(datos: MachineElementTypeWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            element_type_id = cursor.execute(
+                "SET NOCOUNT ON; INSERT INTO dbo.MachineElementTypes (Name, Description, Active) VALUES (?,?,?); SELECT CAST(SCOPE_IDENTITY() AS int)",
+                datos.name, datos.description, datos.active,
+            ).fetchone()[0]
+            row = cursor.execute(ELEMENT_TYPE_SELECT + " WHERE ElementTypeId = ?", element_type_id).fetchone()
+            result = convertir_tipo_elemento(row)
+            conexion.commit()
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="Ya existe un tipo de elemento con ese nombre")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo crear el tipo de elemento")
+
+
+@app.put("/tipos-elementos/{element_type_id}", response_model=MachineElementTypeResponse)
+def actualizar_tipo_elemento(element_type_id: int, datos: MachineElementTypeWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            row = cursor.execute(
+                "UPDATE dbo.MachineElementTypes SET Name = ?, Description = ?, Active = ? OUTPUT INSERTED.ElementTypeId, INSERTED.Name, INSERTED.Description, INSERTED.Active WHERE ElementTypeId = ?",
+                datos.name, datos.description, datos.active, element_type_id,
+            ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="El tipo de elemento no existe")
+            result = convertir_tipo_elemento(row)
+            conexion.commit()
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="Ya existe un tipo de elemento con ese nombre")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar el tipo de elemento")
+
+
+@app.delete("/tipos-elementos/{element_type_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_tipo_elemento(element_type_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            row = conexion.cursor().execute("DELETE FROM dbo.MachineElementTypes OUTPUT DELETED.ElementTypeId WHERE ElementTypeId = ?", element_type_id).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="El tipo de elemento no existe")
+            conexion.commit()
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="El tipo tiene registros asociados. Puedes desactivarlo en lugar de eliminarlo")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo eliminar el tipo de elemento")
+
+
+class MachineElementWrite(BaseModel):
+    machine_id: int = Field(gt=0)
+    element_type_id: int = Field(gt=0)
+    parent_element_id: int | None = Field(default=None, gt=0)
+    element_code: str | None = Field(default=None, max_length=50)
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+    manufacturer: str | None = Field(default=None, max_length=100)
+    model: str | None = Field(default=None, max_length=100)
+    serial_number: str | None = Field(default=None, max_length=100)
+    position: str | None = Field(default=None, max_length=150)
+    quantity: Decimal = Field(default=Decimal('1'), gt=0, max_digits=10, decimal_places=2)
+    installation_date: date | None = None
+    criticality: Literal['BAJA', 'MEDIA', 'ALTA', 'CRITICA'] | None = None
+    status: Literal['OPERATIVO', 'PARADO', 'REPARACION', 'RESERVA', 'FUERA_SERVICIO'] = 'OPERATIVO'
+    active: bool = True
+    notes: str | None = None
+    image_data: str | None = Field(default=None, max_length=14_000_000)
+
+    @model_validator(mode='after')
+    def validar_nombre(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError('El nombre es obligatorio')
+        return self
+
+
+ELEMENT_COLUMNS = {
+    'machine_id': 'MachineId', 'element_type_id': 'ElementTypeId', 'parent_element_id': 'ParentElementId',
+    'element_code': 'ElementCode', 'name': 'Name', 'description': 'Description',
+    'manufacturer': 'Manufacturer', 'model': 'Model', 'serial_number': 'SerialNumber',
+    'position': 'Position', 'quantity': 'Quantity', 'installation_date': 'InstallationDate',
+    'criticality': 'Criticality', 'status': 'Status', 'active': 'Active', 'notes': 'Notes',
+}
+ELEMENT_SELECT = 'SELECT ElementId AS element_id, ' + ', '.join(
+    f'[{column}] AS {field}' for field, column in ELEMENT_COLUMNS.items()
+) + ', ImagePath AS image_path, CreatedAt AS created_at FROM dbo.MachineElements'
+
+
+def validar_relaciones_elemento(cursor, datos, element_id=None):
+    # Serializa cambios de la jerarquia por maquina durante la transaccion.
+    if not cursor.execute('SELECT MachineId FROM dbo.Machines WITH (UPDLOCK, HOLDLOCK) WHERE MachineId = ?', datos.machine_id).fetchone():
+        raise HTTPException(status_code=422, detail='La maquina seleccionada no existe')
+    if not cursor.execute('SELECT ElementTypeId FROM dbo.MachineElementTypes WITH (HOLDLOCK) WHERE ElementTypeId = ?', datos.element_type_id).fetchone():
+        raise HTTPException(status_code=422, detail='El tipo de elemento seleccionado no existe')
+    rows = cursor.execute('SELECT ElementId, MachineId, ParentElementId FROM dbo.MachineElements WITH (UPDLOCK, HOLDLOCK)').fetchall()
+    elements = {row.ElementId: row for row in rows}
+    if element_id is not None:
+        if element_id not in elements:
+            raise HTTPException(status_code=404, detail='El elemento no existe')
+        if any(row.ParentElementId == element_id and row.MachineId != datos.machine_id for row in rows):
+            raise HTTPException(status_code=422, detail='No puedes cambiar la maquina de un elemento que tiene hijos en otra maquina')
+    parent_id = datos.parent_element_id
+    visited = {element_id} if element_id is not None else set()
+    while parent_id is not None:
+        if parent_id in visited:
+            raise HTTPException(status_code=422, detail='El elemento padre produciria un ciclo en la jerarquia')
+        visited.add(parent_id)
+        parent = elements.get(parent_id)
+        if parent is None or parent.MachineId != datos.machine_id:
+            raise HTTPException(status_code=422, detail='El padre debe pertenecer a la misma maquina')
+        parent_id = parent.ParentElementId
+
+
+@app.get('/elementos-maquinas')
+def listar_elementos_maquinas(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            rows = cursor.execute(ELEMENT_SELECT + ' ORDER BY ElementId DESC').fetchall()
+            return [machine_record(cursor, row) for row in rows]
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudieron consultar los elementos')
+
+
+def guardar_elemento(datos, element_id=None):
+    image_path = None
+    committed = False
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_relaciones_elemento(cursor, datos, element_id)
+            previous_image = None
+            if element_id is not None:
+                previous_image = cursor.execute('SELECT ImagePath FROM dbo.MachineElements WHERE ElementId = ?', element_id).fetchone()[0]
+            image_path = guardar_imagen_maquina(datos.image_data)
+            values = [getattr(datos, field) for field in ELEMENT_COLUMNS]
+            if element_id is None:
+                columns = ', '.join(f'[{column}]' for column in ELEMENT_COLUMNS.values())
+                placeholders = ','.join('?' for _ in range(len(values) + 1))
+                element_id = cursor.execute(
+                    f'SET NOCOUNT ON; INSERT INTO dbo.MachineElements ({columns}, ImagePath) VALUES ({placeholders}); SELECT CAST(SCOPE_IDENTITY() AS int)',
+                    *values, image_path,
+                ).fetchone()[0]
+            else:
+                assignments = ', '.join(f'[{column}] = ?' for column in ELEMENT_COLUMNS.values())
+                cursor.execute(f'UPDATE dbo.MachineElements SET {assignments}, ImagePath = ? WHERE ElementId = ?', *values, image_path or previous_image, element_id)
+            row = cursor.execute(ELEMENT_SELECT + ' WHERE ElementId = ?', element_id).fetchone()
+            result = machine_record(cursor, row)
+            conexion.commit()
+            committed = True
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail='No se pudo guardar. Revisa la maquina, el tipo y el elemento padre')
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudo guardar el elemento')
+    finally:
+        if image_path and not committed:
+            try:
+                Path(image_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+@app.post('/elementos-maquinas', status_code=status.HTTP_201_CREATED)
+def crear_elemento_maquina(datos: MachineElementWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    return guardar_elemento(datos)
+
+
+@app.put('/elementos-maquinas/{element_id}')
+def actualizar_elemento_maquina(element_id: int, datos: MachineElementWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    return guardar_elemento(datos, element_id)
+
+
+@app.delete('/elementos-maquinas/{element_id}', status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_elemento_maquina(element_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            row = conexion.cursor().execute('DELETE FROM dbo.MachineElements OUTPUT DELETED.ElementId WHERE ElementId = ?', element_id).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail='El elemento no existe')
+            conexion.commit()
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail='El elemento tiene hijos o registros asociados. Puedes desactivarlo')
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudo eliminar el elemento')
+
+
+@app.get('/elementos-maquinas/{element_id}/imagen', response_class=FileResponse)
+def imagen_elemento_maquina(element_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            row = conexion.cursor().execute('SELECT ImagePath FROM dbo.MachineElements WHERE ElementId = ?', element_id).fetchone()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudo consultar la imagen')
+    if row is None or not row.ImagePath:
+        raise HTTPException(status_code=404, detail='El elemento no tiene imagen')
+    path = Path(row.ImagePath).resolve()
+    directory = Path(os.getenv('MACHINE_IMAGE_DIR', str(Path(__file__).parent / 'uploads' / 'maquinas'))).resolve()
+    if not path.is_relative_to(directory) or not path.is_file():
+        raise HTTPException(status_code=404, detail='No se encontro la imagen')
+    return FileResponse(path)
+
+
+class MotorSpecificationWrite(BaseModel):
+    power_kw: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+    power_hp: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+    rated_voltage: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+    rated_current: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+    frequency_hz: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+    rpm: int | None = Field(default=None, ge=-2147483648, le=2147483647)
+    poles: int | None = Field(default=None, ge=-2147483648, le=2147483647)
+    power_factor: Decimal | None = Field(default=None, max_digits=5, decimal_places=3)
+    efficiency_percent: Decimal | None = Field(default=None, max_digits=5, decimal_places=2)
+    service_factor: Decimal | None = Field(default=None, max_digits=5, decimal_places=2)
+    frame: str | None = Field(default=None, max_length=50)
+    protection_class: str | None = Field(default=None, max_length=30)
+    insulation_class: str | None = Field(default=None, max_length=30)
+    connection_type: str | None = Field(default=None, max_length=30)
+    duty_type: str | None = Field(default=None, max_length=30)
+    bearing_de: str | None = Field(default=None, max_length=100)
+    bearing_nde: str | None = Field(default=None, max_length=100)
+    lubricant: str | None = Field(default=None, max_length=150)
+    notes: str | None = Field(default=None, max_length=500)
+    image_data: str | None = Field(default=None, max_length=14_000_000)
+
+
+SPEC_COLUMNS = dict(zip(
+    ['power_kw', 'power_hp', 'rated_voltage', 'rated_current', 'frequency_hz', 'rpm', 'poles', 'power_factor', 'efficiency_percent', 'service_factor', 'frame', 'protection_class', 'insulation_class', 'connection_type', 'duty_type', 'bearing_de', 'bearing_nde', 'lubricant', 'notes'],
+    ['PowerKW', 'PowerHP', 'RatedVoltage', 'RatedCurrent', 'FrequencyHz', 'RPM', 'Poles', 'PowerFactor', 'EfficiencyPercent', 'ServiceFactor', 'Frame', 'ProtectionClass', 'InsulationClass', 'ConnectionType', 'DutyType', 'BearingDE', 'BearingNDE', 'Lubricant', 'Notes'],
+))
+SPEC_SELECT = 'SELECT ElementId AS element_id, ' + ', '.join(f'[{column}] AS {field}' for field, column in SPEC_COLUMNS.items()) + ', NameplateImagePath AS nameplate_image_path FROM dbo.MotorSpecifications'
+
+
+@app.get('/elementos-maquinas/{element_id}/especificaciones-motor')
+def obtener_especificaciones_motor(element_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if not cursor.execute('SELECT ElementId FROM dbo.MachineElements WHERE ElementId = ?', element_id).fetchone():
+                raise HTTPException(status_code=404, detail='El elemento no existe')
+            row = cursor.execute(SPEC_SELECT + ' WHERE ElementId = ?', element_id).fetchone()
+            return machine_record(cursor, row) if row else None
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudieron consultar las especificaciones')
+
+
+@app.put('/elementos-maquinas/{element_id}/especificaciones-motor')
+def guardar_especificaciones_motor(element_id: int, datos: MotorSpecificationWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    image_path = None
+    committed = False
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if not cursor.execute('SELECT ElementId FROM dbo.MachineElements WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id).fetchone():
+                raise HTTPException(status_code=404, detail='El elemento no existe')
+            actual = cursor.execute('SELECT NameplateImagePath FROM dbo.MotorSpecifications WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id).fetchone()
+            image_path = guardar_imagen_maquina(datos.image_data)
+            values = [getattr(datos, field) for field in SPEC_COLUMNS]
+            if actual is None:
+                columns = ', '.join(f'[{column}]' for column in SPEC_COLUMNS.values())
+                placeholders = ','.join('?' for _ in range(len(values) + 2))
+                cursor.execute(f'INSERT INTO dbo.MotorSpecifications (ElementId, {columns}, NameplateImagePath) VALUES ({placeholders})', element_id, *values, image_path)
+            else:
+                assignments = ', '.join(f'[{column}] = ?' for column in SPEC_COLUMNS.values())
+                cursor.execute(f'UPDATE dbo.MotorSpecifications SET {assignments}, NameplateImagePath = ? WHERE ElementId = ?', *values, image_path or actual.NameplateImagePath, element_id)
+            row = cursor.execute(SPEC_SELECT + ' WHERE ElementId = ?', element_id).fetchone()
+            result = machine_record(cursor, row)
+            conexion.commit()
+            committed = True
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail='No se pudieron guardar las especificaciones del elemento')
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudieron guardar las especificaciones')
+    finally:
+        if image_path and not committed:
+            try:
+                Path(image_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+@app.delete('/elementos-maquinas/{element_id}/especificaciones-motor', status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_especificaciones_motor(element_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            row = conexion.cursor().execute('DELETE FROM dbo.MotorSpecifications OUTPUT DELETED.ElementId WHERE ElementId = ?', element_id).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail='El elemento no tiene especificaciones de motor')
+            conexion.commit()
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail='Las especificaciones tienen registros asociados')
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudieron eliminar las especificaciones')
+
+
+@app.get('/elementos-maquinas/{element_id}/especificaciones-motor/placa', response_class=FileResponse)
+def imagen_especificaciones_motor(element_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            row = conexion.cursor().execute('SELECT NameplateImagePath FROM dbo.MotorSpecifications WHERE ElementId = ?', element_id).fetchone()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudo consultar la placa')
+    if row is None or not row.NameplateImagePath:
+        raise HTTPException(status_code=404, detail='No hay foto de placa')
+    path = Path(row.NameplateImagePath).resolve()
+    directory = Path(os.getenv('MACHINE_IMAGE_DIR', str(Path(__file__).parent / 'uploads' / 'maquinas'))).resolve()
+    if not path.is_relative_to(directory) or not path.is_file():
+        raise HTTPException(status_code=404, detail='No se encontro la foto de placa')
+    return FileResponse(path)
+
+
+MACHINE_COLUMNS = {
+    "asset_code": "AssetCode", "name": "Name", "description": "Description",
+    "manufacturer": "Manufacturer", "model": "Model", "serial_number": "SerialNumber",
+    "area": "Area", "production_line": "ProductionLine", "location": "Location",
+    "installation_date": "InstallationDate", "commissioning_date": "CommissioningDate",
+    "criticality": "Criticality", "status": "Status", "notes": "Notes",
+}
+MACHINE_SELECT = "SELECT MachineId AS machine_id, " + ", ".join(
+    f"{column} AS {field}" for field, column in MACHINE_COLUMNS.items()
+) + ", MachineImagePath AS machine_image_path, CreatedAt AS created_at FROM dbo.Machines"
+
+
+def machine_record(cursor, row):
+    return dict(zip((column[0] for column in cursor.description), row))
+
+
+def guardar_imagen_maquina(image_data):
+    if not image_data:
+        return None
+    match = re.fullmatch(r"data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)", image_data)
+    if not match:
+        raise HTTPException(status_code=422, detail="La imagen debe ser JPG, PNG o WEBP")
+    try:
+        content = base64.b64decode(match.group(2), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=422, detail="La imagen no es valida")
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=422, detail="La imagen debe contener datos y no superar 10 MB")
+    directory = Path(os.getenv("MACHINE_IMAGE_DIR", str(Path(__file__).parent / "uploads" / "maquinas")))
+    extension = {"jpeg": ".jpg", "png": ".png", "webp": ".webp"}[match.group(1)]
+    path = directory.resolve() / f"{uuid4().hex}{extension}"
+    if len(str(path)) > 500:
+        raise HTTPException(status_code=503, detail="La ruta de imagen configurada es demasiado larga")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    except OSError:
+        raise HTTPException(status_code=503, detail="No se pudo guardar la imagen")
+    return str(path)
+
+
+@app.get("/maquinas")
+def listar_maquinas(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            rows = cursor.execute(MACHINE_SELECT + " ORDER BY MachineId DESC").fetchall()
+            return [machine_record(cursor, row) for row in rows]
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar la lista de maquinas")
+
+
+@app.post("/maquinas", status_code=status.HTTP_201_CREATED)
+def crear_maquina(datos: MachineWrite, usuario_id: int = Depends(obtener_usuario_activo)):
+    image_path = None
+    committed = False
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute("SELECT MachineId FROM dbo.Machines WHERE AssetCode = ?", datos.asset_code).fetchone():
+                raise HTTPException(status_code=409, detail="El codigo del activo ya existe")
+            image_path = guardar_imagen_maquina(datos.image_data)
+            values = [getattr(datos, field) for field in MACHINE_COLUMNS]
+            columns = ", ".join(MACHINE_COLUMNS.values()) + ", MachineImagePath"
+            placeholders = ",".join("?" for _ in range(len(values) + 1))
+            machine_id = cursor.execute(
+                f"SET NOCOUNT ON; INSERT INTO dbo.Machines ({columns}) VALUES ({placeholders}); SELECT CAST(SCOPE_IDENTITY() AS int)",
+                *values, image_path,
+            ).fetchone()[0]
+            row = cursor.execute(MACHINE_SELECT + " WHERE MachineId = ?", machine_id).fetchone()
+            result = machine_record(cursor, row)
+            conexion.commit()
+            committed = True
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="No se pudo guardar: revisa el codigo del activo y los datos")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo crear la maquina")
+    finally:
+        if image_path and not committed:
+            try:
+                Path(image_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+@app.put("/maquinas/{machine_id}")
+def actualizar_maquina(machine_id: int, datos: MachineWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    image_path = None
+    committed = False
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            actual = cursor.execute("SELECT MachineImagePath FROM dbo.Machines WITH (UPDLOCK) WHERE MachineId = ?", machine_id).fetchone()
+            if actual is None:
+                raise HTTPException(status_code=404, detail="La maquina no existe")
+            if cursor.execute("SELECT MachineId FROM dbo.Machines WHERE AssetCode = ? AND MachineId <> ?", datos.asset_code, machine_id).fetchone():
+                raise HTTPException(status_code=409, detail="El codigo del activo ya existe")
+            image_path = guardar_imagen_maquina(datos.image_data)
+            assignments = ", ".join(f"{column} = ?" for column in MACHINE_COLUMNS.values())
+            cursor.execute(
+                f"UPDATE dbo.Machines SET {assignments}, MachineImagePath = ? WHERE MachineId = ?",
+                *(getattr(datos, field) for field in MACHINE_COLUMNS),
+                image_path or actual.MachineImagePath, machine_id,
+            )
+            row = cursor.execute(MACHINE_SELECT + " WHERE MachineId = ?", machine_id).fetchone()
+            result = machine_record(cursor, row)
+            conexion.commit()
+            committed = True
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="No se pudo actualizar: revisa el codigo del activo y los datos")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar la maquina")
+    finally:
+        if image_path and not committed:
+            try:
+                Path(image_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+@app.delete("/maquinas/{machine_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_maquina(machine_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            deleted = cursor.execute("DELETE FROM dbo.Machines OUTPUT DELETED.MachineId WHERE MachineId = ?", machine_id).fetchone()
+            if deleted is None:
+                raise HTTPException(status_code=404, detail="La maquina no existe")
+            conexion.commit()
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="No se puede eliminar la maquina porque tiene registros asociados")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo eliminar la maquina")
 
 
 @app.get("/motores", response_model=list[MotorResponse])
