@@ -134,6 +134,8 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .motor-form-grid .checkbox-field { flex-direction: row; align-items: center; align-self: end; min-height: 43px; }
 .motor-form-grid .checkbox-field input { width: 18px; min-height: 18px; accent-color: #214c3f; }
 .category-form-grid { grid-template-columns: 1fr; }
+.relation-form { margin-top: 22px; padding-top: 20px; border-top: 1px solid #dfe4e0; }
+.relation-form h3 { margin: 0 0 16px; font: 700 18px Manrope, sans-serif; }
 .field-help { color: #78827d; font-size: 12px; font-weight: 400; }
 .nameplate-thumb { width: 58px; height: 44px; display: block; object-fit: cover; border: 1px solid #d9dfdb; border-radius: 5px; }
 .nameplate-download { display: inline-block; padding: 0; background: transparent; border: 0; border-radius: 6px; cursor: pointer; }

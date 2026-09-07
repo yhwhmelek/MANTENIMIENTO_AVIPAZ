@@ -163,6 +163,39 @@ class SparePartCategoryWrite(BaseModel):
     description: str | None = Field(default=None, max_length=255)
 
 
+class SupplierBase(BaseModel):
+    supplier_code: str | None = Field(default=None, max_length=50)
+    name: str = Field(min_length=1, max_length=200)
+    ruc: str | None = Field(default=None, max_length=20)
+    contact_name: str | None = Field(default=None, max_length=150)
+    phone: str | None = Field(default=None, max_length=50)
+    email: EmailStr | None = None
+    address: str | None = Field(default=None, max_length=300)
+    active: bool = True
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class SupplierResponse(SupplierBase):
+    supplier_id: int
+    created_at: datetime
+
+
+class SparePartSupplierWrite(BaseModel):
+    supplier_id: int
+    supplier_part_number: str | None = Field(default=None, max_length=100)
+    current_price: Decimal | None = Field(default=None, ge=0)
+    lead_time_days: int | None = Field(default=None, ge=0)
+    preferred_supplier: bool = False
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class SparePartSupplierResponse(SparePartSupplierWrite):
+    spare_part_supplier_id: int
+    spare_part_id: int
+    supplier_name: str
+    supplier_code: str | None = None
+
+
 seguridad_bearer = HTTPBearer()
 
 
@@ -334,6 +367,22 @@ def convertir_repuesto(repuesto) -> SparePartResponse:
     )
 
 
+def convertir_proveedor(proveedor) -> SupplierResponse:
+    return SupplierResponse(
+        supplier_id=proveedor.SupplierId,
+        supplier_code=proveedor.SupplierCode,
+        name=proveedor.Name,
+        ruc=proveedor.RUC,
+        contact_name=proveedor.ContactName,
+        phone=proveedor.Phone,
+        email=proveedor.Email,
+        address=proveedor.Address,
+        active=bool(proveedor.Active),
+        notes=proveedor.Notes,
+        created_at=proveedor.CreatedAt,
+    )
+
+
 def guardar_imagen_placa(asset_code: str, image_data: str | None) -> str | None:
     if not image_data:
         return None
@@ -405,6 +454,13 @@ SPARE_PART_SELECT = """
            PartNumber, UnitOfMeasure, MinimumStock, MaximumStock, UnitCost,
            StorageLocation, ImagePath, Active, Notes, CreatedAt
     FROM dbo.SpareParts
+"""
+
+
+SUPPLIER_SELECT = """
+    SELECT SupplierId, SupplierCode, Name, RUC, ContactName, Phone, Email,
+           Address, Active, Notes, CreatedAt
+    FROM dbo.Suppliers
 """
 
 
@@ -1064,6 +1120,335 @@ def ver_imagen_repuesto(
     if not ruta.is_file():
         raise HTTPException(status_code=404, detail="No se encontro el archivo de la imagen")
     return FileResponse(ruta)
+
+
+@app.get("/proveedores", response_model=list[SupplierResponse])
+def listar_proveedores(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            proveedores = conexion.cursor().execute(
+                SUPPLIER_SELECT + " ORDER BY Name"
+            ).fetchall()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar la lista de proveedores")
+    return [convertir_proveedor(proveedor) for proveedor in proveedores]
+
+
+@app.get("/proveedores/{supplier_id}", response_model=SupplierResponse)
+def obtener_proveedor(supplier_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            proveedor = conexion.cursor().execute(
+                SUPPLIER_SELECT + " WHERE SupplierId = ?", supplier_id
+            ).fetchone()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar el proveedor")
+    if proveedor is None:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    return convertir_proveedor(proveedor)
+
+
+def validar_proveedor_duplicado(cursor, datos: SupplierBase, supplier_id: int | None = None):
+    condiciones = []
+    parametros = []
+    if datos.supplier_code:
+        condiciones.append("LOWER(SupplierCode) = LOWER(?)")
+        parametros.append(datos.supplier_code.strip())
+    if datos.ruc:
+        condiciones.append("RUC = ?")
+        parametros.append(datos.ruc.strip())
+    if not condiciones:
+        return
+    consulta = "SELECT SupplierId FROM dbo.Suppliers WHERE (" + " OR ".join(condiciones) + ")"
+    if supplier_id is not None:
+        consulta += " AND SupplierId <> ?"
+        parametros.append(supplier_id)
+    if cursor.execute(consulta, *parametros).fetchone():
+        raise HTTPException(status_code=409, detail="El codigo o RUC del proveedor ya existe")
+
+
+@app.post("/proveedores", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
+def crear_proveedor(datos: SupplierBase, usuario_id: int = Depends(obtener_usuario_activo)):
+    valores = datos.model_dump()
+    valores["name"] = valores["name"].strip()
+    for campo in ("supplier_code", "ruc", "contact_name", "phone", "address", "notes"):
+        valores[campo] = valores[campo].strip() if valores[campo] else None
+    valores["email"] = str(valores["email"]) if valores["email"] else None
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_proveedor_duplicado(cursor, datos)
+            supplier_id = cursor.execute(
+                """
+                SET NOCOUNT ON;
+                INSERT INTO dbo.Suppliers (
+                    SupplierCode, Name, RUC, ContactName, Phone, Email,
+                    Address, Active, Notes
+                ) VALUES (?,?,?,?,?,?,?,?,?);
+                SELECT CAST(SCOPE_IDENTITY() AS int)
+                """,
+                valores["supplier_code"], valores["name"], valores["ruc"],
+                valores["contact_name"], valores["phone"], valores["email"],
+                valores["address"], valores["active"], valores["notes"],
+            ).fetchone()[0]
+            proveedor = cursor.execute(
+                SUPPLIER_SELECT + " WHERE SupplierId = ?", supplier_id
+            ).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo crear el proveedor")
+    return convertir_proveedor(proveedor)
+
+
+@app.put("/proveedores/{supplier_id}", response_model=SupplierResponse)
+def actualizar_proveedor(
+    supplier_id: int,
+    datos: SupplierBase,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    valores = datos.model_dump()
+    valores["name"] = valores["name"].strip()
+    for campo in ("supplier_code", "ruc", "contact_name", "phone", "address", "notes"):
+        valores[campo] = valores[campo].strip() if valores[campo] else None
+    valores["email"] = str(valores["email"]) if valores["email"] else None
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_proveedor_duplicado(cursor, datos, supplier_id)
+            cursor.execute(
+                """
+                UPDATE dbo.Suppliers SET SupplierCode=?, Name=?, RUC=?, ContactName=?,
+                    Phone=?, Email=?, Address=?, Active=?, Notes=?
+                WHERE SupplierId=?
+                """,
+                valores["supplier_code"], valores["name"], valores["ruc"],
+                valores["contact_name"], valores["phone"], valores["email"],
+                valores["address"], valores["active"], valores["notes"], supplier_id,
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+            proveedor = cursor.execute(
+                SUPPLIER_SELECT + " WHERE SupplierId = ?", supplier_id
+            ).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar el proveedor")
+    return convertir_proveedor(proveedor)
+
+
+@app.delete("/proveedores/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_proveedor(supplier_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute("DELETE FROM dbo.Suppliers WHERE SupplierId = ?", supplier_id)
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except pyodbc.IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede eliminar el proveedor porque tiene registros asociados",
+        )
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo eliminar el proveedor")
+
+
+@app.get(
+    "/repuestos/{spare_part_id}/proveedores",
+    response_model=list[SparePartSupplierResponse],
+)
+def listar_proveedores_repuesto(
+    spare_part_id: int,
+    usuario_id: int = Depends(obtener_usuario_activo),
+):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            relaciones = conexion.cursor().execute(
+                """
+                SELECT sps.SparePartSupplierId, sps.SparePartId, sps.SupplierId,
+                       sps.SupplierPartNumber, sps.CurrentPrice, sps.LeadTimeDays,
+                       sps.PreferredSupplier, sps.Notes, s.Name AS SupplierName,
+                       s.SupplierCode
+                FROM dbo.SparePartSuppliers sps
+                INNER JOIN dbo.Suppliers s ON s.SupplierId = sps.SupplierId
+                WHERE sps.SparePartId = ?
+                ORDER BY sps.PreferredSupplier DESC, s.Name
+                """,
+                spare_part_id,
+            ).fetchall()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudieron consultar los proveedores del repuesto")
+    return [
+        SparePartSupplierResponse(
+            spare_part_supplier_id=item.SparePartSupplierId,
+            spare_part_id=item.SparePartId,
+            supplier_id=item.SupplierId,
+            supplier_part_number=item.SupplierPartNumber,
+            current_price=item.CurrentPrice,
+            lead_time_days=item.LeadTimeDays,
+            preferred_supplier=bool(item.PreferredSupplier),
+            notes=item.Notes,
+            supplier_name=item.SupplierName,
+            supplier_code=item.SupplierCode,
+        ) for item in relaciones
+    ]
+
+
+@app.post(
+    "/repuestos/{spare_part_id}/proveedores",
+    response_model=SparePartSupplierResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def agregar_proveedor_repuesto(
+    spare_part_id: int,
+    datos: SparePartSupplierWrite,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute(
+                "SELECT SparePartSupplierId FROM dbo.SparePartSuppliers WHERE SparePartId=? AND SupplierId=?",
+                spare_part_id, datos.supplier_id,
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="Este proveedor ya esta asociado al repuesto")
+            if datos.preferred_supplier:
+                cursor.execute(
+                    "UPDATE dbo.SparePartSuppliers SET PreferredSupplier=0 WHERE SparePartId=?",
+                    spare_part_id,
+                )
+            relation_id = cursor.execute(
+                """
+                SET NOCOUNT ON;
+                INSERT INTO dbo.SparePartSuppliers
+                    (SparePartId, SupplierId, SupplierPartNumber, CurrentPrice,
+                     LeadTimeDays, PreferredSupplier, Notes)
+                VALUES (?,?,?,?,?,?,?);
+                SELECT CAST(SCOPE_IDENTITY() AS int)
+                """,
+                spare_part_id, datos.supplier_id, datos.supplier_part_number,
+                datos.current_price, datos.lead_time_days,
+                datos.preferred_supplier, datos.notes,
+            ).fetchone()[0]
+            item = cursor.execute(
+                """
+                SELECT sps.SparePartSupplierId, sps.SparePartId, sps.SupplierId,
+                       sps.SupplierPartNumber, sps.CurrentPrice, sps.LeadTimeDays,
+                       sps.PreferredSupplier, sps.Notes, s.Name AS SupplierName,
+                       s.SupplierCode
+                FROM dbo.SparePartSuppliers sps
+                INNER JOIN dbo.Suppliers s ON s.SupplierId=sps.SupplierId
+                WHERE sps.SparePartSupplierId=?
+                """, relation_id,
+            ).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=422, detail="El repuesto o proveedor seleccionado no existe")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo asociar el proveedor")
+    return SparePartSupplierResponse(
+        spare_part_supplier_id=item.SparePartSupplierId, spare_part_id=item.SparePartId,
+        supplier_id=item.SupplierId, supplier_part_number=item.SupplierPartNumber,
+        current_price=item.CurrentPrice, lead_time_days=item.LeadTimeDays,
+        preferred_supplier=bool(item.PreferredSupplier), notes=item.Notes,
+        supplier_name=item.SupplierName, supplier_code=item.SupplierCode,
+    )
+
+
+@app.put(
+    "/repuestos/{spare_part_id}/proveedores/{relation_id}",
+    response_model=SparePartSupplierResponse,
+)
+def actualizar_proveedor_repuesto(
+    spare_part_id: int,
+    relation_id: int,
+    datos: SparePartSupplierWrite,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute(
+                "SELECT SparePartSupplierId FROM dbo.SparePartSuppliers WHERE SparePartId=? AND SupplierId=? AND SparePartSupplierId<>?",
+                spare_part_id, datos.supplier_id, relation_id,
+            ).fetchone():
+                raise HTTPException(status_code=409, detail="Este proveedor ya esta asociado al repuesto")
+            if datos.preferred_supplier:
+                cursor.execute(
+                    "UPDATE dbo.SparePartSuppliers SET PreferredSupplier=0 WHERE SparePartId=?",
+                    spare_part_id,
+                )
+            cursor.execute(
+                """
+                UPDATE dbo.SparePartSuppliers SET SupplierId=?, SupplierPartNumber=?,
+                    CurrentPrice=?, LeadTimeDays=?, PreferredSupplier=?, Notes=?
+                WHERE SparePartSupplierId=? AND SparePartId=?
+                """,
+                datos.supplier_id, datos.supplier_part_number, datos.current_price,
+                datos.lead_time_days, datos.preferred_supplier, datos.notes,
+                relation_id, spare_part_id,
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Relacion no encontrada")
+            item = cursor.execute(
+                """
+                SELECT sps.SparePartSupplierId, sps.SparePartId, sps.SupplierId,
+                       sps.SupplierPartNumber, sps.CurrentPrice, sps.LeadTimeDays,
+                       sps.PreferredSupplier, sps.Notes, s.Name AS SupplierName,
+                       s.SupplierCode
+                FROM dbo.SparePartSuppliers sps
+                INNER JOIN dbo.Suppliers s ON s.SupplierId=sps.SupplierId
+                WHERE sps.SparePartSupplierId=?
+                """, relation_id,
+            ).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=422, detail="El proveedor seleccionado no existe")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar la relacion")
+    return SparePartSupplierResponse(
+        spare_part_supplier_id=item.SparePartSupplierId, spare_part_id=item.SparePartId,
+        supplier_id=item.SupplierId, supplier_part_number=item.SupplierPartNumber,
+        current_price=item.CurrentPrice, lead_time_days=item.LeadTimeDays,
+        preferred_supplier=bool(item.PreferredSupplier), notes=item.Notes,
+        supplier_name=item.SupplierName, supplier_code=item.SupplierCode,
+    )
+
+
+@app.delete(
+    "/repuestos/{spare_part_id}/proveedores/{relation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def quitar_proveedor_repuesto(
+    spare_part_id: int,
+    relation_id: int,
+    usuario_id: int = Depends(obtener_admin_actual),
+):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute(
+                "DELETE FROM dbo.SparePartSuppliers WHERE SparePartSupplierId=? AND SparePartId=?",
+                relation_id, spare_part_id,
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Relacion no encontrada")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo quitar el proveedor")
 
 
 if __name__ == "__main__":
