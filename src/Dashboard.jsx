@@ -12,6 +12,7 @@ function requestError(data, fallback) {
 export default function Dashboard({ apiUrl, token, currentUser, onUserChange, onLogout }) {
   const isAdmin = currentUser.rol === 'ADMIN'
   const [section, setSection] = useState('motors')
+  const isSparePartsSection = ['spare-parts', 'suppliers', 'categories'].includes(section)
   const [motors, setMotors] = useState([])
   const [spareParts, setSpareParts] = useState([])
   const [sparePartCategories, setSparePartCategories] = useState([])
@@ -377,15 +378,18 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
         <button className={section === 'motors' ? 'selected' : ''} onClick={() => setSection('motors')}>Motores</button>
-        <button className={section === 'spare-parts' ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>
-        <button className={section === 'suppliers' ? 'selected' : ''} onClick={() => setSection('suppliers')}>Proveedores</button>
-        {isAdmin && <button className={section === 'categories' ? 'selected' : ''} onClick={() => setSection('categories')}>Categorias</button>}
+        <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>
         {isAdmin && <button className={section === 'users' ? 'selected' : ''} onClick={() => setSection('users')}>Usuarios</button>}
       </nav>
       <div className="admin-user"><span>{currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
     </header>
 
     <section className="admin-content">
+      {isSparePartsSection && <nav className="spare-parts-nav" aria-label="Repuestos">
+        <button aria-current={section === 'spare-parts' ? 'page' : undefined} onClick={() => setSection('spare-parts')}>Inventario</button>
+        <button aria-current={section === 'suppliers' ? 'page' : undefined} onClick={() => setSection('suppliers')}>Proveedores</button>
+        {isAdmin && <button aria-current={section === 'categories' ? 'page' : undefined} onClick={() => setSection('categories')}>Categorías</button>}
+      </nav>}
       {section === 'motors' ? <>
         <div className="page-heading"><div><p className="eyebrow">ACTIVOS</p><h1>Motores</h1><p>Inventario y datos tecnicos de motores.</p></div><button className="primary-action" onClick={() => openMotorForm()}><Plus size={18} /> Nuevo motor</button></div>
         <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Descripcion</th><th>Marca / Modelo</th><th>Area</th><th>Potencia</th><th>Criticidad</th><th>Estado</th><th>Placa</th></tr></thead>

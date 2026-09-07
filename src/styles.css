@@ -112,6 +112,11 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .main-nav { display: flex; align-self: stretch; gap: 6px; }
 .main-nav button { padding: 0 16px; color: #bed0c7; background: transparent; border: 0; border-bottom: 3px solid transparent; cursor: pointer; }
 .main-nav button.selected { color: #fff; border-bottom-color: #c6de72; }
+.spare-parts-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+.spare-parts-nav button { padding: 10px 16px; border: 1px solid #d7e1da; border-radius: 8px; background: #fff; color: #365447; font: inherit; cursor: pointer; }
+.spare-parts-nav button:hover { background: #edf3ee; }
+.spare-parts-nav button[aria-current="page"] { background: #214d39; border-color: #214d39; color: #fff; }
+.spare-parts-nav button:focus-visible { outline: 2px solid #214d39; outline-offset: 3px; }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
 .page-heading h1 { margin: 0; font: 700 32px/1.2 'Manrope', sans-serif; }
 .page-heading p:last-child { margin: 8px 0 0; color: #68736d; }
