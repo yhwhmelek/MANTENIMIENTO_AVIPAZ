@@ -31,7 +31,7 @@ export default function MotorSpecifications({ apiUrl, token, element, isAdmin, o
     fetch(endpoint, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
       .then(async (response) => {
         const result = await response.json()
-        if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'No se pudo cargar la ficha.')
+        if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'No se pudo cargar la data.')
         setData(result)
       })
       .catch((error) => { if (error.name !== 'AbortError') { setError(error.message); setLoadFailed(true) } })
@@ -77,32 +77,32 @@ export default function MotorSpecifications({ apiUrl, token, element, isAdmin, o
       const response = await fetch(endpoint, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Revisa los valores y la precisión de los campos numéricos.')
-      setData(result); setPhoto(null); setVersion((value) => value + 1); setMessage('Especificaciones guardadas correctamente.')
+      setData(result); setPhoto(null); setVersion((value) => value + 1); setMessage('Data guardada correctamente.')
     } catch (error) { setError(error.message) } finally { setBusy(false) }
   }
 
   async function remove() {
-    if (!isAdmin || busy || !window.confirm(`¿Eliminar la ficha de especificaciones de ${element.name}? El elemento de máquina se conservará.`)) return
+    if (!isAdmin || busy || !window.confirm(`¿Eliminar la data de ${element.name}? El elemento de máquina se conservará.`)) return
     setBusy(true); setError(''); setMessage('')
     try {
       const response = await fetch(endpoint, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
-      if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(typeof result.detail === 'string' ? result.detail : 'No se pudo eliminar la ficha.') }
-      setData(null); setPhoto(null); setVersion((value) => value + 1); setMessage('Ficha eliminada correctamente.')
+      if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(typeof result.detail === 'string' ? result.detail : 'No se pudo eliminar la data.') }
+      setData(null); setPhoto(null); setVersion((value) => value + 1); setMessage('Data eliminada correctamente.')
     } catch (error) { setError(error.message) } finally { setBusy(false) }
   }
 
   return <div className="modal-backdrop"><div className="motor-modal" role="dialog" aria-modal="true" aria-labelledby="motor-spec-title">
-    <div className="modal-header"><div><p className="eyebrow">{element.element_code || 'ELEMENTO'} · {element.name}</p><h2 id="motor-spec-title">Especificaciones de motor</h2></div><button aria-label="Cerrar" disabled={busy} onClick={onClose}><X /></button></div>
-    {loading ? <p role="status">Cargando ficha...</p> : !loadFailed && <>
-      {!data && <p>Este elemento todavía no tiene especificaciones de motor.</p>}
+    <div className="modal-header"><div><p className="eyebrow">{element.element_code || 'ELEMENTO'} · {element.name}</p><h2 id="motor-spec-title">Data de motor</h2></div><button aria-label="Cerrar" disabled={busy} onClick={onClose}><X /></button></div>
+    {loading ? <p role="status">Cargando data...</p> : !loadFailed && <>
+      {!data && <p>Este elemento todavía no tiene data de motor.</p>}
       {(isAdmin || data) && <form key={version} onSubmit={save}><div className="motor-form-grid">
         {numericFields.map(([name, label, decimals, max]) => <label key={name}>{label}<input name={name} type="number" step={10 ** -decimals} min={name === 'rpm' || name === 'poles' ? -2147483648 : -max} max={max} defaultValue={data?.[name] ?? ''} readOnly={!isAdmin} /></label>)}
         {textFields.map(([name, label, maxLength]) => <label key={name}>{label}<input name={name} maxLength={maxLength} defaultValue={data?.[name] ?? ''} readOnly={!isAdmin} /></label>)}
         {isAdmin && <label className="full-field">Foto de la placa<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files[0] || null)} /><span className="field-help">JPG, PNG o WEBP. Máximo 10 MB. La foto actual se conserva si no seleccionas otra.</span></label>}
         {(preview || storedImage) && <div className="full-field nameplate-preview"><img src={preview || storedImage} alt={`Placa de ${element.name}`} /></div>}
-        {data?.nameplate_image_path && !storedImage && !preview && <p className="full-field field-help">La ficha tiene una foto guardada, pero la vista previa no está disponible.</p>}
+        {data?.nameplate_image_path && !storedImage && !preview && <p className="full-field field-help">La data tiene una foto guardada, pero la vista previa no está disponible.</p>}
         <label className="full-field">Notas<textarea name="notes" maxLength={500} rows={3} defaultValue={data?.notes ?? ''} readOnly={!isAdmin} /></label>
-      </div>{isAdmin && <div className="modal-actions">{data && <button type="button" className="secondary-action" disabled={busy} onClick={remove}>Eliminar ficha</button>}<button className="primary-action" disabled={busy}>{busy ? 'Procesando...' : 'Guardar especificaciones'}</button></div>}</form>}
+      </div>{isAdmin && <div className="modal-actions">{data && <button type="button" className="secondary-action" disabled={busy} onClick={remove}>Eliminar data</button>}<button className="primary-action" disabled={busy}>{busy ? 'Procesando...' : 'Guardar data'}</button></div>}</form>}
     </>}
     {error && <p className="admin-message" role="alert">{error}</p>}{message && <p className="admin-message" role="status">{message}</p>}
   </div></div>

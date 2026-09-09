@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import Machines from './Machines'
+import PartsHistory from './PartsHistory'
+import SparePartReports from './SparePartReports'
 import MachineElementTypes from './MachineElementTypes'
 import MachineElements from './MachineElements'
 import { LogOut, Package, Pencil, Plus, Trash2, Truck, Users, Wrench, X } from 'lucide-react'
@@ -11,8 +13,9 @@ function requestError(data, fallback) {
 export default function Dashboard({ apiUrl, token, currentUser, onUserChange, onLogout }) {
   const isAdmin = currentUser.rol === 'ADMIN'
   const [section, setSection] = useState('machines')
-  const isAssetsSection = ['machines', 'element-types', 'machine-elements'].includes(section)
-  const isSparePartsSection = ['spare-parts', 'suppliers', 'categories'].includes(section)
+  const [historyMachineId, setHistoryMachineId] = useState('')
+  const isAssetsSection = ['machines', 'element-types', 'machine-elements', 'events'].includes(section)
+  const isSparePartsSection = ['spare-parts', 'suppliers', 'categories', 'spare-reports', 'purchases', 'consumption'].includes(section)
   const [spareParts, setSpareParts] = useState([])
   const [sparePartCategories, setSparePartCategories] = useState([])
   const [users, setUsers] = useState([])
@@ -317,14 +320,16 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
 
     <section className="admin-content">
       {isAssetsSection && <nav className="spare-parts-nav" aria-label="Activos">
-        {[['machines', 'Máquinas'], ['machine-elements', 'Elementos de máquinas'], ['element-types', 'Tipos de elementos']].map(([value, label]) => <button key={value} aria-current={section === value ? 'page' : undefined} onClick={() => { setMessage(''); setSection(value) }}>{label}</button>)}
+        {[['machines', 'Máquinas'], ['machine-elements', 'Elementos de máquinas'], ['element-types', 'Tipos de elementos'], ['events', 'Intervenciones']].map(([value, label]) => <button key={value} aria-current={section === value ? 'page' : undefined} onClick={() => { setMessage(''); setHistoryMachineId(''); setSection(value) }}>{label}</button>)}
       </nav>}
       {isSparePartsSection && <nav className="spare-parts-nav" aria-label="Repuestos">
         <button aria-current={section === 'spare-parts' ? 'page' : undefined} onClick={() => setSection('spare-parts')}>Inventario</button>
+        {[['purchases', 'Compras'], ['consumption', 'Consumos']].map(([value, label]) => <button key={value} aria-current={section === value ? 'page' : undefined} onClick={() => { setMessage(''); setHistoryMachineId(''); setSection(value) }}>{label}</button>)}
+        <button aria-current={section === 'spare-reports' ? 'page' : undefined} onClick={() => { setMessage(''); setSection('spare-reports') }}>Consultas / PDF</button>
         <button aria-current={section === 'suppliers' ? 'page' : undefined} onClick={() => setSection('suppliers')}>Proveedores</button>
         {isAdmin && <button aria-current={section === 'categories' ? 'page' : undefined} onClick={() => setSection('categories')}>Categorías</button>}
       </nav>}
-      {section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-parts' ? <>
+      {['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} /> : section === 'spare-parts' ? <>
         <div className="page-heading"><div><p className="eyebrow">INVENTARIO</p><h1>Repuestos</h1><p>Catalogo, existencias y costos de repuestos.</p></div><button className="primary-action" onClick={() => openSparePartForm()}><Plus size={18} /> Nuevo repuesto</button></div>
         <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Categoria</th><th>Descripcion</th><th>Marca / Modelo</th><th>N.° parte</th><th>Unidad</th><th>Stock min. / max.</th><th>Costo unit.</th><th>Ubicacion</th><th>Estado</th><th>Imagen</th></tr></thead>
           <tbody>{spareParts.map((part) => <tr key={part.spare_part_id}>{isAdmin && <td className="row-actions"><button title="Proveedores" onClick={() => openPartSuppliers(part)}><Truck size={16} /></button><button title="Editar" onClick={() => openSparePartForm(part)}><Pencil size={16} /></button><button className="danger" title="Eliminar" onClick={() => deleteSparePart(part)}><Trash2 size={16} /></button></td>}<td><strong>{part.internal_code}</strong></td><td>{sparePartCategories.find((category) => category.category_id === part.category_id)?.name || part.category_id}</td><td>{part.description}</td><td>{[part.brand, part.model].filter(Boolean).join(' / ') || '—'}</td><td>{part.part_number || '—'}</td><td>{part.unit_of_measure}</td><td>{part.minimum_stock} / {part.maximum_stock ?? '—'}</td><td>{part.unit_cost != null ? `$${Number(part.unit_cost).toFixed(4)}` : '—'}</td><td>{part.storage_location || '—'}</td><td><span className={`status-badge ${part.active ? 'active' : 'inactive'}`}>{part.active ? 'Activo' : 'Inactivo'}</span></td><td>{part.image_path ? <SparePartImage apiUrl={apiUrl} token={token} sparePartId={part.spare_part_id} fileName={part.internal_code} /> : <span className="no-image">Sin foto</span>}</td></tr>)}</tbody></table>{!loading && !spareParts.length && <p className="empty-state">No hay repuestos registrados.</p>}</div>

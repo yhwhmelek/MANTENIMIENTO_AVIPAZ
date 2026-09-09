@@ -131,6 +131,7 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .category-modal { width: min(620px, 100%); }
 .modal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; }
 .modal-header h2 { margin: 0; font: 700 27px 'Manrope', sans-serif; }
+.spare-assignment-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .motor-form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .motor-form-grid label { display: flex; flex-direction: column; gap: 7px; color: #435049; font-size: 13px; font-weight: 600; }
 .motor-form-grid input, .motor-form-grid select, .motor-form-grid textarea { width: 100%; min-height: 43px; padding: 9px 11px; color: #18201c; background: #fff; border: 1px solid #cad1cd; border-radius: 6px; font: inherit; }
@@ -178,6 +179,21 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
   .subtitle { margin-bottom: 20px; }
   .password-heading { margin-top: 16px; }
   .remember-row { margin: 14px 0 18px; }
+}
+
+.report-filters { margin-bottom: 20px; }
+.spare-report-print { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 12mm; }
+  body.spare-report-open { background: white; color: black; }
+  body.spare-report-open > :not(.spare-report-print) { display: none !important; }
+  body.spare-report-open > .spare-report-print { display: block; font: 10pt Arial, sans-serif; }
+  .spare-report-print h1 { font-size: 18pt; }
+  .spare-report-print h2 { font-size: 13pt; }
+  .spare-report-print table { width: 100%; min-width: 0; border-collapse: collapse; table-layout: fixed; }
+  .spare-report-print th, .spare-report-print td { border: 1px solid #aaa; padding: 5px; color: black; background: white; font-size: 8pt; white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+  .spare-report-print thead { display: table-header-group; }
+  .spare-report-print tr { break-inside: avoid; }
 }
 
 @media (prefers-reduced-motion: reduce) {

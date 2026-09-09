@@ -13,7 +13,7 @@ import bcrypt
 import jwt
 import pyodbc
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse
@@ -50,6 +50,15 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+class MachineSparePartWrite(BaseModel):
+    element_id: int | None = Field(default=None, gt=0)
+    spare_part_id: int = Field(gt=0)
+    position: str | None = Field(default=None, max_length=150)
+    quantity_required: Decimal = Field(default=Decimal('1'), gt=0, max_digits=10, decimal_places=2)
+    is_critical: bool = False
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class LoginRequest(BaseModel):
@@ -695,6 +704,7 @@ def cambiar_rol(
 
 
 class MachineElementTypeWrite(BaseModel):
+    specification_type: Literal['NONE', 'MOTOR', 'REDUCTOR'] = 'NONE'
     name: str = Field(min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=300)
     active: bool = True
@@ -711,11 +721,11 @@ class MachineElementTypeResponse(MachineElementTypeWrite):
     element_type_id: int
 
 
-ELEMENT_TYPE_SELECT = "SELECT ElementTypeId, Name, Description, Active FROM dbo.MachineElementTypes"
+ELEMENT_TYPE_SELECT = "SELECT ElementTypeId, Name, Description, Active, SpecificationType FROM dbo.MachineElementTypes"
 
 
 def convertir_tipo_elemento(row):
-    return MachineElementTypeResponse(element_type_id=row.ElementTypeId, name=row.Name, description=row.Description, active=row.Active)
+    return MachineElementTypeResponse(element_type_id=row.ElementTypeId, name=row.Name, description=row.Description, active=row.Active, specification_type=row.SpecificationType)
 
 
 @app.get("/tipos-elementos", response_model=list[MachineElementTypeResponse])
@@ -734,8 +744,8 @@ def crear_tipo_elemento(datos: MachineElementTypeWrite, usuario_id: int = Depend
         with closing(obtener_conexion()) as conexion:
             cursor = conexion.cursor()
             element_type_id = cursor.execute(
-                "SET NOCOUNT ON; INSERT INTO dbo.MachineElementTypes (Name, Description, Active) VALUES (?,?,?); SELECT CAST(SCOPE_IDENTITY() AS int)",
-                datos.name, datos.description, datos.active,
+                "SET NOCOUNT ON; INSERT INTO dbo.MachineElementTypes (Name, Description, Active, SpecificationType) VALUES (?,?,?,?); SELECT CAST(SCOPE_IDENTITY() AS int)",
+                datos.name, datos.description, datos.active, datos.specification_type,
             ).fetchone()[0]
             row = cursor.execute(ELEMENT_TYPE_SELECT + " WHERE ElementTypeId = ?", element_type_id).fetchone()
             result = convertir_tipo_elemento(row)
@@ -752,9 +762,16 @@ def actualizar_tipo_elemento(element_type_id: int, datos: MachineElementTypeWrit
     try:
         with closing(obtener_conexion()) as conexion:
             cursor = conexion.cursor()
+            current = cursor.execute('SELECT SpecificationType FROM dbo.MachineElementTypes WITH (UPDLOCK, HOLDLOCK) WHERE ElementTypeId = ?', element_type_id).fetchone()
+            if current is None:
+                raise HTTPException(status_code=404, detail='El tipo de elemento no existe')
+            if current.SpecificationType != datos.specification_type:
+                elements = cursor.execute('SELECT ElementId FROM dbo.MachineElements WITH (UPDLOCK, HOLDLOCK) WHERE ElementTypeId = ?', element_type_id).fetchall()
+                for element in elements:
+                    validar_data_existente(cursor, element.ElementId, datos.specification_type)
             row = cursor.execute(
-                "UPDATE dbo.MachineElementTypes SET Name = ?, Description = ?, Active = ? OUTPUT INSERTED.ElementTypeId, INSERTED.Name, INSERTED.Description, INSERTED.Active WHERE ElementTypeId = ?",
-                datos.name, datos.description, datos.active, element_type_id,
+                "UPDATE dbo.MachineElementTypes SET Name = ?, Description = ?, Active = ?, SpecificationType = ? OUTPUT INSERTED.ElementTypeId, INSERTED.Name, INSERTED.Description, INSERTED.Active, INSERTED.SpecificationType WHERE ElementTypeId = ?",
+                datos.name, datos.description, datos.active, datos.specification_type, element_type_id,
             ).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail="El tipo de elemento no existe")
@@ -824,13 +841,15 @@ def validar_relaciones_elemento(cursor, datos, element_id=None):
     # Serializa cambios de la jerarquia por maquina durante la transaccion.
     if not cursor.execute('SELECT MachineId FROM dbo.Machines WITH (UPDLOCK, HOLDLOCK) WHERE MachineId = ?', datos.machine_id).fetchone():
         raise HTTPException(status_code=422, detail='La maquina seleccionada no existe')
-    if not cursor.execute('SELECT ElementTypeId FROM dbo.MachineElementTypes WITH (HOLDLOCK) WHERE ElementTypeId = ?', datos.element_type_id).fetchone():
+    element_type = cursor.execute('SELECT SpecificationType FROM dbo.MachineElementTypes WITH (HOLDLOCK) WHERE ElementTypeId = ?', datos.element_type_id).fetchone()
+    if element_type is None:
         raise HTTPException(status_code=422, detail='El tipo de elemento seleccionado no existe')
     rows = cursor.execute('SELECT ElementId, MachineId, ParentElementId FROM dbo.MachineElements WITH (UPDLOCK, HOLDLOCK)').fetchall()
     elements = {row.ElementId: row for row in rows}
     if element_id is not None:
         if element_id not in elements:
             raise HTTPException(status_code=404, detail='El elemento no existe')
+        validar_data_existente(cursor, element_id, element_type.SpecificationType)
         if any(row.ParentElementId == element_id and row.MachineId != datos.machine_id for row in rows):
             raise HTTPException(status_code=422, detail='No puedes cambiar la maquina de un elemento que tiene hijos en otra maquina')
     parent_id = datos.parent_element_id
@@ -935,6 +954,102 @@ def imagen_elemento_maquina(element_id: int, usuario_id: int = Depends(obtener_u
     return FileResponse(path)
 
 
+def validar_data_existente(cursor, element_id, specification_type):
+    # Los nombres de tabla son constantes internas; los valores usan parametros.
+    for kind, table in [('MOTOR', 'MotorSpecifications'), ('REDUCTOR', 'GearReducerSpecifications')]:
+        if kind != specification_type and cursor.execute(
+            f'SELECT ElementId FROM dbo.{table} WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id
+        ).fetchone():
+            raise HTTPException(status_code=409, detail='Existe data incompatible con el tipo seleccionado. Elimina primero esa data o conserva el tipo actual.')
+
+
+def validar_tipo_data(cursor, element_id, expected):
+    row = cursor.execute(
+        'SELECT t.SpecificationType FROM dbo.MachineElements e WITH (UPDLOCK, HOLDLOCK) '
+        'JOIN dbo.MachineElementTypes t WITH (HOLDLOCK) ON t.ElementTypeId = e.ElementTypeId WHERE e.ElementId = ?', element_id
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail='El elemento no existe')
+    if row.SpecificationType != expected:
+        raise HTTPException(status_code=409, detail='Esta data no corresponde al tipo de elemento. Revisa la asignacion en Tipos de elementos.')
+
+
+class GearReducerSpecificationWrite(BaseModel):
+    reduction_ratio: Decimal | None = Field(default=None, max_digits=12, decimal_places=4)
+    input_rpm: int | None = Field(default=None, ge=-2147483648, le=2147483647)
+    output_rpm: int | None = Field(default=None, ge=-2147483648, le=2147483647)
+    rated_torque_nm: Decimal | None = Field(default=None, max_digits=18, decimal_places=2)
+    service_factor: Decimal | None = Field(default=None, max_digits=8, decimal_places=2)
+    oil_type: str | None = Field(default=None, max_length=150)
+    oil_viscosity_iso: str | None = Field(default=None, max_length=50)
+    oil_quantity_l: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
+    mounting_position: str | None = Field(default=None, max_length=50)
+    input_bearing: str | None = Field(default=None, max_length=100)
+    output_bearing: str | None = Field(default=None, max_length=100)
+    notes: str | None = Field(default=None, max_length=500)
+
+
+REDUCER_SPEC_COLUMNS = dict(zip(
+    ['reduction_ratio', 'input_rpm', 'output_rpm', 'rated_torque_nm', 'service_factor', 'oil_type', 'oil_viscosity_iso', 'oil_quantity_l', 'mounting_position', 'input_bearing', 'output_bearing', 'notes'],
+    ['ReductionRatio', 'InputRPM', 'OutputRPM', 'RatedTorqueNm', 'ServiceFactor', 'OilType', 'OilViscosityISO', 'OilQuantityL', 'MountingPosition', 'InputBearing', 'OutputBearing', 'Notes'],
+))
+REDUCER_SPEC_SELECT = 'SELECT ElementId AS element_id, ' + ', '.join(f'[{column}] AS {field}' for field, column in REDUCER_SPEC_COLUMNS.items()) + ' FROM dbo.GearReducerSpecifications'
+
+
+@app.get('/elementos-maquinas/{element_id}/especificaciones-reductor')
+def obtener_especificaciones_reductor(element_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_tipo_data(cursor, element_id, 'REDUCTOR')
+            row = cursor.execute(REDUCER_SPEC_SELECT + ' WHERE ElementId = ?', element_id).fetchone()
+            return machine_record(cursor, row) if row else None
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudieron consultar las especificaciones')
+
+
+@app.put('/elementos-maquinas/{element_id}/especificaciones-reductor')
+def guardar_especificaciones_reductor(element_id: int, datos: GearReducerSpecificationWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_tipo_data(cursor, element_id, 'REDUCTOR')
+            validar_data_existente(cursor, element_id, 'REDUCTOR')
+            actual = cursor.execute('SELECT ElementId FROM dbo.GearReducerSpecifications WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id).fetchone()
+            values = [getattr(datos, field) for field in REDUCER_SPEC_COLUMNS]
+            if actual is None:
+                columns = ', '.join(f'[{column}]' for column in REDUCER_SPEC_COLUMNS.values())
+                placeholders = ','.join('?' for _ in range(len(values) + 1))
+                cursor.execute(f'INSERT INTO dbo.GearReducerSpecifications (ElementId, {columns}) VALUES ({placeholders})', element_id, *values)
+            else:
+                assignments = ', '.join(f'[{column}] = ?' for column in REDUCER_SPEC_COLUMNS.values())
+                cursor.execute(f'UPDATE dbo.GearReducerSpecifications SET {assignments} WHERE ElementId = ?', *values, element_id)
+            row = cursor.execute(REDUCER_SPEC_SELECT + ' WHERE ElementId = ?', element_id).fetchone()
+            result = machine_record(cursor, row)
+            conexion.commit()
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail='No se pudieron guardar las especificaciones del elemento')
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudieron guardar las especificaciones')
+
+
+@app.delete('/elementos-maquinas/{element_id}/especificaciones-reductor', status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_especificaciones_reductor(element_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_tipo_data(cursor, element_id, 'REDUCTOR')
+            row = cursor.execute('DELETE FROM dbo.GearReducerSpecifications OUTPUT DELETED.ElementId WHERE ElementId = ?', element_id).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail='El elemento no tiene especificaciones de reductor')
+            conexion.commit()
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail='Las especificaciones tienen registros asociados')
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudieron eliminar las especificaciones')
+
+
 class MotorSpecificationWrite(BaseModel):
     power_kw: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
     power_hp: Decimal | None = Field(default=None, max_digits=10, decimal_places=2)
@@ -970,8 +1085,7 @@ def obtener_especificaciones_motor(element_id: int, usuario_id: int = Depends(ob
     try:
         with closing(obtener_conexion()) as conexion:
             cursor = conexion.cursor()
-            if not cursor.execute('SELECT ElementId FROM dbo.MachineElements WHERE ElementId = ?', element_id).fetchone():
-                raise HTTPException(status_code=404, detail='El elemento no existe')
+            validar_tipo_data(cursor, element_id, 'MOTOR')
             row = cursor.execute(SPEC_SELECT + ' WHERE ElementId = ?', element_id).fetchone()
             return machine_record(cursor, row) if row else None
     except (pyodbc.Error, RuntimeError):
@@ -985,8 +1099,8 @@ def guardar_especificaciones_motor(element_id: int, datos: MotorSpecificationWri
     try:
         with closing(obtener_conexion()) as conexion:
             cursor = conexion.cursor()
-            if not cursor.execute('SELECT ElementId FROM dbo.MachineElements WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id).fetchone():
-                raise HTTPException(status_code=404, detail='El elemento no existe')
+            validar_tipo_data(cursor, element_id, 'MOTOR')
+            validar_data_existente(cursor, element_id, 'MOTOR')
             actual = cursor.execute('SELECT NameplateImagePath FROM dbo.MotorSpecifications WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id).fetchone()
             image_path = guardar_imagen_maquina(datos.image_data)
             values = [getattr(datos, field) for field in SPEC_COLUMNS]
@@ -1018,7 +1132,9 @@ def guardar_especificaciones_motor(element_id: int, datos: MotorSpecificationWri
 def eliminar_especificaciones_motor(element_id: int, usuario_id: int = Depends(obtener_admin_actual)):
     try:
         with closing(obtener_conexion()) as conexion:
-            row = conexion.cursor().execute('DELETE FROM dbo.MotorSpecifications OUTPUT DELETED.ElementId WHERE ElementId = ?', element_id).fetchone()
+            cursor = conexion.cursor()
+            validar_tipo_data(cursor, element_id, 'MOTOR')
+            row = cursor.execute('DELETE FROM dbo.MotorSpecifications OUTPUT DELETED.ElementId WHERE ElementId = ?', element_id).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail='El elemento no tiene especificaciones de motor')
             conexion.commit()
@@ -1032,7 +1148,9 @@ def eliminar_especificaciones_motor(element_id: int, usuario_id: int = Depends(o
 def imagen_especificaciones_motor(element_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
     try:
         with closing(obtener_conexion()) as conexion:
-            row = conexion.cursor().execute('SELECT NameplateImagePath FROM dbo.MotorSpecifications WHERE ElementId = ?', element_id).fetchone()
+            cursor = conexion.cursor()
+            validar_tipo_data(cursor, element_id, 'MOTOR')
+            row = cursor.execute('SELECT NameplateImagePath FROM dbo.MotorSpecifications WHERE ElementId = ?', element_id).fetchone()
     except (pyodbc.Error, RuntimeError):
         raise HTTPException(status_code=503, detail='No se pudo consultar la placa')
     if row is None or not row.NameplateImagePath:
@@ -1962,6 +2080,148 @@ def quitar_proveedor_repuesto(
         raise
     except (pyodbc.Error, RuntimeError):
         raise HTTPException(status_code=503, detail="No se pudo quitar el proveedor")
+
+
+MACHINE_SPARE_PART_SELECT = """
+    SELECT m.MachineSparePartId AS machine_spare_part_id, m.MachineId AS machine_id,
+           m.ElementId AS element_id, m.SparePartId AS spare_part_id,
+           m.Position AS position, m.QuantityRequired AS quantity_required,
+           m.IsCritical AS is_critical, m.Notes AS notes,
+           s.InternalCode AS internal_code, s.Description AS description,
+           s.UnitOfMeasure AS unit_of_measure, e.ElementCode AS element_code,
+           e.Name AS element_name, a.AssetCode AS machine_code, a.Name AS machine_name,
+           c.Name AS category_name, s.Brand AS brand, s.PartNumber AS part_number
+    FROM dbo.MachineSpareParts m
+    JOIN dbo.SpareParts s ON s.SparePartId=m.SparePartId
+    JOIN dbo.Machines a ON a.MachineId=m.MachineId
+    LEFT JOIN dbo.SparePartCategories c ON c.CategoryId=s.CategoryId
+    LEFT JOIN dbo.MachineElements e ON e.MachineId=m.MachineId AND e.ElementId=m.ElementId
+"""
+
+
+@app.get("/reportes/repuestos")
+def consultar_aplicaciones_repuestos(
+    machine_id: int | None = Query(default=None, gt=0),
+    element_id: int | None = Query(default=None, gt=0),
+    spare_part_id: int | None = Query(default=None, gt=0),
+    critical_only: bool = False,
+    usuario_id: int = Depends(obtener_usuario_activo),
+):
+    if machine_id is None and element_id is None and spare_part_id is None:
+        raise HTTPException(status_code=422, detail="Selecciona una maquina, un elemento o un repuesto")
+    conditions = ["m.Active=1"]
+    parameters = []
+    for column, value in (("m.MachineId", machine_id), ("m.ElementId", element_id), ("m.SparePartId", spare_part_id)):
+        if value is not None:
+            conditions.append(column + "=?")
+            parameters.append(value)
+    if critical_only:
+        conditions.append("m.IsCritical=1")
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute(
+                MACHINE_SPARE_PART_SELECT + " WHERE " + " AND ".join(conditions)
+                + " ORDER BY a.AssetCode, e.Name, m.Position, s.Description, m.MachineSparePartId",
+                *parameters,
+            )
+            return machine_spare_part_records(cursor)
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar el reporte de repuestos")
+
+
+def machine_spare_part_records(cursor):
+    columns = [column[0] for column in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def validar_maquina_repuestos(cursor, machine_id):
+    if not cursor.execute("SELECT MachineId FROM dbo.Machines WHERE MachineId=?", machine_id).fetchone():
+        raise HTTPException(status_code=404, detail="La maquina no existe")
+
+
+@app.get("/maquinas/{machine_id}/repuestos")
+def listar_repuestos_maquina(machine_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_maquina_repuestos(cursor, machine_id)
+            cursor.execute(MACHINE_SPARE_PART_SELECT + " WHERE m.MachineId=? AND m.Active=1 ORDER BY e.ElementCode, s.InternalCode, m.MachineSparePartId", machine_id)
+            return machine_spare_part_records(cursor)
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudieron consultar los repuestos de la maquina")
+
+
+def guardar_repuesto_maquina(machine_id, datos, relation_id=None):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            validar_maquina_repuestos(cursor, machine_id)
+            if relation_id is not None and not cursor.execute(
+                "SELECT MachineSparePartId FROM dbo.MachineSpareParts WITH (UPDLOCK, HOLDLOCK) WHERE MachineId=? AND MachineSparePartId=? AND Active=1",
+                machine_id, relation_id,
+            ).fetchone():
+                raise HTTPException(status_code=404, detail="La asignacion no existe")
+            if datos.element_id is not None and not cursor.execute(
+                "SELECT ElementId FROM dbo.MachineElements WITH (HOLDLOCK) WHERE MachineId=? AND ElementId=?",
+                machine_id, datos.element_id,
+            ).fetchone():
+                raise HTTPException(status_code=422, detail="El elemento no pertenece a esta maquina")
+            if not cursor.execute(
+                "SELECT SparePartId FROM dbo.SpareParts WITH (HOLDLOCK) WHERE SparePartId=? AND Active=1", datos.spare_part_id,
+            ).fetchone():
+                raise HTTPException(status_code=422, detail="Selecciona un repuesto activo del catalogo")
+            values = (datos.element_id, datos.spare_part_id, datos.position, datos.quantity_required, datos.is_critical, datos.notes)
+            if relation_id is None:
+                relation_id = cursor.execute("""
+                    SET NOCOUNT ON;
+                    INSERT INTO dbo.MachineSpareParts
+                        (ElementId, SparePartId, Position, QuantityRequired, IsCritical, Notes, MachineId)
+                    VALUES (?,?,?,?,?,?,?);
+                    SELECT CAST(SCOPE_IDENTITY() AS int);
+                """, *values, machine_id).fetchone()[0]
+            else:
+                cursor.execute("""
+                    UPDATE dbo.MachineSpareParts SET ElementId=?, SparePartId=?, Position=?,
+                        QuantityRequired=?, IsCritical=?, Notes=?
+                    WHERE MachineId=? AND MachineSparePartId=? AND Active=1
+                """, *values, machine_id, relation_id)
+            cursor.execute(MACHINE_SPARE_PART_SELECT + " WHERE m.MachineId=? AND m.MachineSparePartId=?", machine_id, relation_id)
+            result = machine_spare_part_records(cursor)[0]
+            conexion.commit()
+            return result
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="No se pudo guardar la relacion; verifica la maquina, el elemento y el repuesto")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo guardar el repuesto de la maquina")
+
+
+@app.post("/maquinas/{machine_id}/repuestos", status_code=201)
+def asignar_repuesto_maquina(machine_id: int, datos: MachineSparePartWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    return guardar_repuesto_maquina(machine_id, datos)
+
+
+@app.put("/maquinas/{machine_id}/repuestos/{relation_id}")
+def actualizar_repuesto_maquina(machine_id: int, relation_id: int, datos: MachineSparePartWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    return guardar_repuesto_maquina(machine_id, datos, relation_id)
+
+
+@app.delete("/maquinas/{machine_id}/repuestos/{relation_id}", status_code=204)
+def quitar_repuesto_maquina(machine_id: int, relation_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute("UPDATE dbo.MachineSpareParts SET Active=0 WHERE MachineId=? AND MachineSparePartId=? AND Active=1", machine_id, relation_id)
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="La asignacion no existe")
+            conexion.commit()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo quitar el repuesto de la maquina")
+
+
+from parts_history import register_parts_history
+
+register_parts_history(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
 
 
 if __name__ == "__main__":

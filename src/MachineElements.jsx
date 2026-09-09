@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
 import MotorSpecifications from './MotorSpecifications'
+import MachineSpareParts from './MachineSpareParts'
+import GearReducerSpecifications from './GearReducerSpecifications'
 
 const fields = [['element_code', 'Código', 50], ['name', 'Nombre', 200], ['manufacturer', 'Fabricante', 100], ['model', 'Modelo', 100], ['serial_number', 'Número de serie', 100], ['position', 'Posición', 150]]
 const statuses = { OPERATIVO: 'Operativo', PARADO: 'Parado', REPARACION: 'Reparación', RESERVA: 'Reserva', FUERA_SERVICIO: 'Fuera de servicio' }
 
 export default function MachineElements({ apiUrl, token, isAdmin }) {
+  const [partsElement, setPartsElement] = useState(null)
+  const [reducerElement, setReducerElement] = useState(null)
   const [specElement, setSpecElement] = useState(null)
   const [items, setItems] = useState([])
   const [machines, setMachines] = useState([])
@@ -102,14 +106,18 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
     } catch (error) { setMessage(error.message) } finally { setBusy(false) }
   }
 
+  const dataType = (item) => types.find((type) => type.element_type_id === item.element_type_id)?.specification_type || 'NONE'
   const visible = items.filter((item) => !filter || item.machine_id === Number(filter))
   return <>
+    {partsElement && <MachineSpareParts key={partsElement.element_id} apiUrl={apiUrl} token={token} machine={machines.find(machine => machine.machine_id === partsElement.machine_id)} element={partsElement} isAdmin={isAdmin} onClose={() => setPartsElement(null)} />}
+    {reducerElement && <GearReducerSpecifications key={reducerElement.element_id} apiUrl={apiUrl} token={token} element={reducerElement} isAdmin={isAdmin} onClose={() => setReducerElement(null)} />}
     {specElement && <MotorSpecifications key={specElement.element_id} apiUrl={apiUrl} token={token} element={specElement} isAdmin={isAdmin} onClose={() => setSpecElement(null)} />}
     <div className="page-heading"><div><p className="eyebrow">ACTIVOS</p><h1>Elementos de máquinas</h1><p>Componentes, subconjuntos y su ubicación dentro de cada máquina.</p></div>{isAdmin && <button className="primary-action" disabled={loading || busy || !machines.length || !types.some((type) => type.active)} onClick={() => openForm()}><Plus size={18} /> Nuevo elemento</button>}</div>
     <div className="motor-form-grid"><label>Filtrar por máquina<select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="">Todas las máquinas</option>{machines.map((item) => <option key={item.machine_id} value={item.machine_id}>{machineLabel(item.machine_id)}</option>)}</select></label></div>
     {!loading && (!machines.length || !types.some((type) => type.active)) && <p className="field-help">Para agregar elementos, registra una máquina y un tipo de elemento activo.</p>}
-    <div className="users-card table-scroll"><table><thead><tr><th>Ficha de motor</th>{isAdmin && <th>Acciones</th>}<th>Máquina</th><th>Código / Nombre</th><th>Tipo</th><th>Elemento padre</th><th>Posición</th><th>Cantidad</th><th>Criticidad</th><th>Estado</th><th>Activo</th><th>Foto</th></tr></thead><tbody>{visible.map((item) => <tr key={item.element_id}>
-      <td><button className="secondary-action" aria-label={`Abrir ficha de motor de ${item.name}`} onClick={() => setSpecElement(item)}>Ficha de motor</button></td>
+    <div className="users-card table-scroll"><table><thead><tr><th>Repuestos</th><th>Data del elemento</th>{isAdmin && <th>Acciones</th>}<th>Máquina</th><th>Código / Nombre</th><th>Tipo</th><th>Elemento padre</th><th>Posición</th><th>Cantidad</th><th>Criticidad</th><th>Estado</th><th>Activo</th><th>Foto</th></tr></thead><tbody>{visible.map((item) => <tr key={item.element_id}>
+      <td><button className="secondary-action" disabled={!machines.some(machine => machine.machine_id === item.machine_id)} onClick={() => setPartsElement(item)}>Ver repuestos</button></td>
+      <td>{dataType(item) === 'MOTOR' ? <button className="secondary-action" aria-label={`Abrir data de motor de ${item.name}`} onClick={() => setSpecElement(item)}>Data de motor</button> : dataType(item) === 'REDUCTOR' ? <button className="secondary-action" aria-label={`Abrir data de reductor de ${item.name}`} onClick={() => setReducerElement(item)}>Data de reductor</button> : <span className="field-help">Sin data asignada</span>}</td>
       {isAdmin && <td className="row-actions"><button title="Editar" aria-label={`Editar ${item.name}`} disabled={busy} onClick={() => openForm(item)}><Pencil size={16} /></button><button title="Eliminar" aria-label={`Eliminar ${item.name}`} className="danger" disabled={busy} onClick={() => remove(item)}><Trash2 size={16} /></button></td>}
       <td>{machineLabel(item.machine_id)}</td><td><strong>{item.element_code ? `${item.element_code} · ` : ''}{item.name}</strong></td><td>{types.find((type) => type.element_type_id === item.element_type_id)?.name || item.element_type_id}</td><td>{items.find((parent) => parent.element_id === item.parent_element_id)?.name || '—'}</td><td>{item.position || '—'}</td><td>{item.quantity}</td><td>{item.criticality || 'Sin definir'}</td><td>{statuses[item.status]}</td><td>{item.active ? 'Sí' : 'No'}</td><td>{item.image_path ? <ElementImage apiUrl={apiUrl} token={token} item={item} /> : 'Sin foto'}</td>
     </tr>)}</tbody></table>{!loading && !visible.length && <p className="empty-state">No hay elementos para mostrar.</p>}</div>

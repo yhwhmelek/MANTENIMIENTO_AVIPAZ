@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
+import MachineSpareParts from './MachineSpareParts'
 
 const fields = [
   ['asset_code', 'Código del activo', 50, true], ['name', 'Nombre', 200, true],
@@ -9,7 +10,8 @@ const fields = [
 ]
 const statuses = { ACTIVA: 'Activa', PARADA: 'Parada', MANTENIMIENTO: 'Mantenimiento', FUERA_SERVICIO: 'Fuera de servicio' }
 
-export default function Machines({ apiUrl, token, isAdmin }) {
+export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
+  const [partsMachine, setPartsMachine] = useState(null)
   const [editing, setEditing] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [machines, setMachines] = useState([])
@@ -96,10 +98,11 @@ export default function Machines({ apiUrl, token, isAdmin }) {
   }
 
   return <>
+    {partsMachine && <MachineSpareParts key={partsMachine.machine_id} apiUrl={apiUrl} token={token} machine={partsMachine} isAdmin={isAdmin} onClose={() => setPartsMachine(null)} />}
     <div className="page-heading"><div><p className="eyebrow">ACTIVOS</p><h1>Máquinas</h1><p>Inventario de máquinas y datos de operación.</p></div><button className="primary-action" onClick={() => openForm()}><Plus size={18} /> Nueva máquina</button></div>
     <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Código</th><th>Nombre</th><th>Fabricante / Modelo</th><th>Serie</th><th>Área / Línea</th><th>Ubicación</th><th>Criticidad</th><th>Estado</th></tr></thead><tbody>{machines.map((machine) => <tr key={machine.machine_id}>
       {isAdmin && <td className="row-actions"><button title="Editar máquina" aria-label={`Editar ${machine.asset_code}`} disabled={deleting !== null} onClick={() => openForm(machine)}><Pencil size={16} /></button><button className="danger" title="Eliminar máquina" aria-label={`Eliminar ${machine.asset_code}`} disabled={deleting !== null} onClick={() => deleteMachine(machine)}><Trash2 size={16} /></button></td>}
-      <td><strong>{machine.asset_code}</strong></td><td>{machine.name}</td><td>{[machine.manufacturer, machine.model].filter(Boolean).join(' / ') || '—'}</td><td>{machine.serial_number || '—'}</td><td>{[machine.area, machine.production_line].filter(Boolean).join(' / ') || '—'}</td><td>{machine.location || '—'}</td><td>{machine.criticality || 'Sin definir'}</td><td>{statuses[machine.status] || machine.status}</td>
+      <td><button className="secondary-action" onClick={() => onHistory(machine)}>Intervenciones</button></td><td><button className="secondary-action" onClick={() => setPartsMachine(machine)} aria-label={`Ver repuestos de ${machine.asset_code}`}>Ver repuestos</button></td><td><strong>{machine.asset_code}</strong></td><td>{machine.name}</td><td>{[machine.manufacturer, machine.model].filter(Boolean).join(' / ') || '—'}</td><td>{machine.serial_number || '—'}</td><td>{[machine.area, machine.production_line].filter(Boolean).join(' / ') || '—'}</td><td>{machine.location || '—'}</td><td>{machine.criticality || 'Sin definir'}</td><td>{statuses[machine.status] || machine.status}</td>
     </tr>)}</tbody></table>{!loading && !message && !machines.length && <p className="empty-state">No hay máquinas registradas.</p>}</div>
     <p className="admin-message" role="status">{loading ? 'Cargando máquinas...' : message}</p>
     {showForm && <div className="modal-backdrop"><div className="motor-modal" role="dialog" aria-modal="true" aria-labelledby="machine-form-title">
