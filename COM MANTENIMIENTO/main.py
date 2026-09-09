@@ -2268,7 +2268,7 @@ from parts_history import register_parts_history
 
 register_parts_history(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
 from maintenance_requests import register_maintenance_requests
-register_maintenance_requests(app, obtener_conexion, obtener_usuario_activo)
+register_maintenance_requests(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
 
 
 if __name__ == "__main__":

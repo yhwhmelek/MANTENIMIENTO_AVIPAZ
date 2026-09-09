@@ -10,7 +10,7 @@ function Input({ name, label, form, setForm, ...props }) {
 function Select({ name, label, form, setForm, options, required = true }) {
   return <label>{label}<select required={required} value={form[name] ?? ''} onChange={event => setForm(current => ({ ...current, [name]: event.target.value, ...(name === 'machine_id' ? { element_id: '' } : {}) }))}><option value="">{required ? 'Selecciona' : 'General de la máquina'}</option>{options.map(([id, text]) => <option key={id} value={id}>{text}</option>)}</select></label>
 }
-function HistoryTable({ rows, kind, onVoid }) {
+function HistoryTable({ rows, kind, onVoid, onDelete, busy }) {
   return <table><thead><tr><th>Fecha</th>{kind === 'events' ? <><th>Equipo</th><th>Tipo</th><th>Descripción</th></> : <><th>Repuesto</th><th>{kind === 'purchases' ? 'Proveedor / Documento' : 'Intervención / Equipo'}</th><th>Cantidad</th><th>{kind === 'purchases' ? 'Costo unitario / Total' : 'Posición / Horas del retirado'}</th><th>Notas / Estado</th>{onVoid && <th>Acciones</th>}</>}</tr></thead>
     <tbody>{rows.map(row => <tr key={row.id ?? row.maintenance_event_id}><td>{row.occurred_on || row.performed_on}</td>{kind === 'events' ? <><td>{row.machine_code} / {row.element_code || 'General'}</td><td>{row.maintenance_type}</td><td>#{row.maintenance_event_id} · {row.description}</td></> : <><td>{row.internal_code}<br />{row.description}</td><td>{kind === 'purchases' ? <>{row.supplier_name}<br />{row.document_number}</> : <>#{row.maintenance_event_id} · {row.machine_code}<br />{row.element_code || 'General'} · {row.maintenance_type}</>}</td><td>{row.quantity} {row.unit_of_measure}</td><td>{kind === 'purchases' ? <>{row.unit_cost} {row.currency}<br />Total: {row.total} {row.currency}</> : <>{row.position || '—'}<br />{row.life_hours == null ? 'Sin medición' : `${row.life_hours} h`}</>}</td><td>{row.notes || '—'}<br />{row.voided_at ? `Anulado: ${row.void_reason}` : 'Vigente'}</td>{onVoid && <td>{!row.voided_at && <button className="secondary-action" onClick={() => onVoid(row)}>Anular</button>}</td>}</>}</tr>)}</tbody></table>
 }
@@ -85,6 +85,21 @@ export default function PartsHistory({ apiUrl, token, isAdmin, kind, initialMach
       setForm(null); setMessage('Registro guardado correctamente.'); setRefresh(value => value + 1)
     } catch (err) { setFormError(err.message) } finally { setBusy(false) }
   }
+  async function deleteIntervention(row) {
+    if (!isAdmin || busy || !window.confirm(`?Eliminar definitivamente la intervenci?n #${row.maintenance_event_id}, todos sus consumos y la solicitud asociada con sus confirmaciones? Se recalcular? el stock. Esta acci?n no se puede deshacer.`)) return
+    setBusy(true); setError('')
+    try {
+      await request(`/intervenciones/${row.maintenance_event_id}`, { method: 'DELETE' })
+      setMessage('Intervenci?n y flujo asociado eliminados.'); setRefresh(v => v + 1)
+      window.dispatchEvent(new Event('stock-updated'))
+      window.dispatchEvent(new Event('maintenance-flow-deleted'))
+    } catch (err) { setError(err.message) } finally { setBusy(false) }
+  }
+  useEffect(() => {
+    const refreshHistory = () => setRefresh(v => v + 1)
+    window.addEventListener('maintenance-flow-deleted', refreshHistory)
+    return () => window.removeEventListener('maintenance-flow-deleted', refreshHistory)
+  }, [])
   async function annul(event) {
     event.preventDefault()
     if (busy) return
@@ -112,7 +127,7 @@ export default function PartsHistory({ apiUrl, token, isAdmin, kind, initialMach
     {kind === 'events' && <div className="motor-form-grid report-filters"><label>Maquina<select value={filters.machine_id} onChange={event => filter('machine_id', event.target.value)}><option value="">Todas</option>{catalog.machines.map(machine => <option key={machine.machine_id} value={machine.machine_id}>{machine.asset_code} / {machine.name}</option>)}</select></label><label>Desde<input type="date" value={filters.start} onChange={event => filter('start', event.target.value)} /></label><label>Hasta<input type="date" value={filters.end} onChange={event => filter('end', event.target.value)} /></label></div>}
     {kind !== 'events' && <div className="motor-form-grid report-filters"><label>Repuesto<select value={filters.spare_part_id} onChange={event => filter('spare_part_id', event.target.value)}><option value="">Todos</option>{catalog.parts.map(part => <option key={part.spare_part_id} value={part.spare_part_id}>{part.internal_code} · {part.description}</option>)}</select></label>{kind === 'consumption' && <label>Máquina<select value={filters.machine_id} onChange={event => filter('machine_id', event.target.value)}><option value="">Todas</option>{catalog.machines.map(machine => <option key={machine.machine_id} value={machine.machine_id}>{machine.asset_code} · {machine.name}</option>)}</select></label>}<label>Desde<input type="date" value={filters.start} onChange={event => filter('start', event.target.value)} /></label><label>Hasta<input type="date" value={filters.end} onChange={event => filter('end', event.target.value)} /></label><label className="checkbox-field"><input type="checkbox" checked={filters.include_voided} onChange={event => filter('include_voided', event.target.checked)} /> Incluir anulados</label></div>}
     {(error || catalogError) && <p role="alert">{error || catalogError} <button onClick={() => setRefresh(value => value + 1)}>Reintentar</button></p>}
-    {loading ? <p role="status">Cargando historial...</p> : !error && <>{details}<div className="users-card table-scroll"><HistoryTable rows={rows} kind={kind} onVoid={isAdmin && kind !== 'events' && !busy ? row => { setVoidRow(row); setReason(''); setFormError('') } : null} />{!rows.length && <p className="empty-state">No hay registros para esta consulta.</p>}</div></>}
+    {loading ? <p role="status">Cargando historial...</p> : !error && <>{details}<div className="users-card table-scroll"><HistoryTable rows={rows} kind={kind} busy={busy} onDelete={isAdmin && kind === 'events' ? deleteIntervention : null} onVoid={isAdmin && kind !== 'events' && !busy ? row => { setVoidRow(row); setReason(''); setFormError('') } : null} />{!rows.length && <p className="empty-state">No hay registros para esta consulta.</p>}</div></>}
     {message && <p role="status">{message}</p>}
     {form && <div className="modal-backdrop"><div className="motor-modal" role="dialog" aria-modal="true" aria-labelledby="history-form-title"><h2 id="history-form-title">Nuevo registro · {titles[kind]}</h2><form onSubmit={save}><fieldset disabled={busy} className="spare-assignment-fields"><div className="motor-form-grid">
       {kind === 'events' ? <>

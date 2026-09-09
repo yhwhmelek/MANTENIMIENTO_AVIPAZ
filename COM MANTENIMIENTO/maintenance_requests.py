@@ -108,7 +108,12 @@ class CompleteWrite(StrictModel):
 
 
 class ReceiptWrite(StrictModel):
-    notes: str = Field(min_length=1, max_length=1000)
+    notes: str | None = Field(default='Entrega conforme', max_length=1000)
+
+    @model_validator(mode='after')
+    def default_receipt_notes(self):
+        self.notes = self.notes or 'Entrega conforme'
+        return self
 
 
 class OperatingPeriodWrite(StrictModel):
@@ -160,7 +165,7 @@ def part_stock(cursor, part_id):
     return part, quantity + Decimal(purchase) - Decimal(used), cutoff
 
 
-def register_maintenance_requests(app, connect, active_user):
+def register_maintenance_requests(app, connect, active_user, admin_user):
     def write(operation):
         try:
             with closing(connect()) as connection:
@@ -181,6 +186,33 @@ def register_maintenance_requests(app, connect, active_user):
         if row is None:
             raise HTTPException(404, 'Solicitud no encontrada')
         return row
+
+    def delete_flow(cursor, request_id=None, event_id=None):
+        if request_id is not None:
+            row = cursor.execute('SELECT MaintenanceEventId FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
+            if row is None:
+                raise HTTPException(404, 'Solicitud no encontrada')
+            event_id = row[0]
+        else:
+            row = cursor.execute('SELECT RequestId FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE MaintenanceEventId=?', event_id).fetchone()
+            request_id = row[0] if row else None
+        if event_id is not None:
+            if not cursor.execute('SELECT MaintenanceEventId FROM dbo.MaintenanceEvents WITH (UPDLOCK,HOLDLOCK) WHERE MaintenanceEventId=?', event_id).fetchone():
+                raise HTTPException(404, 'Intervencion no encontrada')
+        if request_id is not None:
+            cursor.execute('DELETE FROM dbo.MaintenanceRequests WHERE RequestId=?', request_id)
+        if event_id is not None:
+            cursor.execute('DELETE FROM dbo.MaintenancePartsUsed WHERE MaintenanceEventId=?', event_id)
+            cursor.execute('DELETE FROM dbo.MaintenanceEvents WHERE MaintenanceEventId=?', event_id)
+        return {'deleted': True}
+
+    @app.delete('/intervenciones/{event_id}')
+    def delete_intervention(event_id: int, usuario_id: int = Depends(admin_user)):
+        return write(lambda cursor: delete_flow(cursor, event_id=event_id))
+
+    @app.delete('/solicitudes-mantenimiento/{request_id}')
+    def delete_request(request_id: int, usuario_id: int = Depends(admin_user)):
+        return write(lambda cursor: delete_flow(cursor, request_id=request_id))
 
     @app.get('/periodos-operacion')
     def list_periods(usuario_id: int = Depends(active_user)):

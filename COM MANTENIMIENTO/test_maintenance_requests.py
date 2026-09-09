@@ -16,7 +16,8 @@ class RequestTests(unittest.TestCase):
         self.cursor = self.connection.cursor.return_value
         self.app = FastAPI()
         self.active = lambda: 1
-        mod.register_maintenance_requests(self.app, lambda: self.connection, self.active)
+        self.admin = lambda: 9
+        mod.register_maintenance_requests(self.app, lambda: self.connection, self.active, self.admin)
         self.original = {'machine_id': 3, 'maintenance_type': 'CORRECTIVO', 'hour_meter': '100'}
 
     def endpoint(self, suffix, method='POST'):
@@ -33,7 +34,49 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods else self.active,[d.call for d in route.dependant.dependencies])
+
+    def test_delete_request_removes_only_its_flow_in_order(self):
+        self.cursor.execute.return_value.fetchone.side_effect=[(33,), (33,)]
+        self.endpoint('/{request_id}', 'DELETE')(5, usuario_id=9)
+        deletes=[call.args for call in self.cursor.execute.call_args_list if call.args[0].startswith('DELETE')]
+        self.assertEqual(deletes, [
+            ('DELETE FROM dbo.MaintenanceRequests WHERE RequestId=?', 5),
+            ('DELETE FROM dbo.MaintenancePartsUsed WHERE MaintenanceEventId=?', 33),
+            ('DELETE FROM dbo.MaintenanceEvents WHERE MaintenanceEventId=?', 33)])
+        self.connection.commit.assert_called_once()
+
+    def test_delete_pending_request_has_no_event_or_stock_changes(self):
+        self.cursor.execute.return_value.fetchone.return_value=(None,)
+        self.endpoint('/{request_id}', 'DELETE')(5, usuario_id=9)
+        deletes=[call.args[0] for call in self.cursor.execute.call_args_list if call.args[0].startswith('DELETE')]
+        self.assertEqual(deletes,['DELETE FROM dbo.MaintenanceRequests WHERE RequestId=?'])
+
+    def test_delete_standalone_intervention(self):
+        self.cursor.execute.return_value.fetchone.side_effect=[None, (33,)]
+        endpoint=next(r.endpoint for r in self.app.routes if r.path=='/intervenciones/{event_id}')
+        endpoint(33, usuario_id=9)
+        deletes=[call.args[0] for call in self.cursor.execute.call_args_list if call.args[0].startswith('DELETE')]
+        self.assertEqual(len(deletes),2)
+        self.assertFalse(any('MaintenanceRequests' in sql for sql in deletes))
+
+    def test_delete_failure_rolls_back_entire_flow(self):
+        def execute(sql,*args):
+            if sql.startswith('DELETE FROM dbo.MaintenanceEvents'):
+                raise pyodbc.Error('foreign key')
+            result=MagicMock();result.fetchone.return_value=(33,);return result
+        self.cursor.execute.side_effect=execute
+        with self.assertRaises(HTTPException):
+            self.endpoint('/{request_id}','DELETE')(5,usuario_id=9)
+        self.connection.rollback.assert_called_once()
+        self.connection.commit.assert_not_called()
+
+    def test_delete_missing_request_returns_404(self):
+        self.cursor.execute.return_value.fetchone.return_value=None
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}','DELETE')(5,usuario_id=9)
+        self.assertEqual(error.exception.status_code,404)
+        self.connection.commit.assert_not_called()
 
     def test_operator_creates_and_user_cannot(self):
         data = mod.RequestWrite(machine_id=3,description='Cambiar malla',maintenance_type='CORRECTIVO',urgency=3,impact=3,risk=2)
@@ -118,6 +161,18 @@ class RequestTests(unittest.TestCase):
                         dict(parts=[{'spare_part_id':8,'quantity':1},{'spare_part_id':8,'quantity':1}]),
                         dict(repair_finished_at=(mod.local_now()+timedelta(days=1)).isoformat())]:
             with self.subTest(changes=changes),self.assertRaises(ValidationError):self.completion(**changes)
+
+    def test_receipt_defaults_and_persists_conformity(self):
+        for payload in [{}, {'notes': None}, {'notes': ''}, {'notes': '   '}]:
+            with self.subTest(payload=payload):
+                self.assertEqual(mod.ReceiptWrite(**payload).notes, 'Entrega conforme')
+        self.assertEqual(mod.ReceiptWrite(notes='  Recibido sin novedades  ').notes, 'Recibido sin novedades')
+        with self.assertRaises(ValidationError):
+            mod.ReceiptWrite(notes='x' * 1001)
+        self.cursor.execute.return_value.fetchone.return_value=self.locked('POR_RECIBIR')
+        self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(notes=' '), usuario_id=1)
+        self.assertEqual(self.cursor.execute.call_args.args[2], 'Entrega conforme')
+        self.connection.commit.assert_called_once()
 
     def test_optional_delivery_fields_accept_omitted_null_and_blank(self):
         fields = ('cause', 'recommendations', 'delivery_conditions')

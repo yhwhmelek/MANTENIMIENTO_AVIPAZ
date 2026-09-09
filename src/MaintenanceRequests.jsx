@@ -7,7 +7,7 @@ const states = { PENDIENTE:'Pendiente', EN_PROCESO:'En proceso', POR_RECIBIR:'Po
 const time = value => value ? value.replace('T',' ').slice(0,16) : '—'
 const localInput = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` }
 function Field({label,name,type='text',value,onChange,...props}) { return <label>{label}<input name={name} type={type} value={value ?? ''} onChange={e=>onChange(name,e.target.value)} {...props}/></label> }
-function Text({label,name,form,change,maxLength=1000,required=true}) { return <label className="full-field">{label}{!required && ' (opcional)'}<textarea required={required} placeholder={required ? undefined : 'No aplica si se deja vacío'} rows={3} maxLength={maxLength} value={form[name] || ''} onChange={e=>change(name,e.target.value)}/></label> }
+function Text({label,name,form,change,maxLength=1000,required=true,placeholder}) { return <label className="full-field">{label}{!required && ' (opcional)'}<textarea required={required} placeholder={placeholder ?? (required ? undefined : 'No aplica si se deja vacío')} rows={3} maxLength={maxLength} value={form[name] || ''} onChange={e=>change(name,e.target.value)}/></label> }
 
 export default function MaintenanceRequests({ apiUrl, token, currentUser, open, onOpen, onClose }) {
   const [rows,setRows] = useState([]), [machines,setMachines] = useState([]), [parts,setParts] = useState([])
@@ -17,6 +17,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [filter,setFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [showPeriods,setShowPeriods] = useState(false)
   const dialog=useRef(null), submitting=useRef(false)
+  const detail=useRef(null)
   const canCreate=['ADMIN','OPERADOR'].includes(currentUser.rol)
   const actionCount=rows.filter(r=>(r.status==='PENDIENTE' && r.requested_by!==currentUser.id) || (r.status==='EN_PROCESO' && r.assigned_to===currentUser.id) || (r.status==='POR_RECIBIR' && r.requested_by===currentUser.id)).length
   async function request(path,options={}) {
@@ -57,7 +58,15 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     Promise.all([document.fonts.ready,img?.decode().catch(()=>{})]).then(()=>{if(!cancelled)window.print()})
     return()=>{cancelled=true;window.removeEventListener('afterprint',reset);document.body.classList.remove('maintenance-request-printing')}
   },[printRow])
+  useEffect(()=>{const refresh=()=>setVersion(v=>v+1);window.addEventListener('maintenance-flow-deleted',refresh);return()=>window.removeEventListener('maintenance-flow-deleted',refresh)},[])
   const row=rows.find(r=>r.id===selected)
+  const showingDetail=Boolean(row && !form && !showPeriods)
+  useEffect(()=>{
+    if(open && showingDetail){
+      detail.current?.focus({preventScroll:true})
+      if(dialog.current)dialog.current.scrollTop=0
+    }
+  },[open,showingDetail,row?.id])
   function change(name,value){setForm(f=>({...f,[name]:value}))}
   function start(modeName){
     setMode(modeName);setFormError('')
@@ -71,8 +80,19 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});setSelected(result.id);setForm(null);setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
+  async function deleteRequest(){
+    if(currentUser.rol!=='ADMIN'||submitting.current||!window.confirm(`?Eliminar definitivamente la solicitud #${selected}, su intervenci?n, todos sus consumos y confirmaciones? Se recalcular? el stock. Esta acci?n no se puede deshacer.`))return
+    submitting.current=true;setBusy(true);setFormError('')
+    try{
+      await request(`/solicitudes-mantenimiento/${selected}`,{method:'DELETE'})
+      setRows(items=>items.filter(item=>item.id!==selected));setSelected(null)
+      window.dispatchEvent(new Event('stock-updated'));window.dispatchEvent(new Event('maintenance-flow-deleted'))
+    }catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
+  }
   function save(event){
     event.preventDefault();const payload={...form}
+    if(submitting.current)return
+    if(mode==='receive' && !window.confirm('Al aceptar, confirmas que recibiste el trabajo y estás conforme con la entrega. Si no ingresaste observaciones, se registrará «Entrega conforme». ¿Deseas aceptar?'))return
     if(mode==='new'){
       for(const key of ['machine_id','urgency','impact','risk'])payload[key]=Number(payload[key])
       for(const key of ['stopped_at','planned_start','planned_end','hour_meter','requested_part_id','requested_quantity'])payload[key]=payload[key]||null
@@ -97,12 +117,13 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       <div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button><label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label></div>
       {error&&<p role="alert">{error}</p>}{formError&&<p role="alert">{formError}</p>}
       {!loaded&&!error&&<p>Cargando solicitudes…</p>}
-      {!form&&<div className="table-scroll"><table><thead><tr><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th><th>Acción</th></tr></thead><tbody>{rows.filter(r=>!filter||r.status===filter).map(r=><tr key={r.id}><td>#{r.id}<br/>{time(r.requested_at)}</td><td>{r.request_data.machine_code}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button></td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
-      {row&&!form&&<section className="request-detail"><h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}. Criticidad: {row.request_data.urgency*row.request_data.impact*row.request_data.risk}.</p><p>Planificado: {time(row.request_data.planned_start)} a {time(row.request_data.planned_end)}. Parada: {time(row.request_data.stopped_at)}.</p>
+      {!form&&!row&&<div className="table-scroll"><table><thead><tr><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th><th>Acción</th></tr></thead><tbody>{rows.filter(r=>!filter||r.status===filter).map(r=><tr key={r.id}><td>#{r.id}<br/>{time(r.requested_at)}</td><td>{r.request_data.machine_code}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button></td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
+      {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button><h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}. Criticidad: {row.request_data.urgency*row.request_data.impact*row.request_data.risk}.</p><p>Planificado: {time(row.request_data.planned_start)} a {time(row.request_data.planned_end)}. Parada: {time(row.request_data.stopped_at)}.</p>
         {row.request_data.requested_part_id&&<p>Repuesto previsto: {row.request_data.requested_part_code} · {row.request_data.requested_quantity}. Stock al solicitar: {row.request_data.stock_at_request} ({row.request_data.stock_sufficient?'suficiente':'insuficiente'}).</p>}
         {row.execution_data&&<><h4>Trabajo entregado</h4><p>{row.execution_data.work_done}</p><p>Causa: {row.execution_data.cause || 'No aplica'}</p><p>Recomendaciones: {row.execution_data.recommendations || 'No aplica'}</p><p>Condiciones: {row.execution_data.delivery_conditions || 'No aplica'}</p><p>Reparación: {time(row.execution_data.repair_started_at)} — {time(row.execution_data.repair_finished_at)}. Retorno: {time(row.execution_data.restored_at)}.</p><ul>{row.execution_data.parts.map(p=><li key={p.spare_part_id}>{p.internal_code} · {p.quantity} {p.unit_of_measure} consumidos</li>)}</ul></>}
         {row.received_at&&<p>Recibido por {row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF MT/02-05</button>
+          {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
           {row.status==='PENDIENTE'&&row.requested_by!==currentUser.id&&<button disabled={busy} className="primary-action" onClick={()=>mutate(`/${row.id}/atender`)}>Atender solicitud</button>}
           {row.status==='EN_PROCESO'&&row.assigned_to===currentUser.id&&<button disabled={busy||!catalogReady} className="primary-action" onClick={()=>start('complete')}>Registrar trabajo y repuestos</button>}
           {row.status==='POR_RECIBIR'&&row.requested_by===currentUser.id&&<button className="primary-action" onClick={()=>start('receive')}>Confirmar recepción del cambio</button>}
@@ -130,7 +151,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <div className="full-field"><h4>Repuestos realmente utilizados</h4><p>Se descontarán al guardar la entrega. Si no se utilizaron repuestos, deja la lista vacía.</p>{form.parts.map((p,i)=><div className="request-line" key={i}><label>Repuesto<select required value={p.spare_part_id} onChange={e=>updateLine('parts',i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{parts.map(item=><option key={item.spare_part_id} value={item.spare_part_id}>{item.internal_code} · {item.description} ({item.unit_of_measure})</option>)}</select></label><label>Cantidad<input type="number" required min="0.01" step="0.01" value={p.quantity} onChange={e=>updateLine('parts',i,'quantity',e.target.value)}/></label><label>Repuesto anterior<input maxLength={150} value={p.removed_part} onChange={e=>updateLine('parts',i,'removed_part',e.target.value)}/></label><label>Posición<input maxLength={150} value={p.position} onChange={e=>updateLine('parts',i,'position',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('parts',form.parts.filter((_,j)=>i!==j))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.parts.length>=30} onClick={()=>change('parts',[...form.parts,{spare_part_id:'',quantity:'1',removed_part:'',position:''}])}>Añadir repuesto usado</button></div>
           <div className="full-field"><h4>Conciliación de piezas / herramientas</h4>{form.tools.map((t,i)=><div className="request-line" key={i}><label>Descripción<input required maxLength={100} value={t.description} onChange={e=>updateLine('tools',i,'description',e.target.value)}/></label><label>Ingreso<input required type="number" min="0" step="1" value={t.quantity_in} onChange={e=>updateLine('tools',i,'quantity_in',e.target.value)}/></label><label>Salida<input required type="number" min="0" step="1" value={t.quantity_out} onChange={e=>updateLine('tools',i,'quantity_out',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('tools',form.tools.filter((_,j)=>j!==i))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.tools.length>=20} onClick={()=>change('tools',[...form.tools,{description:'',quantity_in:'0',quantity_out:'0'}])}>Añadir pieza / herramienta</button></div>
         </>}
-        {mode==='receive'&&<><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change}/></>}
+        {mode==='receive'&&<><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='complete'?'Entregar trabajo y consumir repuestos':mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}
       </>}
     </dialog>
