@@ -24,6 +24,18 @@ class InterventionWrite(BaseModel):
         return self
 
 
+class OpeningBalanceWrite(BaseModel):
+    cutoff_date: date
+    quantity: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+    notes: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode='after')
+    def validate_cutoff(self):
+        if self.cutoff_date > date.today():
+            raise ValueError('La fecha de corte no puede ser futura')
+        return self
+
+
 class PurchaseWrite(BaseModel):
     spare_part_id: int = Field(gt=0)
     supplier_id: int = Field(gt=0)
@@ -114,7 +126,7 @@ def register_parts_history(app, connect, active_user, admin_user):
                 cursor.execute(sql, *parameters)
                 return records(cursor)
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudo consultar el historial. Verifica la migracion 003.')
+            raise HTTPException(503, 'No se pudo consultar. Verifica las migraciones 003 y 004 y la conexion.')
 
     def write(operation):
         try:
@@ -125,7 +137,59 @@ def register_parts_history(app, connect, active_user, admin_user):
         except pyodbc.IntegrityError:
             raise HTTPException(409, 'Los datos no cumplen las relaciones o validaciones del registro')
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudo guardar. Verifica la migracion 003 y la conexion.')
+            raise HTTPException(503, 'No se pudo guardar. Verifica las migraciones 003 y 004 y la conexion.')
+
+    @app.get('/repuestos/{spare_part_id}/saldo-inicial')
+    def opening_balance(spare_part_id: int, usuario_id: int = Depends(active_user)):
+        rows = read('''SELECT SparePartId AS spare_part_id, CutoffDate AS cutoff_date,
+            Quantity AS quantity, UnitOfMeasure AS unit_of_measure, Notes AS notes,
+            CreatedAt AS created_at FROM dbo.SparePartOpeningBalances WHERE SparePartId=?''', [spare_part_id])
+        return rows[0] if rows else None
+
+    @app.post('/repuestos/{spare_part_id}/saldo-inicial', status_code=201)
+    def create_opening_balance(spare_part_id: int, data: OpeningBalanceWrite, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            part = cursor.execute('SELECT UnitOfMeasure FROM dbo.SpareParts WITH (UPDLOCK, HOLDLOCK) WHERE SparePartId=? AND Active=1', spare_part_id).fetchone()
+            if part is None:
+                raise HTTPException(404, 'Repuesto activo no encontrado')
+            if cursor.execute('SELECT SparePartId FROM dbo.SparePartOpeningBalances WITH (UPDLOCK, HOLDLOCK) WHERE SparePartId=?', spare_part_id).fetchone():
+                raise HTTPException(409, 'Este repuesto ya tiene un saldo inicial registrado')
+            cursor.execute('''INSERT INTO dbo.SparePartOpeningBalances
+                (SparePartId, CutoffDate, Quantity, UnitOfMeasure, Notes, CreatedBy)
+                VALUES (?,?,?,?,?,?)''', spare_part_id, data.cutoff_date, data.quantity, part[0], data.notes, usuario_id)
+            return {'spare_part_id': spare_part_id, 'cutoff_date': data.cutoff_date,
+                    'quantity': data.quantity, 'unit_of_measure': part[0], 'notes': data.notes}
+        return write(operation)
+
+    @app.get('/alertas-stock')
+    def stock_alerts(usuario_id: int = Depends(active_user)):
+        return read('''
+            WITH purchases AS (
+                SELECT p.SparePartId, SUM(p.Quantity) AS quantity
+                FROM dbo.SparePartPurchases p
+                LEFT JOIN dbo.SparePartOpeningBalances b ON b.SparePartId=p.SparePartId
+                WHERE p.VoidedAt IS NULL AND (b.CutoffDate IS NULL OR p.PurchasedOn > b.CutoffDate)
+                GROUP BY p.SparePartId
+            ), consumptions AS (
+                SELECT c.SparePartId, SUM(c.Quantity) AS quantity
+                FROM dbo.MaintenancePartsUsed c
+                JOIN dbo.MaintenanceEvents e ON e.MaintenanceEventId=c.MaintenanceEventId
+                LEFT JOIN dbo.SparePartOpeningBalances b ON b.SparePartId=c.SparePartId
+                WHERE c.VoidedAt IS NULL AND (b.CutoffDate IS NULL OR e.PerformedOn > b.CutoffDate)
+                GROUP BY c.SparePartId
+            )
+            SELECT s.SparePartId AS spare_part_id, s.InternalCode AS internal_code,
+                s.Description AS description, s.UnitOfMeasure AS unit_of_measure,
+                s.StorageLocation AS storage_location, s.MinimumStock AS minimum_stock,
+                COALESCE(b.Quantity, 0) + COALESCE(p.quantity, 0) - COALESCE(c.quantity, 0) AS current_stock
+            FROM dbo.SpareParts s
+            LEFT JOIN dbo.SparePartOpeningBalances b ON b.SparePartId=s.SparePartId
+            LEFT JOIN purchases p ON p.SparePartId = s.SparePartId
+            LEFT JOIN consumptions c ON c.SparePartId = s.SparePartId
+            WHERE s.Active = 1 AND s.MinimumStock > 0
+                AND COALESCE(b.Quantity, 0) + COALESCE(p.quantity, 0) - COALESCE(c.quantity, 0) <= s.MinimumStock
+            ORDER BY current_stock, s.InternalCode
+        ''')
 
     @app.get('/intervenciones')
     def interventions(machine_id: int | None = Query(None, gt=0), start: date | None = None,

@@ -1666,6 +1666,51 @@ def crear_repuesto(datos: SparePartWrite, usuario_id: int = Depends(obtener_usua
     return convertir_repuesto(repuesto)
 
 
+@app.post("/repuestos/{spare_part_id}/duplicar", response_model=SparePartResponse, status_code=status.HTTP_201_CREATED)
+def duplicar_repuesto(spare_part_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            original = cursor.execute(
+                "SELECT InternalCode FROM dbo.SpareParts WITH (UPDLOCK, HOLDLOCK) WHERE SparePartId = ?",
+                spare_part_id,
+            ).fetchone()
+            if original is None:
+                raise HTTPException(status_code=404, detail="Repuesto no encontrado")
+            base = re.sub(r"--copy(?:-\d+)?$", "", original.InternalCode, flags=re.IGNORECASE)
+            numero = 1
+            while True:
+                sufijo = "--copy" if numero == 1 else f"--copy-{numero}"
+                codigo = base[:50 - len(sufijo)] + sufijo
+                if not cursor.execute(
+                    "SELECT SparePartId FROM dbo.SpareParts WITH (UPDLOCK, HOLDLOCK) WHERE InternalCode = ?",
+                    codigo,
+                ).fetchone():
+                    break
+                numero += 1
+            nuevo_id = cursor.execute(
+                """
+                SET NOCOUNT ON;
+                INSERT INTO dbo.SpareParts (
+                    InternalCode, CategoryId, Description, Brand, Model, PartNumber,
+                    UnitOfMeasure, MinimumStock, MaximumStock, UnitCost,
+                    StorageLocation, Active, Notes, ImagePath
+                ) SELECT ?, CategoryId, Description, Brand, Model, PartNumber,
+                    UnitOfMeasure, MinimumStock, MaximumStock, UnitCost,
+                    StorageLocation, Active, Notes, ImagePath
+                FROM dbo.SpareParts WHERE SparePartId = ?;
+                SELECT CAST(SCOPE_IDENTITY() AS int)
+                """, codigo, spare_part_id,
+            ).fetchone()[0]
+            repuesto = cursor.execute(SPARE_PART_SELECT + " WHERE SparePartId = ?", nuevo_id).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo duplicar el repuesto")
+    return convertir_repuesto(repuesto)
+
+
 @app.put("/repuestos/{spare_part_id}", response_model=SparePartResponse)
 def actualizar_repuesto(
     spare_part_id: int,

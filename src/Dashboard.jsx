@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import Machines from './Machines'
+import StockAlerts from './StockAlerts'
+import OpeningBalance from './OpeningBalance'
 import PartsHistory from './PartsHistory'
 import SparePartReports from './SparePartReports'
 import MachineElementTypes from './MachineElementTypes'
 import MachineElements from './MachineElements'
-import { LogOut, Package, Pencil, Plus, Trash2, Truck, Users, Wrench, X } from 'lucide-react'
+import { Copy, LogOut, Package, Pencil, Plus, Trash2, Truck, Users, Wrench, X } from 'lucide-react'
 
 function requestError(data, fallback) {
   return Array.isArray(data.detail) ? 'Revisa los datos ingresados.' : data.detail || fallback
@@ -17,6 +19,8 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   const isAssetsSection = ['machines', 'element-types', 'machine-elements', 'events'].includes(section)
   const isSparePartsSection = ['spare-parts', 'suppliers', 'categories', 'spare-reports', 'purchases', 'consumption'].includes(section)
   const [spareParts, setSpareParts] = useState([])
+  const [openingBalancePart, setOpeningBalancePart] = useState(null)
+  const [duplicatingSparePart, setDuplicatingSparePart] = useState(null)
   const [sparePartCategories, setSparePartCategories] = useState([])
   const [users, setUsers] = useState([])
   const [editingSparePart, setEditingSparePart] = useState(null)
@@ -135,6 +139,18 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       setMessage(`Repuesto ${data.internal_code} guardado correctamente.`)
       await loadSpareParts()
     } catch (error) { setMessage(error.message) } finally { setLoading(false) }
+  }
+
+  async function duplicateSparePart(sparePart) {
+    if (!isAdmin || duplicatingSparePart !== null) return
+    setDuplicatingSparePart(sparePart.spare_part_id)
+    try {
+      const response = await fetch(`${apiUrl}/repuestos/${sparePart.spare_part_id}/duplicar`, { method: 'POST', headers: authHeaders })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(requestError(data, 'No se pudo duplicar el repuesto.'))
+      setSpareParts((items) => [data, ...items])
+      setMessage(`Copia ${data.internal_code} creada. Puedes editar su código interno para asignar el definitivo.`)
+    } catch (error) { setMessage(error.message) } finally { setDuplicatingSparePart(null) }
   }
 
   async function deleteSparePart(sparePart) {
@@ -308,6 +324,8 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   }
 
   return <main className="admin-shell">
+    {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
+    <StockAlerts apiUrl={apiUrl} token={token} section={section} />
     <header className="admin-header">
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
@@ -332,7 +350,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       {['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} /> : section === 'spare-parts' ? <>
         <div className="page-heading"><div><p className="eyebrow">INVENTARIO</p><h1>Repuestos</h1><p>Catalogo, existencias y costos de repuestos.</p></div><button className="primary-action" onClick={() => openSparePartForm()}><Plus size={18} /> Nuevo repuesto</button></div>
         <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Categoria</th><th>Descripcion</th><th>Marca / Modelo</th><th>N.° parte</th><th>Unidad</th><th>Stock min. / max.</th><th>Costo unit.</th><th>Ubicacion</th><th>Estado</th><th>Imagen</th></tr></thead>
-          <tbody>{spareParts.map((part) => <tr key={part.spare_part_id}>{isAdmin && <td className="row-actions"><button title="Proveedores" onClick={() => openPartSuppliers(part)}><Truck size={16} /></button><button title="Editar" onClick={() => openSparePartForm(part)}><Pencil size={16} /></button><button className="danger" title="Eliminar" onClick={() => deleteSparePart(part)}><Trash2 size={16} /></button></td>}<td><strong>{part.internal_code}</strong></td><td>{sparePartCategories.find((category) => category.category_id === part.category_id)?.name || part.category_id}</td><td>{part.description}</td><td>{[part.brand, part.model].filter(Boolean).join(' / ') || '—'}</td><td>{part.part_number || '—'}</td><td>{part.unit_of_measure}</td><td>{part.minimum_stock} / {part.maximum_stock ?? '—'}</td><td>{part.unit_cost != null ? `$${Number(part.unit_cost).toFixed(4)}` : '—'}</td><td>{part.storage_location || '—'}</td><td><span className={`status-badge ${part.active ? 'active' : 'inactive'}`}>{part.active ? 'Activo' : 'Inactivo'}</span></td><td>{part.image_path ? <SparePartImage apiUrl={apiUrl} token={token} sparePartId={part.spare_part_id} fileName={part.internal_code} /> : <span className="no-image">Sin foto</span>}</td></tr>)}</tbody></table>{!loading && !spareParts.length && <p className="empty-state">No hay repuestos registrados.</p>}</div>
+          <tbody>{spareParts.map((part) => <tr key={part.spare_part_id}>{isAdmin && <td className="row-actions"><button title="Proveedores" onClick={() => openPartSuppliers(part)}><Truck size={16} /></button><button title="Saldo inicial de bodega" aria-label={`Saldo inicial de ${part.internal_code}`} onClick={() => setOpeningBalancePart(part)}><Package size={16} /></button><button title="Duplicar repuesto" aria-label={`Duplicar ${part.internal_code}`} disabled={duplicatingSparePart !== null} onClick={() => duplicateSparePart(part)}><Copy size={16} /></button><button title="Editar" onClick={() => openSparePartForm(part)}><Pencil size={16} /></button><button className="danger" title="Eliminar" onClick={() => deleteSparePart(part)}><Trash2 size={16} /></button></td>}<td><strong>{part.internal_code}</strong>{/--copy(?:-\d+)?$/i.test(part.internal_code) && <span className="status-badge inactive" title="Pendiente de asignar un código interno definitivo">Copia</span>}</td><td>{sparePartCategories.find((category) => category.category_id === part.category_id)?.name || part.category_id}</td><td>{part.description}</td><td>{[part.brand, part.model].filter(Boolean).join(' / ') || '—'}</td><td>{part.part_number || '—'}</td><td>{part.unit_of_measure}</td><td>{part.minimum_stock} / {part.maximum_stock ?? '—'}</td><td>{part.unit_cost != null ? `$${Number(part.unit_cost).toFixed(4)}` : '—'}</td><td>{part.storage_location || '—'}</td><td><span className={`status-badge ${part.active ? 'active' : 'inactive'}`}>{part.active ? 'Activo' : 'Inactivo'}</span></td><td>{part.image_path ? <SparePartImage apiUrl={apiUrl} token={token} sparePartId={part.spare_part_id} fileName={part.internal_code} /> : <span className="no-image">Sin foto</span>}</td></tr>)}</tbody></table>{!loading && !spareParts.length && <p className="empty-state">No hay repuestos registrados.</p>}</div>
       </> : section === 'suppliers' ? <>
         <div className="page-heading"><div><p className="eyebrow">DIRECTORIO</p><h1>Proveedores</h1><p>Datos comerciales y de contacto de proveedores.</p></div><button className="primary-action" onClick={() => openSupplierForm()}><Plus size={18} /> Nuevo proveedor</button></div>
         <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Nombre</th><th>RUC</th><th>Contacto</th><th>Telefono</th><th>Correo</th><th>Direccion</th><th>Estado</th></tr></thead><tbody>{suppliers.map((supplier) => <tr key={supplier.supplier_id}>{isAdmin && <td className="row-actions"><button title="Editar" onClick={() => openSupplierForm(supplier)}><Pencil size={16} /></button><button className="danger" title="Eliminar" onClick={() => deleteSupplier(supplier)}><Trash2 size={16} /></button></td>}<td>{supplier.supplier_code || '—'}</td><td><strong>{supplier.name}</strong></td><td>{supplier.ruc || '—'}</td><td>{supplier.contact_name || '—'}</td><td>{supplier.phone || '—'}</td><td>{supplier.email || '—'}</td><td>{supplier.address || '—'}</td><td><span className={`status-badge ${supplier.active ? 'active' : 'inactive'}`}>{supplier.active ? 'Activo' : 'Inactivo'}</span></td></tr>)}</tbody></table>{!loading && !suppliers.length && <p className="empty-state">No hay proveedores registrados.</p>}</div>
