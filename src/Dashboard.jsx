@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Machines from './Machines'
 import StockAlerts from './StockAlerts'
 import OpeningBalance from './OpeningBalance'
+import MaintenanceRequests from './MaintenanceRequests'
 import PartsHistory from './PartsHistory'
 import SparePartReports from './SparePartReports'
 import MachineElementTypes from './MachineElementTypes'
@@ -14,6 +15,7 @@ function requestError(data, fallback) {
 
 export default function Dashboard({ apiUrl, token, currentUser, onUserChange, onLogout }) {
   const isAdmin = currentUser.rol === 'ADMIN'
+  const [showRequests, setShowRequests] = useState(false)
   const [section, setSection] = useState('machines')
   const [historyMachineId, setHistoryMachineId] = useState('')
   const isAssetsSection = ['machines', 'element-types', 'machine-elements', 'events'].includes(section)
@@ -324,11 +326,13 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   }
 
   return <main className="admin-shell">
+    <MaintenanceRequests apiUrl={apiUrl} token={token} currentUser={currentUser} open={showRequests} onOpen={() => setShowRequests(true)} onClose={() => setShowRequests(false)} />
     {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
     <StockAlerts apiUrl={apiUrl} token={token} section={section} />
     <header className="admin-header">
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
+        <button onClick={() => setShowRequests(true)}>Solicitudes</button>
         <button className={isAssetsSection ? 'selected' : ''} onClick={() => { setMessage(''); setSection('machines') }}>Activos</button>
         <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>
         {isAdmin && <button className={section === 'users' ? 'selected' : ''} onClick={() => setSection('users')}>Usuarios</button>}
@@ -359,7 +363,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <div className="users-card table-scroll"><table><thead><tr><th>Acciones</th><th>Nombre</th><th>Descripcion</th></tr></thead><tbody>{sparePartCategories.map((category) => <tr key={category.category_id}><td className="row-actions"><button title="Editar" onClick={() => openCategoryForm(category)}><Pencil size={16} /></button><button className="danger" title="Eliminar" onClick={() => deleteCategory(category)}><Trash2 size={16} /></button></td><td><strong>{category.name}</strong></td><td>{category.description || '—'}</td></tr>)}</tbody></table>{!loading && !sparePartCategories.length && <p className="empty-state">No hay categorias registradas.</p>}</div>
       </> : <>
         <div className="page-heading"><div><p className="eyebrow">CONFIGURACION</p><h1>Administrar usuarios</h1><p>Gestion de roles de acceso.</p></div><Users size={28} /></div>
-        <div className="users-card table-scroll"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Creado</th></tr></thead><tbody>{users.map((user) => <tr key={user.id}><td><strong>{user.nombre}</strong></td><td>{user.correo}</td><td><select value={user.rol} onChange={(e) => updateRole(user.id, e.target.value)}><option value="USUARIO">Usuario</option><option value="ADMIN">Administrador</option></select></td><td>{user.activo ? 'Activo' : 'Inactivo'}</td><td>{new Date(user.creado_en).toLocaleDateString()}</td></tr>)}</tbody></table></div>
+        <div className="users-card table-scroll"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Creado</th></tr></thead><tbody>{users.map((user) => <tr key={user.id}><td><strong>{user.nombre}</strong></td><td>{user.correo}</td><td><select value={user.rol} onChange={(e) => updateRole(user.id, e.target.value)}><option value="USUARIO">Usuario</option><option value="OPERADOR">Operador</option><option value="ADMIN">Administrador</option></select></td><td>{user.activo ? 'Activo' : 'Inactivo'}</td><td>{new Date(user.creado_en).toLocaleDateString()}</td></tr>)}</tbody></table></div>
       </>}
       <p className="admin-message" role="status">{loading ? 'Cargando...' : message}</p>
     </section>

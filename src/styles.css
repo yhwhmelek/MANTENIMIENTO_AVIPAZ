@@ -126,6 +126,34 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .row-actions { display: flex; gap: 7px; }
 .stock-alert-trigger { position: fixed; right: 18px; bottom: 18px; z-index: 25; display: flex; align-items: center; gap: 8px; padding: 13px 18px; border: 1px solid #cad1cd; border-radius: 8px; background: #fff; color: #214c3f; box-shadow: 0 4px 18px #0002; cursor: pointer; font-weight: 700; }
 .stock-alert-trigger.needs-attention { background: #fff3cd; color: #784900; border-color: #c88b21; }
+.request-alert-trigger { position: fixed; left: 18px; bottom: 18px; z-index: 25; display: flex; align-items: center; gap: 8px; padding: 13px 18px; border: 1px solid #cad1cd; border-radius: 8px; background: #fff; color: #214c3f; box-shadow: 0 4px 18px #0002; cursor: pointer; font-weight: 700; }
+.request-alert-trigger.needs-attention { background: #fff3cd; color: #784900; border-color: #c88b21; }
+.request-workspace { width: min(1250px, calc(100% - 28px)); max-height: calc(100vh - 28px); overflow: auto; padding: 26px; border: 0; border-radius: 12px; color: #263d34; }
+.request-workspace::backdrop { background: rgba(10,27,21,.62); }
+.request-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 18px 0; }
+.request-detail { margin-top: 24px; padding: 18px; border: 1px solid #cad1cd; border-radius: 8px; }
+.request-detail p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.request-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.request-line { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 10px; margin-bottom: 12px; align-items: end; }
+.request-print { display: none; }
+@media (max-width: 700px) { .request-alert-trigger { bottom: 74px; left: auto; right: 18px; max-width: calc(100% - 36px); } .admin-shell { padding-bottom: 134px; } }
+@media print {
+  .request-alert-trigger, .request-workspace { display: none !important; }
+  @page maintenance-request { size: A4 portrait; margin: 9mm 6mm; }
+  body.maintenance-request-printing > :not(.request-print) { display: none !important; }
+  body.maintenance-request-printing > .request-print { display: block !important; page: maintenance-request; font: 9pt Arial, sans-serif; color: black; }
+  .request-print-form { break-after: page; }
+  .request-print table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+  .request-print td, .request-print th { color: black; white-space: pre-wrap; overflow-wrap: anywhere; padding: 1px 3px; letter-spacing: normal; line-height: 1.05; }
+  .request-print-form td { border: 0; font-family: Arial, sans-serif; }
+  .request-print-form img { width: 110px; max-width: 95%; max-height: 32px; object-fit: contain; }
+  .request-print-form > p { font-size: 7pt; margin: 3px 0; }
+  .request-print-annex h1 { font-size: 15pt; }
+  .request-print-annex h2 { font-size: 11pt; break-after: avoid; }
+  .request-print-annex p { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .request-print-annex td, .request-print-annex th { border: 1px solid #777; font-size: 9pt; padding: 5px; }
+  .request-print-annex tr { break-inside: avoid; }
+}
 .stock-alert-dialog { width: min(1100px, calc(100% - 32px)); max-height: calc(100vh - 40px); overflow: auto; padding: 24px; border: 0; border-radius: 12px; color: #263d34; }
 .stock-alert-dialog::backdrop { background: rgba(10, 27, 21, .62); }
 .admin-shell { padding-bottom: 76px; }
@@ -204,4 +232,8 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+}
+@media print {
+  body.maintenance-request-printing.spare-report-open > .request-print { display: block !important; }
+  body.maintenance-request-printing > .spare-report-print { display: none !important; }
 }

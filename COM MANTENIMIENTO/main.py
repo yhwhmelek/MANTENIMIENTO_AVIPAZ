@@ -91,7 +91,7 @@ class UsuarioAdministracionResponse(UsuarioResponse):
 
 
 class CambioRolRequest(BaseModel):
-    rol: Literal["ADMIN", "USUARIO"]
+    rol: Literal["ADMIN", "USUARIO", "OPERADOR"]
 
 
 class MotorBase(BaseModel):
@@ -2267,6 +2267,8 @@ def quitar_repuesto_maquina(machine_id: int, relation_id: int, usuario_id: int =
 from parts_history import register_parts_history
 
 register_parts_history(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
+from maintenance_requests import register_maintenance_requests
+register_maintenance_requests(app, obtener_conexion, obtener_usuario_activo)
 
 
 if __name__ == "__main__":
