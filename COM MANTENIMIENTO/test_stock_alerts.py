@@ -1,5 +1,7 @@
 import sqlite3
 import unittest
+from contextlib import nullcontext
+from unittest.mock import patch
 
 from fastapi import FastAPI, HTTPException
 from parts_history import register_parts_history
@@ -41,6 +43,16 @@ class StockAlertsTests(unittest.TestCase):
         ''')
         app = FastAPI()
         register_parts_history(app, lambda: connection, lambda: 1, lambda: 1)
+        stock_endpoint = next(route.endpoint for route in app.routes if route.path == '/stock-repuestos')
+        with patch('parts_history.closing', side_effect=nullcontext):
+            all_stock = stock_endpoint(usuario_id=1)
+        balances = {row['internal_code']: row['current_stock'] for row in all_stock}
+        self.assertEqual(len(balances), 9)
+        self.assertEqual(balances['OK'], 6)
+        self.assertEqual(balances['ENOUGH'], 20)
+        self.assertEqual(balances['ZERO'], 0)
+        self.assertEqual(balances['OFF'], 0)
+        self.assertEqual(balances['CUT'], 5)
         endpoint = next(route.endpoint for route in app.routes if route.path == '/alertas-stock')
         result = endpoint(usuario_id=1)
         self.assertEqual([(row['internal_code'], row['current_stock']) for row in result],

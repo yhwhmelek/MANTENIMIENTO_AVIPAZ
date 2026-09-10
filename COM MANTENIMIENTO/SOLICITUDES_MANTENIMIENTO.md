@@ -45,3 +45,13 @@ Las fechas operativas se expresan en hora local de Ecuador continental, UTC−5.
 - La toma y entrega usan bloqueos transaccionales; una entrega repetida se rechaza por estado. Cualquier fallo revierte intervención, consumos y cambio de estado.
 - Los repuestos duplicados no heredan saldos ni movimientos.
 - La migración y las transacciones deben verificarse con SQL Server antes de usarlo en producción. Las pruebas automatizadas locales emplean conexiones simuladas; no ejecutan la migración contra una base real.
+
+## Actualizaci?n de permisos (migraci?n 006)
+
+Ejecutar `migrations/006_admin_request_workflow.sql` despu?s de 005 y reiniciar el backend. Esta actualizaci?n sustituye las reglas anteriores de separaci?n de personas:
+
+- ADMIN puede generar, atender, entregar y recibir cualquier solicitud, incluida la propia. Los estados siguen siendo obligatorios y secuenciales.
+- OPERADOR puede generar solicitudes y recibir las suyas; no puede atender ni entregar.
+- Atender y completar requieren ADMIN tambi?n en la API.
+- `AssignedTo` conserva qui?n atendi?; `MaintenanceEvents.CreatedBy` registra qui?n entreg?; `ReceivedBy` identifica a quien confirm? la recepci?n. El detalle y el PDF muestran estos responsables.
+- En solicitudes cerradas antes de esta actualizaci?n, la migraci?n completa `ReceivedBy` con `RequestedBy`, seg?n la regla que estaba vigente. No modifica los consumos.

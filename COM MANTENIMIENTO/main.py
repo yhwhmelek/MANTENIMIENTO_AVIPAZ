@@ -27,6 +27,9 @@ app = FastAPI(
     description="API para autenticacion y acceso a SQL Server.",
 )
 
+from request_diagnostics import register_request_diagnostics
+register_request_diagnostics(app)
+
 origenes_permitidos = [
     origen.strip()
     for origen in os.getenv(

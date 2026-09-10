@@ -16,9 +16,9 @@ export default function MaintenanceRequestPrint({ row }) {
     C17: `IMPACTO: ${r.impact}/4\n4 Para la planta · 3 Para una línea\n2 Baja rendimiento · 1 No afecta producción`,
     E17: `RIESGO: ${r.risk}/4\n4 Peligro grave · 3 Riesgo medio\n2 Riesgo bajo · 1 Sin riesgo`,
     A24: `RECIBIDO POR: ${row.assignee_name || ''}`, D24: `FECHA: ${row.accepted_at?.slice(0,10) || ''}`, G24: `HORA: ${row.accepted_at?.slice(11,16) || ''}`,
-    A26: `REALIZADO POR: ${row.completed_at ? row.assignee_name : ''}`, D26: `FECHA: ${e.repair_finished_at?.slice(0,10) || ''}`, G26: `HORA: ${e.repair_finished_at?.slice(11,16) || ''}`,
+    A26: `REALIZADO POR: ${row.completed_at ? (row.executor_name || row.assignee_name) : ''}`, D26: `FECHA: ${e.repair_finished_at?.slice(0,10) || ''}`, G26: `HORA: ${e.repair_finished_at?.slice(11,16) || ''}`,
     A28: `TRABAJO REALIZADO: ${short(e.work_done)}`, A32: `POSIBLES CAUSAS: ${short(optional(e.cause))}`,
-    A53: `RECIBIDO POR: ${row.received_at ? row.requester_name : ''}`, D53: `FECHA: ${row.received_at?.slice(0,10) || ''}`, G53: `HORA: ${row.received_at?.slice(11,16) || ''}`,
+    A53: `RECIBIDO POR: ${row.received_at ? (row.receiver_name || row.requester_name) : ''}`, D53: `FECHA: ${row.received_at?.slice(0,10) || ''}`, G53: `HORA: ${row.received_at?.slice(11,16) || ''}`,
     A55: `RECOMENDACIÓN DE CÓMO OPERAR LA MÁQUINA: ${short(optional(e.recommendations),120)}`, D55: `CONDICIONES DE ENTREGA: ${short(optional(e.delivery_conditions),120)}`,
   }
   parts.slice(0,3).forEach((part,i) => { values[`A${42+i}`] = short(part.removed_part,65); values[`D${42+i}`] = short(`${part.internal_code}: ${part.quantity} ${part.unit_of_measure} · ${part.description}`,85) })
@@ -31,7 +31,7 @@ export default function MaintenanceRequestPrint({ row }) {
     <section className="request-print-annex"><h1>Anexo · Solicitud #{row.id}</h1>
       <p>{r.machine_code} · {r.machine_name} · {r.maintenance_type} · Falla: {r.failure ? 'Sí' : 'No'}</p>
       <p>Solicitada por {row.requester_name}: {stamp(row.requested_at)}. Atendida por {row.assignee_name || 'Pendiente'}: {stamp(row.accepted_at)}.</p>
-      <p>Entrega registrada: {stamp(row.completed_at)}. Recepción confirmada por {row.received_at ? row.requester_name : 'Pendiente'}: {stamp(row.received_at)}.</p>
+      <p>Entrega registrada por {row.executor_name || row.assignee_name || 'Pendiente'}: {stamp(row.completed_at)}. Recepción confirmada por {row.received_at ? (row.receiver_name || row.requester_name) : 'Pendiente'}: {stamp(row.received_at)}.</p>
       <p>Confirmación de recepción: {row.receipt_notes || 'Pendiente'}</p>
       <h2>Datos para indicadores (hora local de Ecuador)</h2>
       <p>Detección del daño / necesidad: {stamp(r.detected_at)}.</p>

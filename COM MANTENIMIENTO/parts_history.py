@@ -161,9 +161,8 @@ def register_parts_history(app, connect, active_user, admin_user):
                     'quantity': data.quantity, 'unit_of_measure': part[0], 'notes': data.notes}
         return write(operation)
 
-    @app.get('/alertas-stock')
-    def stock_alerts(usuario_id: int = Depends(active_user)):
-        return read('''
+    def stock_balances(alerts_only):
+        sql = '''
             WITH purchases AS (
                 SELECT p.SparePartId, SUM(p.Quantity) AS quantity
                 FROM dbo.SparePartPurchases p
@@ -186,10 +185,19 @@ def register_parts_history(app, connect, active_user, admin_user):
             LEFT JOIN dbo.SparePartOpeningBalances b ON b.SparePartId=s.SparePartId
             LEFT JOIN purchases p ON p.SparePartId = s.SparePartId
             LEFT JOIN consumptions c ON c.SparePartId = s.SparePartId
-            WHERE s.Active = 1 AND s.MinimumStock > 0
-                AND COALESCE(b.Quantity, 0) + COALESCE(p.quantity, 0) - COALESCE(c.quantity, 0) <= s.MinimumStock
-            ORDER BY current_stock, s.InternalCode
-        ''')
+        '''
+        if alerts_only:
+            sql += ''' WHERE s.Active = 1 AND s.MinimumStock > 0
+                AND COALESCE(b.Quantity, 0) + COALESCE(p.quantity, 0) - COALESCE(c.quantity, 0) <= s.MinimumStock'''
+        return read(sql + ' ORDER BY current_stock, s.InternalCode')
+
+    @app.get('/alertas-stock')
+    def stock_alerts(usuario_id: int = Depends(active_user)):
+        return stock_balances(True)
+
+    @app.get('/stock-repuestos')
+    def warehouse_stock(usuario_id: int = Depends(active_user)):
+        return stock_balances(False)
 
     @app.get('/intervenciones')
     def interventions(machine_id: int | None = Query(None, gt=0), start: date | None = None,

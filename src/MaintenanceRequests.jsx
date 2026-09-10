@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Bell, X } from 'lucide-react'
 import MaintenanceRequestPrint from './MaintenanceRequestPrint'
 import OperatingPeriods from './OperatingPeriods'
+import { requestValidationError } from './requestValidationError'
 
 const states = { PENDIENTE:'Pendiente', EN_PROCESO:'En proceso', POR_RECIBIR:'Por recibir', CERRADA:'Cerrada' }
 const time = value => value ? value.replace('T',' ').slice(0,16) : '—'
@@ -18,12 +19,13 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [showPeriods,setShowPeriods] = useState(false)
   const dialog=useRef(null), submitting=useRef(false)
   const detail=useRef(null)
+  const isAdmin=currentUser.rol==='ADMIN'
   const canCreate=['ADMIN','OPERADOR'].includes(currentUser.rol)
-  const actionCount=rows.filter(r=>(r.status==='PENDIENTE' && r.requested_by!==currentUser.id) || (r.status==='EN_PROCESO' && r.assigned_to===currentUser.id) || (r.status==='POR_RECIBIR' && r.requested_by===currentUser.id)).length
+  const actionCount=rows.filter(r=>(r.status==='PENDIENTE' && isAdmin) || (r.status==='EN_PROCESO' && isAdmin) || (r.status==='POR_RECIBIR' && (isAdmin || r.requested_by===currentUser.id))).length
   async function request(path,options={}) {
     const response=await fetch(`${apiUrl}${path}`,{...options,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}})
     const data=await response.json().catch(()=>({}))
-    if (!response.ok) throw new Error(typeof data.detail==='string'?data.detail:'Revisa los campos, fechas y cantidades ingresados.')
+    if (!response.ok) throw new Error(requestValidationError(data))
     return data
   }
   useEffect(()=>{
@@ -67,11 +69,20 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       if(dialog.current)dialog.current.scrollTop=0
     }
   },[open,showingDetail,row?.id])
-  function change(name,value){setForm(f=>({...f,[name]:value}))}
+  function change(name,value){setForm(f=>({...f,[name]:value,...(name==='urgency' && Number(value)!==4 ? {stopped_at:''} : {})}))}
   function start(modeName){
     setMode(modeName);setFormError('')
-    if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',urgency:'4',impact:'3',risk:'2',failure:false,description:'',detected_at:localInput()})
-    if(modeName==='complete')setForm({repair_started_at:row.accepted_at.slice(0,16),repair_finished_at:localInput(),stopped_at:row.request_data.stopped_at?.slice(0,16)||'',restored_at:row.request_data.stopped_at?localInput():'',hour_meter:row.request_data.hour_meter||'',waiting_parts_minutes:'0',parts:[],tools:[]})
+    if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',urgency:'',impact:'3',risk:'2',failure:false,description:'',detected_at:localInput()})
+    if(modeName==='complete'){
+      const original=row.request_data
+      const plannedPart=original.requested_part_id
+      const available=parts.some(part=>String(part.spare_part_id)===String(plannedPart))
+      setForm({repair_started_at:row.accepted_at.slice(0,16),repair_finished_at:localInput(),
+        stopped_at:original.stopped_at?.slice(0,16)||'',restored_at:original.stopped_at?localInput():'',
+        hour_meter:original.hour_meter??'',waiting_parts_minutes:'0',work_done:original.description||'',
+        parts:plannedPart?[{spare_part_id:available?String(plannedPart):'',quantity:String(original.requested_quantity??1),removed_part:'',position:''}]:[],tools:[]})
+      if(plannedPart&&!available)setFormError(`El repuesto previsto ${original.requested_part_code || plannedPart} ya no est? disponible en el cat?logo activo. Selecciona otro repuesto o quita la fila si no se utiliz?.`)
+    }
     if(modeName==='receive')setForm({notes:''})
   }
   async function mutate(suffix,payload){
@@ -120,13 +131,13 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       {!form&&!row&&<div className="table-scroll"><table><thead><tr><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th><th>Acción</th></tr></thead><tbody>{rows.filter(r=>!filter||r.status===filter).map(r=><tr key={r.id}><td>#{r.id}<br/>{time(r.requested_at)}</td><td>{r.request_data.machine_code}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button></td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
       {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button><h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}. Criticidad: {row.request_data.urgency*row.request_data.impact*row.request_data.risk}.</p><p>Planificado: {time(row.request_data.planned_start)} a {time(row.request_data.planned_end)}. Parada: {time(row.request_data.stopped_at)}.</p>
         {row.request_data.requested_part_id&&<p>Repuesto previsto: {row.request_data.requested_part_code} · {row.request_data.requested_quantity}. Stock al solicitar: {row.request_data.stock_at_request} ({row.request_data.stock_sufficient?'suficiente':'insuficiente'}).</p>}
-        {row.execution_data&&<><h4>Trabajo entregado</h4><p>{row.execution_data.work_done}</p><p>Causa: {row.execution_data.cause || 'No aplica'}</p><p>Recomendaciones: {row.execution_data.recommendations || 'No aplica'}</p><p>Condiciones: {row.execution_data.delivery_conditions || 'No aplica'}</p><p>Reparación: {time(row.execution_data.repair_started_at)} — {time(row.execution_data.repair_finished_at)}. Retorno: {time(row.execution_data.restored_at)}.</p><ul>{row.execution_data.parts.map(p=><li key={p.spare_part_id}>{p.internal_code} · {p.quantity} {p.unit_of_measure} consumidos</li>)}</ul></>}
-        {row.received_at&&<p>Recibido por {row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
+        {row.execution_data&&<><h4>Trabajo entregado</h4><p>Realizado por: {row.executor_name || row.assignee_name}</p><p>{row.execution_data.work_done}</p><p>Causa: {row.execution_data.cause || 'No aplica'}</p><p>Recomendaciones: {row.execution_data.recommendations || 'No aplica'}</p><p>Condiciones: {row.execution_data.delivery_conditions || 'No aplica'}</p><p>Reparación: {time(row.execution_data.repair_started_at)} — {time(row.execution_data.repair_finished_at)}. Retorno: {time(row.execution_data.restored_at)}.</p><ul>{row.execution_data.parts.map(p=><li key={p.spare_part_id}>{p.internal_code} · {p.quantity} {p.unit_of_measure} consumidos</li>)}</ul></>}
+        {row.received_at&&<p>Recibido por {row.receiver_name || row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF MT/02-05</button>
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
-          {row.status==='PENDIENTE'&&row.requested_by!==currentUser.id&&<button disabled={busy} className="primary-action" onClick={()=>mutate(`/${row.id}/atender`)}>Atender solicitud</button>}
-          {row.status==='EN_PROCESO'&&row.assigned_to===currentUser.id&&<button disabled={busy||!catalogReady} className="primary-action" onClick={()=>start('complete')}>Registrar trabajo y repuestos</button>}
-          {row.status==='POR_RECIBIR'&&row.requested_by===currentUser.id&&<button className="primary-action" onClick={()=>start('receive')}>Confirmar recepción del cambio</button>}
+          {row.status==='PENDIENTE'&&isAdmin&&<button disabled={busy} className="primary-action" onClick={()=>mutate(`/${row.id}/atender`)}>Atender solicitud</button>}
+          {row.status==='EN_PROCESO'&&isAdmin&&<button disabled={busy||!catalogReady} className="primary-action" onClick={()=>start('complete')}>Registrar trabajo y repuestos</button>}
+          {row.status==='POR_RECIBIR'&&(isAdmin||row.requested_by===currentUser.id)&&<button className="primary-action" onClick={()=>start('receive')}>Confirmar recepción del cambio</button>}
         </div></section>}
       {form&&<form onSubmit={save}><h3>{mode==='new'?'Generar solicitud':mode==='complete'?'Registrar trabajo realizado':'Confirmar recepción'}</h3><p>Fechas y horas locales de Ecuador (UTC−5).</p><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
         {mode==='new'&&<>
@@ -134,7 +145,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <label>Tipo<select value={form.maintenance_type} onChange={e=>change('maintenance_type',e.target.value)}><option>CORRECTIVO</option><option>PREVENTIVO</option></select></label>
           <Text label="Descripción del daño / trabajo solicitado" name="description" form={form} change={change}/>
           <Field label="Fecha y hora de detección del daño / necesidad" type="datetime-local" name="detected_at" required value={form.detected_at} onChange={change}/>
-          {[['urgency','Urgencia',['No afecta operación','Funciona con falla','Puede parar pronto','Equipo parado']],['impact','Impacto',['No afecta producción','Baja rendimiento','Para una línea','Para toda la planta']],['risk','Riesgo',['Sin riesgo','Riesgo bajo','Riesgo medio','Peligro grave / accidente']]].map(([key,label,options])=><label key={key}>{label}<select value={form[key]} onChange={e=>change(key,e.target.value)}>{options.map((text,i)=><option key={i} value={i+1}>{i+1} · {text}</option>)}</select></label>)}
+          {[['urgency','Urgencia',['No afecta operación','Funciona con falla','Puede parar pronto','Equipo parado']],['impact','Impacto',['No afecta producción','Baja rendimiento','Para una línea','Para toda la planta']],['risk','Riesgo',['Sin riesgo','Riesgo bajo','Riesgo medio','Peligro grave / accidente']]].map(([key,label,options])=><label key={key}>{label}<select required value={form[key]} onChange={e=>change(key,e.target.value)}>{key==='urgency'&&<option value="" disabled>Selecciona la urgencia</option>}{options.map((text,i)=><option key={i} value={i+1}>{i+1} · {text}</option>)}</select></label>)}
           <label className="checkbox-field"><input type="checkbox" checked={form.failure} onChange={e=>change('failure',e.target.checked)}/> Es una falla del equipo (para MTBF)</label>
           <Field label="Inicio real de parada (obligatorio si está parado)" type="datetime-local" name="stopped_at" required={Number(form.urgency)===4} value={form.stopped_at} onChange={change}/>
           <Field label="Horómetro al solicitar (h, si existe)" type="number" min="0" step="0.01" name="hour_meter" value={form.hour_meter} onChange={change}/>
@@ -144,6 +155,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <Field label="Cantidad prevista" type="number" min="0.01" step="0.01" name="requested_quantity" value={form.requested_quantity} onChange={change}/>
         </>}
         {mode==='complete'&&<>
+          <p className="full-field">Se copiaron la descripci?n y el repuesto previsto de la solicitud. Ajusta el trabajo, los repuestos y las cantidades seg?n lo realizado; puedes quitar o a?adir repuestos antes de entregar.</p>
           {[['repair_started_at','Inicio real de reparación',true],['repair_finished_at','Fin real de reparación',true],['stopped_at','Inicio real de parada',false],['restored_at','Retorno real a servicio',false]].map(([key,label,required])=><Field key={key} label={label} name={key} type="datetime-local" required={required} value={form[key]} onChange={change}/>)}
           <Field label="Horómetro final (h)" type="number" min="0" step="0.01" name="hour_meter" value={form.hour_meter} onChange={change}/>
           <Field label="Minutos de espera por repuestos" type="number" min="0" step="1" required name="waiting_parts_minutes" value={form.waiting_parts_minutes} onChange={change}/>

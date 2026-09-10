@@ -33,11 +33,12 @@ BEGIN TRY
             RequestedAt DATETIME2 NOT NULL,
             Status VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'
                 CHECK (Status IN ('PENDIENTE','EN_PROCESO','POR_RECIBIR','CERRADA')),
-            RequestData NVARCHAR(MAX) NOT NULL CHECK (ISJSON(RequestData)=1),
+            -- SQL Server 2014 (12.x): JSON validado y serializado por la API.
+            RequestData NVARCHAR(MAX) NOT NULL,
             AssignedTo INT NULL REFERENCES dbo.Usuarios(Id),
             AcceptedAt DATETIME2 NULL,
             CompletedAt DATETIME2 NULL,
-            ExecutionData NVARCHAR(MAX) NULL CHECK (ExecutionData IS NULL OR ISJSON(ExecutionData)=1),
+            ExecutionData NVARCHAR(MAX) NULL,
             MaintenanceEventId INT NULL REFERENCES dbo.MaintenanceEvents(MaintenanceEventId),
             ReceivedAt DATETIME2 NULL,
             ReceiptNotes NVARCHAR(1000) NULL,

@@ -140,9 +140,14 @@ SELECT = '''SELECT r.RequestId AS id, r.MachineId AS machine_id,
     r.RequestData AS request_data, r.AssignedTo AS assigned_to, r.AcceptedAt AS accepted_at,
     r.CompletedAt AS completed_at, r.ExecutionData AS execution_data,
     r.MaintenanceEventId AS maintenance_event_id, r.ReceivedAt AS received_at,
-    r.ReceiptNotes AS receipt_notes, u.Nombre AS requester_name, a.Nombre AS assignee_name
+    r.ReceiptNotes AS receipt_notes, r.ReceivedBy AS received_by,
+    u.Nombre AS requester_name, a.Nombre AS assignee_name,
+    receiver.Nombre AS receiver_name, executor.Nombre AS executor_name
     FROM dbo.MaintenanceRequests r JOIN dbo.Usuarios u ON u.Id=r.RequestedBy
-    LEFT JOIN dbo.Usuarios a ON a.Id=r.AssignedTo'''
+    LEFT JOIN dbo.Usuarios a ON a.Id=r.AssignedTo
+    LEFT JOIN dbo.Usuarios receiver ON receiver.Id=r.ReceivedBy
+    LEFT JOIN dbo.MaintenanceEvents event ON event.MaintenanceEventId=r.MaintenanceEventId
+    LEFT JOIN dbo.Usuarios executor ON executor.Id=event.CreatedBy'''
 
 
 def decode(row):
@@ -179,7 +184,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         except pyodbc.IntegrityError:
             raise HTTPException(409, 'La solicitud cambio o contiene referencias no validas. Actualiza el listado.')
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudo guardar la solicitud. Verifica la migracion 005 y la conexion.')
+            raise HTTPException(503, 'No se pudo guardar la solicitud. Verifica las migraciones 005 y 006 y la conexion.')
 
     def locked(cursor, request_id):
         row = cursor.execute('SELECT RequestedBy, AssignedTo, Status, RequestData, AcceptedAt FROM dbo.MaintenanceRequests WITH (UPDLOCK, HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
@@ -226,7 +231,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     JOIN dbo.Machines m ON m.MachineId=p.MachineId ORDER BY p.StartsAt DESC''')
                 return records(cursor)
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudieron consultar los periodos. Verifica la migracion 005.')
+            raise HTTPException(503, 'No se pudieron consultar los periodos. Verifica las migraciones 005 y 006.')
 
     @app.post('/periodos-operacion', status_code=201)
     def create_period(data: OperatingPeriodWrite, usuario_id: int = Depends(active_user)):
@@ -253,7 +258,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 cursor.execute(SELECT + ' ORDER BY r.RequestId DESC')
                 return [decode(row) for row in records(cursor)]
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudieron consultar las solicitudes. Verifica la migracion 005.')
+            raise HTTPException(503, 'No se pudieron consultar las solicitudes. Verifica las migraciones 005 y 006.')
 
     @app.post('/solicitudes-mantenimiento', status_code=201)
     def create_request(data: RequestWrite, usuario_id: int = Depends(active_user)):
@@ -276,11 +281,9 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         return write(operation)
 
     @app.post('/solicitudes-mantenimiento/{request_id}/atender')
-    def accept_request(request_id: int, usuario_id: int = Depends(active_user)):
+    def accept_request(request_id: int, usuario_id: int = Depends(admin_user)):
         def operation(cursor):
             row = locked(cursor, request_id)
-            if row[0] == usuario_id:
-                raise HTTPException(403, 'La solicitud debe atenderla otra persona')
             if row[2] != 'PENDIENTE':
                 raise HTTPException(409, 'Esta solicitud ya fue atendida')
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='EN_PROCESO', AssignedTo=?, AcceptedAt=? WHERE RequestId=?", usuario_id, local_now(), request_id)
@@ -288,11 +291,9 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         return write(operation)
 
     @app.post('/solicitudes-mantenimiento/{request_id}/completar')
-    def complete_request(request_id: int, data: CompleteWrite, usuario_id: int = Depends(active_user)):
+    def complete_request(request_id: int, data: CompleteWrite, usuario_id: int = Depends(admin_user)):
         def operation(cursor):
             row = locked(cursor, request_id)
-            if row[1] != usuario_id:
-                raise HTTPException(403, 'Solo la persona que atiende puede entregar el trabajo')
             if row[2] != 'EN_PROCESO':
                 raise HTTPException(409, 'La solicitud ya fue entregada o no esta en proceso')
             original = json.loads(row[3])
@@ -327,9 +328,11 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         def operation(cursor):
             row = locked(cursor, request_id)
             if row[0] != usuario_id:
-                raise HTTPException(403, 'Solo el solicitante puede confirmar la recepcion')
+                role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
+                if not role or role[0] != 'ADMIN':
+                    raise HTTPException(403, 'Solo el solicitante o un administrador puede confirmar la recepcion')
             if row[2] != 'POR_RECIBIR':
                 raise HTTPException(409, 'La solicitud no esta pendiente de recepcion')
-            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='CERRADA', ReceivedAt=?, ReceiptNotes=? WHERE RequestId=?", local_now(), data.notes, request_id)
+            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='CERRADA', ReceivedAt=?, ReceiptNotes=?, ReceivedBy=? WHERE RequestId=?", local_now(), data.notes, usuario_id, request_id)
             return {'id': request_id}
         return write(operation)

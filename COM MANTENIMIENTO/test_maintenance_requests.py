@@ -34,7 +34,7 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar')) else self.active,[d.call for d in route.dependant.dependencies])
 
     def test_delete_request_removes_only_its_flow_in_order(self):
         self.cursor.execute.return_value.fetchone.side_effect=[(33,), (33,)]
@@ -90,7 +90,7 @@ class RequestTests(unittest.TestCase):
         self.connection.commit.assert_called_once()
 
     def test_self_accept_and_already_taken_rejected(self):
-        for row, user, code in [(self.locked('PENDIENTE',assigned_to=None),1,403),(self.locked(),3,409)]:
+        for row, user, code in [(self.locked(),3,409)]:
             self.cursor.execute.return_value.fetchone.return_value = row
             with self.assertRaises(HTTPException) as error:
                 self.endpoint('/{request_id}/atender')(5,usuario_id=user)
@@ -102,6 +102,26 @@ class RequestTests(unittest.TestCase):
         self.endpoint('/{request_id}/atender')(5,usuario_id=2)
         self.assertIn('UPDLOCK, HOLDLOCK',self.cursor.execute.call_args_list[0].args[0])
         self.assertEqual(self.cursor.execute.call_args.args[1],2)
+        self.connection.commit.assert_called_once()
+
+    def test_admin_can_accept_own_request(self):
+        self.cursor.execute.return_value.fetchone.return_value=self.locked('PENDIENTE',requested_by=9,assigned_to=None)
+        self.endpoint('/{request_id}/atender')(5,usuario_id=9)
+        self.assertEqual(self.cursor.execute.call_args.args[1],9)
+        self.connection.commit.assert_called_once()
+
+    def test_admin_can_complete_another_assignees_request(self):
+        self.cursor.execute.return_value.fetchone.side_effect=[self.locked(),(33,)]
+        self.endpoint('/{request_id}/completar')(5,self.completion(parts=[]),usuario_id=9)
+        event=next(c.args for c in self.cursor.execute.call_args_list if 'INSERT INTO dbo.MaintenanceEvents' in c.args[0])
+        self.assertEqual(event[-1],9)
+        self.connection.commit.assert_called_once()
+
+    def test_admin_receipt_records_actual_receiver(self):
+        self.cursor.execute.return_value.fetchone.side_effect=[self.locked('POR_RECIBIR'),('ADMIN',)]
+        self.endpoint('/{request_id}/recibir')(5,mod.ReceiptWrite(),usuario_id=9)
+        self.assertIn('ReceivedBy=?',self.cursor.execute.call_args.args[0])
+        self.assertEqual(self.cursor.execute.call_args.args[-2:],(9,5))
         self.connection.commit.assert_called_once()
 
     def test_completion_creates_event_and_consumption_once(self):
@@ -141,11 +161,7 @@ class RequestTests(unittest.TestCase):
         self.connection.rollback.assert_called_once()
         self.connection.commit.assert_not_called()
 
-    def test_only_assignee_completes_and_requester_receives(self):
-        self.cursor.execute.return_value.fetchone.return_value=self.locked()
-        with self.assertRaises(HTTPException) as error:
-            self.endpoint('/{request_id}/completar')(5,self.completion(),usuario_id=1)
-        self.assertEqual(error.exception.status_code,403)
+    def test_operator_cannot_receive_for_another_requester(self):
         self.cursor.execute.return_value.fetchone.return_value=self.locked('POR_RECIBIR')
         with self.assertRaises(HTTPException) as error:
             self.endpoint('/{request_id}/recibir')(5,mod.ReceiptWrite(notes='Recibido'),usuario_id=2)
@@ -223,6 +239,12 @@ class RequestTests(unittest.TestCase):
         self.assertIn('VoidedAt IS NULL',sql[3])
 
     def test_stopped_machine_requires_time_and_preserves_reported_stop(self):
+        for urgency in (1, 2, 3):
+            for maintenance_type in ('CORRECTIVO', 'PREVENTIVO'):
+                with self.subTest(urgency=urgency, maintenance_type=maintenance_type):
+                    data = mod.RequestWrite(machine_id=3, description='Trabajo sin parada',
+                        maintenance_type=maintenance_type, urgency=urgency, impact=1, risk=1)
+                    self.assertIsNone(data.stopped_at)
         with self.assertRaises(ValidationError):
             mod.RequestWrite(machine_id=3,description='Cambio',maintenance_type='CORRECTIVO',urgency=4,impact=3,risk=2)
         self.original['stopped_at']='2026-01-01T08:00:00'
