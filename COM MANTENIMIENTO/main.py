@@ -156,6 +156,7 @@ class SparePartBase(BaseModel):
 
 
 class MachineWrite(BaseModel):
+    tower_id: int | None = Field(default=None, gt=0)
     asset_code: str = Field(min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=500)
@@ -888,6 +889,7 @@ def guardar_elemento(datos, element_id=None):
             previous_image = None
             if element_id is not None:
                 previous_image = cursor.execute('SELECT ImagePath FROM dbo.MachineElements WHERE ElementId = ?', element_id).fetchone()[0]
+            validate_machine_tower(cursor, datos.tower_id)
             image_path = guardar_imagen_maquina(datos.image_data)
             values = [getattr(datos, field) for field in ELEMENT_COLUMNS]
             if element_id is None:
@@ -1105,6 +1107,7 @@ def guardar_especificaciones_motor(element_id: int, datos: MotorSpecificationWri
             validar_tipo_data(cursor, element_id, 'MOTOR')
             validar_data_existente(cursor, element_id, 'MOTOR')
             actual = cursor.execute('SELECT NameplateImagePath FROM dbo.MotorSpecifications WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id).fetchone()
+            validate_machine_tower(cursor, datos.tower_id)
             image_path = guardar_imagen_maquina(datos.image_data)
             values = [getattr(datos, field) for field in SPEC_COLUMNS]
             if actual is None:
@@ -1165,7 +1168,11 @@ def imagen_especificaciones_motor(element_id: int, usuario_id: int = Depends(obt
     return FileResponse(path)
 
 
+from plant_structure import validate_machine_tower, register_plant_structure
+register_plant_structure(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
+
 MACHINE_COLUMNS = {
+    "tower_id": "TowerId",
     "asset_code": "AssetCode", "name": "Name", "description": "Description",
     "manufacturer": "Manufacturer", "model": "Model", "serial_number": "SerialNumber",
     "area": "Area", "production_line": "ProductionLine", "location": "Location",
@@ -1174,7 +1181,11 @@ MACHINE_COLUMNS = {
 }
 MACHINE_SELECT = "SELECT MachineId AS machine_id, " + ", ".join(
     f"{column} AS {field}" for field, column in MACHINE_COLUMNS.items()
-) + ", MachineImagePath AS machine_image_path, CreatedAt AS created_at FROM dbo.Machines"
+) + ", MachineImagePath AS machine_image_path, CreatedAt AS created_at" + """,
+    (SELECT t.PlantId FROM dbo.Towers t WHERE t.TowerId=Machines.TowerId) AS plant_id,
+    (SELECT t.Name FROM dbo.Towers t WHERE t.TowerId=Machines.TowerId) AS tower_name,
+    (SELECT p.Name FROM dbo.Towers t JOIN dbo.Plants p ON p.PlantId=t.PlantId WHERE t.TowerId=Machines.TowerId) AS plant_name
+    FROM dbo.Machines"""
 
 
 def machine_record(cursor, row):
@@ -1226,6 +1237,7 @@ def crear_maquina(datos: MachineWrite, usuario_id: int = Depends(obtener_usuario
             cursor = conexion.cursor()
             if cursor.execute("SELECT MachineId FROM dbo.Machines WHERE AssetCode = ?", datos.asset_code).fetchone():
                 raise HTTPException(status_code=409, detail="El codigo del activo ya existe")
+            validate_machine_tower(cursor, datos.tower_id)
             image_path = guardar_imagen_maquina(datos.image_data)
             values = [getattr(datos, field) for field in MACHINE_COLUMNS]
             columns = ", ".join(MACHINE_COLUMNS.values()) + ", MachineImagePath"
@@ -1263,11 +1275,13 @@ def actualizar_maquina(machine_id: int, datos: MachineWrite, usuario_id: int = D
                 raise HTTPException(status_code=404, detail="La maquina no existe")
             if cursor.execute("SELECT MachineId FROM dbo.Machines WHERE AssetCode = ? AND MachineId <> ?", datos.asset_code, machine_id).fetchone():
                 raise HTTPException(status_code=409, detail="El codigo del activo ya existe")
+            validate_machine_tower(cursor, datos.tower_id)
             image_path = guardar_imagen_maquina(datos.image_data)
-            assignments = ", ".join(f"{column} = ?" for column in MACHINE_COLUMNS.values())
+            update_fields = [field for field in MACHINE_COLUMNS if field != "tower_id" or field in datos.model_fields_set]
+            assignments = ", ".join(f"{MACHINE_COLUMNS[field]} = ?" for field in update_fields)
             cursor.execute(
                 f"UPDATE dbo.Machines SET {assignments}, MachineImagePath = ? WHERE MachineId = ?",
-                *(getattr(datos, field) for field in MACHINE_COLUMNS),
+                *(getattr(datos, field) for field in update_fields),
                 image_path or actual.MachineImagePath, machine_id,
             )
             row = cursor.execute(MACHINE_SELECT + " WHERE MachineId = ?", machine_id).fetchone()

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { normalizeName } from './nameSearch'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
 import MotorSpecifications from './MotorSpecifications'
 import MachineSpareParts from './MachineSpareParts'
@@ -23,6 +24,7 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
   const [machineId, setMachineId] = useState('')
   const [parentId, setParentId] = useState('')
   const [filter, setFilter] = useState('')
+  const [nameSearch, setNameSearch] = useState('')
   const [photo, setPhoto] = useState(null)
   const [preview, setPreview] = useState(null)
 
@@ -107,13 +109,14 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
   }
 
   const dataType = (item) => types.find((type) => type.element_type_id === item.element_type_id)?.specification_type || 'NONE'
-  const visible = items.filter((item) => !filter || item.machine_id === Number(filter))
+  const query = normalizeName(nameSearch)
+  const visible = items.filter((item) => normalizeName(item.name).includes(query) && (!filter || item.machine_id === Number(filter)))
   return <>
     {partsElement && <MachineSpareParts key={partsElement.element_id} apiUrl={apiUrl} token={token} machine={machines.find(machine => machine.machine_id === partsElement.machine_id)} element={partsElement} isAdmin={isAdmin} onClose={() => setPartsElement(null)} />}
     {reducerElement && <GearReducerSpecifications key={reducerElement.element_id} apiUrl={apiUrl} token={token} element={reducerElement} isAdmin={isAdmin} onClose={() => setReducerElement(null)} />}
     {specElement && <MotorSpecifications key={specElement.element_id} apiUrl={apiUrl} token={token} element={specElement} isAdmin={isAdmin} onClose={() => setSpecElement(null)} />}
     <div className="page-heading"><div><p className="eyebrow">ACTIVOS</p><h1>Elementos de máquinas</h1><p>Componentes, subconjuntos y su ubicación dentro de cada máquina.</p></div>{isAdmin && <button className="primary-action" disabled={loading || busy || !machines.length || !types.some((type) => type.active)} onClick={() => openForm()}><Plus size={18} /> Nuevo elemento</button>}</div>
-    <div className="motor-form-grid"><label>Filtrar por máquina<select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="">Todas las máquinas</option>{machines.map((item) => <option key={item.machine_id} value={item.machine_id}>{machineLabel(item.machine_id)}</option>)}</select></label></div>
+    <div className="motor-form-grid"><label>Filtrar por máquina<select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="">Todas las máquinas</option>{machines.map((item) => <option key={item.machine_id} value={item.machine_id}>{machineLabel(item.machine_id)}</option>)}</select></label><label>Buscar elemento por nombre<input type="search" value={nameSearch} onChange={event => setNameSearch(event.target.value)} placeholder="Escribe parte del nombre…" /></label></div>
     {!loading && (!machines.length || !types.some((type) => type.active)) && <p className="field-help">Para agregar elementos, registra una máquina y un tipo de elemento activo.</p>}
     <div className="users-card table-scroll"><table><thead><tr><th>Repuestos</th><th>Data del elemento</th>{isAdmin && <th>Acciones</th>}<th>Máquina</th><th>Código / Nombre</th><th>Tipo</th><th>Elemento padre</th><th>Posición</th><th>Cantidad</th><th>Criticidad</th><th>Estado</th><th>Activo</th><th>Foto</th></tr></thead><tbody>{visible.map((item) => <tr key={item.element_id}>
       <td><button className="secondary-action" disabled={!machines.some(machine => machine.machine_id === item.machine_id)} onClick={() => setPartsElement(item)}>Ver repuestos</button></td>

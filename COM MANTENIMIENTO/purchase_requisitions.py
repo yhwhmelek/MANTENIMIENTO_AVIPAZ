@@ -105,6 +105,8 @@ def generate_requisition(data: RequisitionWrite):
 
 
 def register_purchase_requisitions(app, active_user):
+    from requisition_mail import register_requisition_mail
+    register_requisition_mail(app, active_user)
     @app.post('/requisiciones-compra/archivo')
     def download_requisition(data: RequisitionWrite, usuario_id: int = Depends(active_user)):
         try:

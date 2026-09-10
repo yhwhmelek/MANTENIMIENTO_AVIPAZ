@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Machines from './Machines'
+import PlantStructure from './PlantStructure'
 import StockAlerts from './StockAlerts'
 import OpeningBalance from './OpeningBalance'
 import MaintenanceRequests from './MaintenanceRequests'
@@ -19,7 +20,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   const [showRequests, setShowRequests] = useState(false)
   const [section, setSection] = useState('machines')
   const [historyMachineId, setHistoryMachineId] = useState('')
-  const isAssetsSection = ['machines', 'element-types', 'machine-elements', 'events'].includes(section)
+  const isAssetsSection = ['machines', 'element-types', 'machine-elements', 'events', 'plant-structure'].includes(section)
   const isSparePartsSection = ['spare-parts', 'suppliers', 'categories', 'spare-reports', 'purchases', 'consumption', 'requisitions'].includes(section)
   const [spareParts, setSpareParts] = useState([])
   const [warehouseStock, setWarehouseStock] = useState(null)
@@ -370,6 +371,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
 
     <section className="admin-content">
       {isAssetsSection && <nav className="spare-parts-nav" aria-label="Activos">
+        <button aria-current={section === 'plant-structure' ? 'page' : undefined} onClick={() => { setMessage(''); setSection('plant-structure') }}>Plantas y torres</button>
         {[['machines', 'Máquinas'], ['machine-elements', 'Elementos de máquinas'], ['element-types', 'Tipos de elementos'], ['events', 'Intervenciones']].map(([value, label]) => <button key={value} aria-current={section === value ? 'page' : undefined} onClick={() => { setMessage(''); setHistoryMachineId(''); setSection(value) }}>{label}</button>)}
       </nav>}
       {isSparePartsSection && <nav className="spare-parts-nav" aria-label="Repuestos">
@@ -380,7 +382,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <button aria-current={section === 'suppliers' ? 'page' : undefined} onClick={() => setSection('suppliers')}>Proveedores</button>
         {isAdmin && <button aria-current={section === 'categories' ? 'page' : undefined} onClick={() => setSection('categories')}>Categorías</button>}
       </nav>}
-      {section === 'requisitions' ? <PurchaseRequisition apiUrl={apiUrl} token={token} currentUser={currentUser} /> : ['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} /> : section === 'spare-parts' ? <>
+      {section === 'plant-structure' ? <PlantStructure apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'requisitions' ? <PurchaseRequisition apiUrl={apiUrl} token={token} currentUser={currentUser} /> : ['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} /> : section === 'spare-parts' ? <>
         <div className="page-heading"><div><p className="eyebrow">INVENTARIO</p><h1>Repuestos</h1><p>Catalogo, existencias y costos de repuestos.</p></div><button className="primary-action" onClick={() => openSparePartForm()}><Plus size={18} /> Nuevo repuesto</button></div>
         <p>Stock de bodega: saldo inicial m?s compras menos consumos posteriores al corte, excluyendo anulados. Se actualiza cada 30 segundos.</p>{stockError && <p role="alert">{stockError}</p>}
         <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Categoria</th><th>Descripcion</th><th>Marca / Modelo</th><th>N.° parte</th><th>Unidad</th><th>Stock de bodega</th><th>Stock min. / max.</th><th>Costo unit.</th><th>Ubicacion</th><th>Estado</th><th>Imagen</th></tr></thead>

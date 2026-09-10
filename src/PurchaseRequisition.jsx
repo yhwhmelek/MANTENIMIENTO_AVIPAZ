@@ -8,6 +8,20 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[]})
   const [catalogError,setCatalogError]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
   const submitting=useRef(false)
+  const [mailDraft,setMailDraft]=useState(null)
+  const [mail,setMail]=useState({to:'',cc:'',subject:'Requisición de compra - Mantenimiento',body:'Estimados,\n\nAdjunto la requisición de compra para su revisión y gestión. Agradezco confirmar la recepción e informar la disponibilidad y el plazo estimado de entrega.\n\nSaludos cordiales,\n'+currentUser.nombre})
+  async function sendMail(event){
+    event.preventDefault();if(submitting.current)return
+    if(!window.confirm('¿Enviar la requisición Excel a los destinatarios y copias indicados?'))return
+    submitting.current=true;setBusy(true);setError('');setMessage('')
+    const addresses=value=>value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean)
+    try{
+      const response=await fetch(`${apiUrl}/requisiciones-compra/enviar`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requisition:mailDraft,...mail,to:addresses(mail.to),cc:addresses(mail.cc)})})
+      const data=await response.json()
+      if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Revisa los correos, el asunto y los datos de la requisición.')
+      setMessage(data.message);setMailDraft(null)
+    }catch(err){setError(err.message)}finally{submitting.current=false;setBusy(false)}
+  }
   useEffect(()=>{
     const controller=new AbortController()
     Promise.all(['/repuestos','/proveedores','/maquinas'].map(async path=>{
@@ -27,6 +41,9 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   }
   async function generate(event){
     event.preventDefault();if(submitting.current)return
+    if(event.nativeEvent.submitter?.value==='email'){
+      setMailDraft({...form,delivery_on:form.urgent?null:form.delivery_on||null});setError('');setMessage('');return
+    }
     submitting.current=true;setBusy(true);setError('');setMessage('')
     try{
       const response=await fetch(`${apiUrl}/requisiciones-compra/archivo`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({...form,delivery_on:form.urgent?null:form.delivery_on||null})})
@@ -59,7 +76,14 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     </div></section>)}
     <div className="request-toolbar"><button className="secondary-action" type="button" disabled={form.items.length>=11} onClick={()=>change('items',[...form.items,newItem()])}>Añadir ítem ({form.items.length}/11)</button></div>
     <div className="motor-form-grid"><label className="full-field">Observaciones (opcional)<textarea rows={3} maxLength={1000} value={form.observations} onChange={e=>change('observations',e.target.value)}/></label></div>
-    <div className="modal-actions"><button className="primary-action">{busy?'Generando archivo…':'Generar archivo Excel'}</button></div></fieldset></form>
+    <div className="modal-actions"><button className="primary-action">{busy?'Procesando…':'Generar archivo Excel'}</button><button type="submit" value="email" className="secondary-action">Preparar envío por correo</button></div></fieldset></form>
+    {mailDraft&&<section className="request-detail"><h2>Revisar correo antes de enviar</h2><p>Adjunto: CO-01-01_Requisicion_{mailDraft.requested_on}.xlsx · {mailDraft.items.length} ítems · Solicitante: {mailDraft.requester}</p><p>Se adjuntarán los datos que tenía el formulario al pulsar Preparar envío. Si modificas la requisición, pulsa ese botón nuevamente.</p><form onSubmit={sendMail}><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
+      <label>Para *<input required value={mail.to} placeholder="adquisiciones@empresa.ec" onChange={e=>setMail(m=>({...m,to:e.target.value}))}/></label>
+      <label>Copia (CC)<input value={mail.cc} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,cc:e.target.value}))}/></label>
+      <p className="full-field">Separa varias direcciones con coma o punto y coma.</p>
+      <label className="full-field">Asunto *<input required maxLength={200} value={mail.subject} onChange={e=>setMail(m=>({...m,subject:e.target.value}))}/></label>
+      <label className="full-field">Descripción del correo *<textarea required rows={8} maxLength={10000} value={mail.body} onChange={e=>setMail(m=>({...m,body:e.target.value}))}/></label>
+      </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>setMailDraft(null)}>Cancelar</button><button className="primary-action">{busy?'Enviando…':'Enviar correo con Excel'}</button></div></fieldset></form></section>}
     {error&&<p className="admin-message" role="alert">{error}</p>}{message&&<p className="admin-message" role="status">{message}</p>}
   </>
 }
