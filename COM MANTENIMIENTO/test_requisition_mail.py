@@ -21,6 +21,22 @@ class MailTests(unittest.TestCase):
             attachment=list(call.args[0].iter_attachments())[0]
             self.assertTrue(attachment.get_filename().endswith('.xlsx'))
             self.assertTrue(attachment.get_payload(decode=True).startswith(b'PK'))
+            message = call.args[0]
+            html = message.get_body(preferencelist=('html',)).get_content()
+            signature = next(part for part in message.walk() if part.get_content_type() == 'image/jpeg')
+            self.assertIn('cid:' + signature['Content-ID'][1:-1], html)
+            self.assertEqual(signature.get_content_disposition(), 'inline')
+            self.assertTrue(signature.get_payload(decode=True).startswith(b'\xff\xd8'))
+
+    def test_body_is_escaped_in_html(self):
+        with patch.dict('os.environ', {'REQUISITION_SMTP_PASSWORD':'test-only'}), patch('requisition_mail.smtplib.SMTP_SSL') as smtp:
+            client = smtp.return_value.__enter__.return_value
+            client.send_message.return_value = {}
+            send_requisition(self.data(body='<script>example</script>\nDetalle'))
+            html = client.send_message.call_args.args[0].get_body(preferencelist=('html',)).get_content()
+            self.assertNotIn('<script>', html)
+            self.assertIn('&lt;script&gt;', html)
+            self.assertIn('<br>Detalle', html)
 
     def test_header_injection_rejected(self):
         for changes in [dict(subject='Pedido\r\nBcc: other@example.com'),dict(to=['a@example.com\r\nBcc: b@example.com'])]:

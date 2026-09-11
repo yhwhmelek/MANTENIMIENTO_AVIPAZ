@@ -3,6 +3,9 @@ import re
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import make_msgid
+from html import escape
+from pathlib import Path
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -54,6 +57,19 @@ def send_requisition(data):
             message['Cc'] = ', '.join(data.cc)
         message['Subject'] = data.subject
         message.set_content(data.body)
+        signature_path = Path(__file__).parent / 'templates' / 'firma_correo.jpg'
+        if not signature_path.is_file():
+            raise HTTPException(503, 'Falta la imagen de firma del correo en el servidor.')
+        signature = signature_path.read_bytes()
+        cid = make_msgid()
+        body_html = escape(data.body).replace('\n', '<br>')
+        message.add_alternative(
+            f'<html><body><div>{body_html}</div><br>'
+            f'<img src="cid:{cid[1:-1]}" width="800" style="max-width:100%;height:auto" '
+            'alt="Ing. Cristian Changoluisa Santacruz - Jefe de Mantenimiento - AVIPAZ">'
+            '</body></html>', subtype='html')
+        message.get_payload()[-1].add_related(signature, maintype='image', subtype='jpeg',
+                                            cid=cid, disposition='inline', filename='firma_avipaz.jpg')
         message.add_attachment(content, maintype='application',
                                subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                filename=f'CO-01-01_Requisicion_{data.requisition.requested_on.isoformat()}.xlsx')

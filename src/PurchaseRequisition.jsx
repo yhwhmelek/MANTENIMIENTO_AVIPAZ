@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import signatureImage from './firma_correo.jpg'
 
 const newItem = () => ({ description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
 const today = () => {const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
@@ -9,7 +10,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const [catalogError,setCatalogError]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
   const submitting=useRef(false)
   const [mailDraft,setMailDraft]=useState(null)
-  const [mail,setMail]=useState({to:'',cc:'',subject:'Requisición de compra - Mantenimiento',body:'Estimados,\n\nAdjunto la requisición de compra para su revisión y gestión. Agradezco confirmar la recepción e informar la disponibilidad y el plazo estimado de entrega.\n\nSaludos cordiales,\n'+currentUser.nombre})
+  const [mail,setMail]=useState({to:'',cc:'',subject:'Requisición de compra - Mantenimiento',body:'Estimados,\n\nAdjunto la requisición de compra para su revisión y gestión. Agradezco confirmar la recepción e informar la disponibilidad y el plazo estimado de entrega.\n\nSaludos cordiales,'})
   async function sendMail(event){
     event.preventDefault();if(submitting.current)return
     if(!window.confirm('¿Enviar la requisición Excel a los destinatarios y copias indicados?'))return
@@ -83,6 +84,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
       <p className="full-field">Separa varias direcciones con coma o punto y coma.</p>
       <label className="full-field">Asunto *<input required maxLength={200} value={mail.subject} onChange={e=>setMail(m=>({...m,subject:e.target.value}))}/></label>
       <label className="full-field">Descripción del correo *<textarea required rows={8} maxLength={10000} value={mail.body} onChange={e=>setMail(m=>({...m,body:e.target.value}))}/></label>
+      <div className="full-field"><p>Firma que se incluirá al final del correo:</p><img src={signatureImage} alt="Firma de Cristian Changoluisa, Jefe de Mantenimiento de AVIPAZ" style={{width:800,maxWidth:'100%',height:'auto'}} /></div>
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>setMailDraft(null)}>Cancelar</button><button className="primary-action">{busy?'Enviando…':'Enviar correo con Excel'}</button></div></fieldset></form></section>}
     {error&&<p className="admin-message" role="alert">{error}</p>}{message&&<p className="admin-message" role="status">{message}</p>}
   </>
