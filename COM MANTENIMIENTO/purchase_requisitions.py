@@ -21,6 +21,7 @@ class TextModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
 
 class RequisitionItem(TextModel):
+    spare_part_id: int | None = Field(default=None, gt=0)
     description: str = Field(min_length=1, max_length=160)
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     unit: str = Field(min_length=1, max_length=20)
@@ -104,7 +105,10 @@ def generate_requisition(data: RequisitionWrite):
     return output.getvalue()
 
 
-def register_purchase_requisitions(app, active_user):
+def register_purchase_requisitions(app, active_user, connect=None, admin_user=None):
+    if connect is not None:
+        from requisition_records import register_requisition_records
+        register_requisition_records(app, connect, active_user, admin_user)
     from requisition_mail import register_requisition_mail
     register_requisition_mail(app, active_user)
     @app.post('/requisiciones-compra/archivo')

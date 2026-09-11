@@ -1,7 +1,9 @@
+import ImageAttachment from './ImageAttachment'
 import { useEffect, useState } from 'react'
 import Machines from './Machines'
 import PlantStructure from './PlantStructure'
 import StockAlerts from './StockAlerts'
+import RequisitionAlerts from './RequisitionAlerts'
 import OpeningBalance from './OpeningBalance'
 import MaintenanceRequests from './MaintenanceRequests'
 import PurchaseRequisition from './PurchaseRequisition'
@@ -357,7 +359,10 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   return <main className="admin-shell">
     <MaintenanceRequests apiUrl={apiUrl} token={token} currentUser={currentUser} open={showRequests} onOpen={() => setShowRequests(true)} onClose={() => setShowRequests(false)} />
     {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
+    <div className="inventory-alerts">
     <StockAlerts apiUrl={apiUrl} token={token} section={section} />
+    {isAdmin&&<RequisitionAlerts apiUrl={apiUrl} token={token} section={section} onOpen={()=>{setSection('requisitions');setShowRequests(false)}}/>}
+    </div>
     <header className="admin-header">
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
@@ -414,7 +419,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <Field name="unit_cost" label="Costo unitario" type="number" min="0" step="0.0001" value={editingSparePart?.unit_cost} />
         <Field name="storage_location" label="Ubicacion de almacenamiento" value={editingSparePart?.storage_location} maxLength="150" />
         <label className="checkbox-field">Estado activo<input name="active" type="checkbox" defaultChecked={editingSparePart?.active ?? true} /></label>
-        <label className="full-field">Imagen del repuesto<input name="image" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setSparePartImagePreview(event.target.files[0] ? URL.createObjectURL(event.target.files[0]) : null)} /><span className="field-help">JPG, PNG o WEBP. Maximo 10 MB.</span></label>
+        <ImageAttachment label="Imagen del repuesto" name="image" onChange={(event) => setSparePartImagePreview(event.target.files[0] ? URL.createObjectURL(event.target.files[0]) : null)} help="JPG, PNG o WEBP. Maximo 10 MB." />
         {(sparePartImagePreview || editingSparePart?.image_path) && <div className="full-field nameplate-preview">{sparePartImagePreview ? <img src={sparePartImagePreview} alt="Vista previa del repuesto" /> : <SparePartImage apiUrl={apiUrl} token={token} sparePartId={editingSparePart.spare_part_id} fileName={editingSparePart.internal_code} large />}</div>}
         <label className="full-field">Notas<textarea name="notes" defaultValue={editingSparePart?.notes || ''} rows="3" /></label>
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={() => setShowSparePartForm(false)}>Cancelar</button><button className="primary-action" disabled={loading}><Package size={18} /> Guardar repuesto</button></div></form>

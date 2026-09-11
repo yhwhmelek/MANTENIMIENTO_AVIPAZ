@@ -1,3 +1,4 @@
+import ImageAttachment from './ImageAttachment'
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
@@ -98,7 +99,7 @@ export default function MotorSpecifications({ apiUrl, token, element, isAdmin, o
       {(isAdmin || data) && <form key={version} onSubmit={save}><div className="motor-form-grid">
         {numericFields.map(([name, label, decimals, max]) => <label key={name}>{label}<input name={name} type="number" step={10 ** -decimals} min={name === 'rpm' || name === 'poles' ? -2147483648 : -max} max={max} defaultValue={data?.[name] ?? ''} readOnly={!isAdmin} /></label>)}
         {textFields.map(([name, label, maxLength]) => <label key={name}>{label}<input name={name} maxLength={maxLength} defaultValue={data?.[name] ?? ''} readOnly={!isAdmin} /></label>)}
-        {isAdmin && <label className="full-field">Foto de la placa<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files[0] || null)} /><span className="field-help">JPG, PNG o WEBP. Máximo 10 MB. La foto actual se conserva si no seleccionas otra.</span></label>}
+        {isAdmin && <ImageAttachment label="Foto de la placa" onChange={(event) => setPhoto(event.target.files[0] || null)} help="JPG, PNG o WEBP. Máximo 10 MB. La foto actual se conserva si no seleccionas otra." />}
         {(preview || storedImage) && <div className="full-field nameplate-preview"><img src={preview || storedImage} alt={`Placa de ${element.name}`} /></div>}
         {data?.nameplate_image_path && !storedImage && !preview && <p className="full-field field-help">La data tiene una foto guardada, pero la vista previa no está disponible.</p>}
         <label className="full-field">Notas<textarea name="notes" maxLength={500} rows={3} defaultValue={data?.notes ?? ''} readOnly={!isAdmin} /></label>

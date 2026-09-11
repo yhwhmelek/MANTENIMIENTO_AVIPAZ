@@ -1,3 +1,4 @@
+import ImageAttachment from './ImageAttachment'
 import { useEffect, useState } from 'react'
 import { normalizeName } from './nameSearch'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
@@ -138,7 +139,7 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
         <label>Estado<select name="status" defaultValue={editing?.status || 'OPERATIVO'}>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="checkbox-field">Activo<input name="active" type="checkbox" defaultChecked={editing?.active ?? true} /></label>
         <label className="full-field">Descripción<textarea name="description" maxLength={500} rows={2} defaultValue={editing?.description || ''} /></label>
-        <label className="full-field">Foto<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files[0] || null)} /><span className="field-help">JPG, PNG o WEBP. Máximo 10 MB. La foto actual se conserva si no seleccionas otra.</span></label>
+        <ImageAttachment label="Foto" onChange={(event) => setPhoto(event.target.files[0] || null)} help="JPG, PNG o WEBP. Máximo 10 MB. La foto actual se conserva si no seleccionas otra." />
         {(preview || editing?.image_path) && <div className="full-field nameplate-preview">{preview ? <img src={preview} alt="Vista previa del elemento" /> : <ElementImage apiUrl={apiUrl} token={token} item={editing} large />}</div>}
         <label className="full-field">Notas<textarea name="notes" rows={3} defaultValue={editing?.notes || ''} /></label>
       </div>{error && <p className="admin-message" role="alert">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-action" disabled={busy} onClick={closeForm}>Cancelar</button><button className="primary-action" disabled={busy}>{busy ? 'Guardando...' : 'Guardar elemento'}</button></div></form>

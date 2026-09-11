@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import RequisitionHistory from './RequisitionHistory'
 import signatureImage from './firma_correo.jpg'
 
 const newItem = () => ({ description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
@@ -8,6 +9,8 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const [form,setForm]=useState({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre,items:[newItem()]})
   const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[]})
   const [catalogError,setCatalogError]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
+  const [revision,setRevision]=useState(0)
+  const saved=useRef(null)
   const submitting=useRef(false)
   const [mailDraft,setMailDraft]=useState(null)
   const [mail,setMail]=useState({to:'',cc:'',subject:'Requisición de compra - Mantenimiento',body:'Estimados,\n\nAdjunto la requisición de compra para su revisión y gestión. Agradezco confirmar la recepción e informar la disponibilidad y el plazo estimado de entrega.\n\nSaludos cordiales,'})
@@ -38,25 +41,35 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   function usePart(index,id){
     const part=catalog.parts.find(p=>String(p.spare_part_id)===id)
     if(!part)return
-    setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,description:part.description.slice(0,160),unit:part.unit_of_measure,specifications:[part.internal_code,part.brand,part.model,part.part_number].filter(Boolean).join(' · ').slice(0,500)}:item)}))
+    setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,spare_part_id:part.spare_part_id,description:part.description.slice(0,160),unit:part.unit_of_measure,specifications:[part.internal_code,part.brand,part.model,part.part_number].filter(Boolean).join(' · ').slice(0,500)}:item)}))
   }
   async function generate(event){
     event.preventDefault();if(submitting.current)return
-    if(event.nativeEvent.submitter?.value==='email'){
-      setMailDraft({...form,delivery_on:form.urgent?null:form.delivery_on||null});setError('');setMessage('');return
-    }
+    const action=event.nativeEvent.submitter?.value
     submitting.current=true;setBusy(true);setError('');setMessage('')
     try{
-      const response=await fetch(`${apiUrl}/requisiciones-compra/archivo`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({...form,delivery_on:form.urgent?null:form.delivery_on||null})})
+      const payload={...form,delivery_on:form.urgent?null:form.delivery_on||null}
+      const fingerprint=JSON.stringify(payload)
+      let id=saved.current?.fingerprint===fingerprint?saved.current.id:null
+      if(!id){
+        const result=await fetch(`${apiUrl}/requisiciones-compra`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:fingerprint})
+        const data=await result.json()
+        if(!result.ok)throw new Error(typeof data.detail==='string'?data.detail:'Revisa los datos de la requisición.')
+        id=data.id;saved.current={id,fingerprint};setRevision(v=>v+1);window.dispatchEvent(new Event('requisitions-updated'))
+      }
+      setMessage(`Requisición #${id} guardada. Pendiente de recepción por un administrador.`)
+      if(action==='email'){setMailDraft(payload);return}
+      if(action!=='excel')return
+      const response=await fetch(`${apiUrl}/requisiciones-compra/${id}/archivo`,{headers:{Authorization:`Bearer ${token}`}})
       if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(typeof data.detail==='string'?data.detail:'Revisa los campos, las fechas y las cantidades ingresadas.')}
       const blob=await response.blob(),url=URL.createObjectURL(blob),a=document.createElement('a')
       a.href=url;a.download=`CO-01-01_Requisicion_${form.requested_on}.xlsx`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)
-      setMessage('Archivo Excel generado. Revísalo y adjúntalo a tu envío a Adquisiciones.')
+      setMessage(`Requisición #${id} guardada y Excel generado. Pendiente de recepción.`)
     }catch(err){setError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   return <>
-    <div className="page-heading"><div><p className="eyebrow">ADQUISICIONES</p><h1>Requisición de compra</h1><p>Completa el formato CO/01-01, versión 03, y descarga el archivo Excel para enviarlo a Adquisiciones.</p></div></div>
-    <p>Generar el documento no registra una compra ni modifica el stock. Puedes incluir hasta 11 productos, bienes o servicios.</p>
+    <div className="page-heading"><div><p className="eyebrow">ADQUISICIONES</p><h1>Requisición de compra</h1><p>Guarda el pedido, consulta su historial y confirma la llegada para ingresar la compra al inventario.</p></div></div>
+    <p>La requisición queda pendiente hasta que un administrador confirme la recepción con las cantidades y precios reales. Puedes incluir hasta 11 ítems.</p>
     {catalogError&&<p role="status">{catalogError}</p>}
     <form onSubmit={generate}><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
       <label>Departamento *<input required maxLength={80} value={form.department} onChange={e=>change('department',e.target.value)}/></label>
@@ -77,7 +90,8 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     </div></section>)}
     <div className="request-toolbar"><button className="secondary-action" type="button" disabled={form.items.length>=11} onClick={()=>change('items',[...form.items,newItem()])}>Añadir ítem ({form.items.length}/11)</button></div>
     <div className="motor-form-grid"><label className="full-field">Observaciones (opcional)<textarea rows={3} maxLength={1000} value={form.observations} onChange={e=>change('observations',e.target.value)}/></label></div>
-    <div className="modal-actions"><button className="primary-action">{busy?'Procesando…':'Generar archivo Excel'}</button><button type="submit" value="email" className="secondary-action">Preparar envío por correo</button></div></fieldset></form>
+    <div className="modal-actions"><button className="primary-action">{busy?'Procesando…':'Guardar requisición'}</button><button type="submit" value="excel" className="secondary-action">Guardar y generar Excel</button><button type="submit" value="email" className="secondary-action">Preparar envío por correo</button></div></fieldset></form>
+    <RequisitionHistory apiUrl={apiUrl} token={token} isAdmin={currentUser.rol==='ADMIN'} catalog={catalog} revision={revision}/>
     {mailDraft&&<section className="request-detail"><h2>Revisar correo antes de enviar</h2><p>Adjunto: CO-01-01_Requisicion_{mailDraft.requested_on}.xlsx · {mailDraft.items.length} ítems · Solicitante: {mailDraft.requester}</p><p>Se adjuntarán los datos que tenía el formulario al pulsar Preparar envío. Si modificas la requisición, pulsa ese botón nuevamente.</p><form onSubmit={sendMail}><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
       <label>Para *<input required value={mail.to} placeholder="adquisiciones@empresa.ec" onChange={e=>setMail(m=>({...m,to:e.target.value}))}/></label>
       <label>Copia (CC)<input value={mail.cc} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,cc:e.target.value}))}/></label>

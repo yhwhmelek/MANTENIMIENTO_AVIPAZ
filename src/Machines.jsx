@@ -1,3 +1,4 @@
+import ImageAttachment from './ImageAttachment'
 import { useEffect, useState } from 'react'
 import { normalizeName } from './nameSearch'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
@@ -149,7 +150,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
         <label>Criticidad<select name="criticality" defaultValue={editing?.criticality || ''}><option value="">Sin definir</option><option value="BAJA">Baja</option><option value="MEDIA">Media</option><option value="ALTA">Alta</option><option value="CRITICA">Crítica</option></select></label>
         <label>Estado<select name="status" defaultValue={editing?.status || 'ACTIVA'}>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="full-field">Descripción<textarea name="description" defaultValue={editing?.description || ''} maxLength={500} rows={2} /></label>
-        <label className="full-field">Foto de la máquina<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPhoto(event.target.files[0] || null)} /><span className="field-help">JPG, PNG o WEBP. Máximo 10 MB.</span></label>
+        <ImageAttachment label="Foto de la máquina" onChange={(event) => setPhoto(event.target.files[0] || null)} help="JPG, PNG o WEBP. Máximo 10 MB." />
         {editing?.machine_image_path && !photo && <p className="full-field field-help">Esta máquina tiene una foto guardada. Se conservará si no seleccionas otra.</p>}
         {preview && <div className="full-field nameplate-preview"><img src={preview} alt="Vista previa de la máquina" /></div>}
         <label className="full-field">Notas<textarea name="notes" defaultValue={editing?.notes || ''} rows={3} /></label>
