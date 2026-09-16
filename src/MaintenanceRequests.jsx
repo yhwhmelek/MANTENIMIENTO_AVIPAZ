@@ -16,6 +16,7 @@ function Text({label,name,form,change,maxLength=1000,required=true,placeholder})
 
 export default function MaintenanceRequests({ apiUrl, token, currentUser, open, onOpen, onClose }) {
   const [rows,setRows] = useState([]), [machines,setMachines] = useState([]), [parts,setParts] = useState([])
+  const [plants,setPlants] = useState([]), [towers,setTowers] = useState([])
   const [error,setError] = useState(''), [formError,setFormError] = useState(''), [busy,setBusy] = useState(false)
   const [loaded,setLoaded] = useState(false), [catalogReady,setCatalogReady] = useState(false)
   const [selected,setSelected] = useState(null), [form,setForm] = useState(null), [mode,setMode] = useState('')
@@ -50,8 +51,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   useEffect(()=>{
     if(!open)return
     const controller=new AbortController();setCatalogReady(false)
-    Promise.all(['/maquinas','/repuestos'].map(path=>request(path,{signal:controller.signal})))
-      .then(([m,p])=>{setMachines(m);setParts(p.filter(x=>x.active));setCatalogReady(true)})
+    Promise.all(['/maquinas','/repuestos','/plantas','/torres'].map(path=>request(path,{signal:controller.signal})))
+      .then(([m,p,pl,t])=>{setPlants(pl);setTowers(t);setMachines(m);setParts(p.filter(x=>x.active));setCatalogReady(true)})
       .catch(err=>{if(err.name!=='AbortError')setFormError(err.message)})
     return()=>controller.abort()
   },[open,apiUrl,token])
@@ -76,7 +77,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       if(dialog.current)dialog.current.scrollTop=0
     }
   },[open,showingDetail,row?.id])
-  function change(name,value){setForm(f=>({...f,[name]:value,...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:''}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
+  function change(name,value){setForm(f=>({...f,[name]:value,...(name==='plant_id'?{tower_id:'',machine_id:''}:name==='tower_id'?{machine_id:''}:{}),...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:''}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
   function start(modeName){
     setMode(modeName);setFormError('')
     if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',detected_at:localInput()})
@@ -112,7 +113,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     if(submitting.current)return
     if(mode==='receive' && !window.confirm('Al aceptar, confirmas que recibiste el trabajo y estás conforme con la entrega. Si no ingresaste observaciones, se registrará «Entrega conforme». ¿Deseas aceptar?'))return
     if(mode==='new'){
-      for(const key of ['machine_id'])payload[key]=Number(payload[key])
+      for(const key of ['machine_id','plant_id','tower_id'])payload[key]=Number(payload[key])
       if(!payload.machine_id)payload.machine_id=null
       for(const key of ['stopped_at','planned_start','planned_end','hour_meter','requested_part_id','requested_quantity'])payload[key]=payload[key]||null
       if(payload.requested_part_id)payload.requested_part_id=Number(payload.requested_part_id)
@@ -139,8 +140,9 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       {!loaded&&!error&&<p>Cargando solicitudes…</p>}
       {!form&&!row&&<button type="button" className="secondary-action" onClick={()=>setShowBacklog(v=>!v)}>{showBacklog?'Ver todas las solicitudes / cerradas':'Ver actividades priorizadas'}</button>}
       {!form&&!row&&showBacklog&&<PrioritizedActivities rows={rows} busy={busy} onOpen={id=>{setSelected(id);setFormError('')}}/>}
-      {!form&&!row&&!showBacklog&&<div className="table-scroll"><table><thead><tr><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th><th>Acción</th></tr></thead><tbody>{rows.filter(r=>!filter||r.status===filter).map(r=><tr key={r.id}><td>#{r.id}<br/>{time(r.requested_at)}<br/>{r.request_data.maintenance_type==='MEJORA_TECNICA'?'Mejora técnica':r.request_data.maintenance_type}</td><td>{r.request_data.machine_code}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button></td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
+      {!form&&!row&&!showBacklog&&<div className="table-scroll"><table><thead><tr><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th><th>Acción</th></tr></thead><tbody>{rows.filter(r=>!filter||r.status===filter).map(r=><tr key={r.id}><td>#{r.id}<br/>{time(r.requested_at)}<br/>{r.request_data.maintenance_type==='MEJORA_TECNICA'?'Mejora técnica':r.request_data.maintenance_type}</td><td>{r.request_data.machine_code}<br/>{[r.request_data.plant_name,r.request_data.tower_name].filter(Boolean).join(' / ')}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button></td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
       {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button><h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}.</p><p>Planificado: {time(row.request_data.planning?.starts_at)} a {time(row.request_data.planning?.ends_at)}. Parada: {time(row.request_data.stopped_at)}.</p>
+        <p>Planta: {row.request_data.plant_name||'No registrada'} · Torre: {row.request_data.tower_name||'No registrada'}</p>
         <PriorityWorkflow key={row.id} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
         {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}
@@ -156,7 +158,10 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         </div></section>}
       {form&&<form onSubmit={save}><h3>{mode==='new'?'Generar solicitud':mode==='complete'?'Registrar trabajo realizado':'Confirmar recepción'}</h3><p>Fechas y horas locales de Ecuador (UTC−5).</p><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
         {mode==='new'&&<>
-          <label>Máquina (opcional para mejora de un área)<select required={form.maintenance_type!=='MEJORA_TECNICA'} value={form.machine_id||''} onChange={e=>change('machine_id',e.target.value)}><option value="">Selecciona</option>{machines.map(m=><option key={m.machine_id} value={m.machine_id}>{m.asset_code} · {m.name}</option>)}</select></label>
+          <label>Planta<select required value={form.plant_id||''} onChange={e=>change('plant_id',e.target.value)}><option value="">Selecciona una planta</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
+          <label>Torre<select required disabled={!form.plant_id} value={form.tower_id||''} onChange={e=>change('tower_id',e.target.value)}><option value="">Selecciona una torre</option>{towers.filter(t=>String(t.plant_id)===String(form.plant_id)).map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>
+          <label>Máquina (opcional para mejora de un área)<select disabled={!form.tower_id} required={form.maintenance_type!=='MEJORA_TECNICA'} value={form.machine_id||''} onChange={e=>change('machine_id',e.target.value)}><option value="">Selecciona</option>{machines.filter(m=>form.tower_id&&String(m.tower_id)===String(form.tower_id)).map(m=><option key={m.machine_id} value={m.machine_id}>{m.asset_code} · {m.name}</option>)}</select></label>
+          {form.tower_id&&!machines.some(m=>String(m.tower_id)===String(form.tower_id))&&<p role="status">Esta torre no tiene máquinas asignadas. Puedes asignarlas desde Activos → Máquinas.</p>}
           <label>Tipo<select value={form.maintenance_type} onChange={e=>change('maintenance_type',e.target.value)}><option>CORRECTIVO</option><option>PREVENTIVO</option><option value="MEJORA_TECNICA">Mejora técnica (MT/02-08)</option></select></label>
           <Text label={form.maintenance_type==='MEJORA_TECNICA'?'Situación actual / problema identificado':'Descripción del daño / trabajo solicitado'} name="description" form={form} change={change}/>
           {form.maintenance_type==='MEJORA_TECNICA'&&<TechnicalImprovementFields form={form} change={change}/>}

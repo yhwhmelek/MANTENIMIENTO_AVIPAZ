@@ -43,6 +43,8 @@ class RequestedPart(StrictModel):
 
 
 class RequestWrite(StrictModel):
+    plant_id: int | None = Field(default=None, gt=0)
+    tower_id: int | None = Field(default=None, gt=0)
     preevaluation: Preevaluation | None = None
     requested_parts: list[RequestedPart] = Field(default_factory=list, max_length=30)
     equipment_stopped: bool = False
@@ -69,6 +71,8 @@ class RequestWrite(StrictModel):
 
     @model_validator(mode='after')
     def validate_request(self):
+        if (self.plant_id is None) != (self.tower_id is None):
+            raise ValueError("Selecciona planta y torre juntas")
         if len({p.spare_part_id for p in self.requested_parts}) != len(self.requested_parts):
             raise ValueError('Agrupa la cantidad de cada repuesto previsto en una sola fila')
         if self.requested_parts and self.requested_part_id is not None:
@@ -322,7 +326,16 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone() if data.machine_id is not None else None
             if data.machine_id is not None and not machine:
                 raise HTTPException(422, 'Maquina no encontrada')
+            location = None
+            if data.tower_id is not None:
+                location = cursor.execute('SELECT p.Name, t.Name FROM dbo.Towers t WITH (HOLDLOCK) JOIN dbo.Plants p WITH (HOLDLOCK) ON p.PlantId=t.PlantId WHERE t.TowerId=? AND p.PlantId=?', data.tower_id, data.plant_id).fetchone()
+                if not location:
+                    raise HTTPException(422, 'La torre no pertenece a la planta seleccionada')
+                if data.machine_id is not None and not cursor.execute('SELECT MachineId FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=? AND TowerId=?', data.machine_id, data.tower_id).fetchone():
+                    raise HTTPException(422, 'La maquina no pertenece a la torre seleccionada')
             payload = data.model_dump(mode='json')
+            if location:
+                payload.update(plant_name=location[0], tower_name=location[1])
             payload.update(machine_code=machine[0] if machine else 'N/A', machine_name=machine[1] if machine else data.target_area, area=machine[2] if machine else data.target_area)
             if data.requested_part_id:
                 part, stock, _ = part_stock(cursor, data.requested_part_id)

@@ -36,6 +36,29 @@ class RequestTests(unittest.TestCase):
             if hasattr(route,'dependant'):
                 self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar')) else self.active,[d.call for d in route.dependant.dependencies])
 
+    def test_request_location_snapshot(self):
+        data = mod.RequestWrite(machine_id=3, plant_id=1, tower_id=2, maintenance_type='CORRECTIVO', description='Revisar')
+        self.cursor.execute.return_value.fetchone.side_effect = [('OPERADOR',), ('M1', 'Molino', 'Proceso'), ('Planta uno', 'Torre dos'), (3,), (12,)]
+        self.endpoint('')(data, usuario_id=1)
+        saved = json.loads(self.cursor.execute.call_args.args[4])
+        self.assertEqual((saved['plant_id'], saved['tower_id'], saved['plant_name'], saved['tower_name']), (1, 2, 'Planta uno', 'Torre dos'))
+
+    def test_request_rejects_wrong_location(self):
+        data = mod.RequestWrite(machine_id=3, plant_id=1, tower_id=2, maintenance_type='CORRECTIVO', description='Revisar')
+        for location_results in [[None], [('Planta', 'Torre'), None]]:
+            with self.subTest(location=location_results):
+                self.cursor.execute.reset_mock()
+                self.cursor.execute.return_value.fetchone.side_effect = [('OPERADOR',), ('M1', 'Molino', 'Proceso')] + location_results
+                with self.assertRaises(HTTPException) as error:
+                    self.endpoint('')(data, usuario_id=1)
+                self.assertEqual(error.exception.status_code, 422)
+                self.assertFalse(any('INSERT INTO' in c.args[0] for c in self.cursor.execute.call_args_list))
+
+    def test_location_requires_both_fields(self):
+        for location in [dict(plant_id=1), dict(tower_id=2)]:
+            with self.assertRaises(ValidationError):
+                mod.RequestWrite(machine_id=3, maintenance_type='CORRECTIVO', description='Revisar', **location)
+
     def test_optional_partial_preevaluation(self):
         base=dict(machine_id=3,maintenance_type='CORRECTIVO',description='Revisar equipo')
         for pre in [None,{}, {'n':3}, {'i':2,'c':None}]:

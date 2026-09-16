@@ -10,7 +10,8 @@ export default function PrioritizedRequestPrint({row}){
   return createPortal(<article className="request-print improvement-print">
     <RequestExcelLayout row={row}/>
     <section className="request-print-annex"><h1>Anexo · Información completa de la solicitud #{row.id}</h1>
-    <header><img src="/maintenance-request-logo.png" alt="AVIPAZ" width="100"/><h1>{improvement?'SOLICITUD Y ORDEN DE TRABAJO DE MEJORA TÉCNICA':'SOLICITUD DE MANTENIMIENTO'}</h1><p>CÓDIGO: {improvement?'MT/02-08':'MT/02-05'} · VERSIÓN: {improvement?'00':'05'} - PROPUESTA · Solicitud #{row.id}</p></header>
+    <header><img className="request-print-logo" style={{width:"20mm",height:"8mm",maxWidth:"20mm",maxHeight:"8mm",objectFit:"contain"}} src="/maintenance-request-logo.png" alt="AVIPAZ" width="100"/><h1>{improvement?'SOLICITUD Y ORDEN DE TRABAJO DE MEJORA TÉCNICA':'SOLICITUD DE MANTENIMIENTO'}</h1><p>CÓDIGO: {improvement?'MT/02-08':'MT/02-05'} · VERSIÓN: {improvement?'00':'05'} - PROPUESTA · Solicitud #{row.id}</p></header>
+    <p>PLANTA: {r.plant_name||'No registrada'} · TORRE: {r.tower_name||'No registrada'}</p>
     <p>NOMBRE DEL SOLICITANTE: {row.requester_name} · FECHA / HORA: {time(row.requested_at)}</p>
     <p>ÁREA: {r.requesting_area||r.area} · CÓDIGO: {r.machine_code} · EQUIPO / SISTEMA / ÁREA: {r.target_area||r.machine_name}</p>
     {block(improvement?'SITUACIÓN ACTUAL / PROBLEMA IDENTIFICADO':'DESCRIPCIÓN DE LA ANOMALÍA / DAÑO',r.description)}

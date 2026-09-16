@@ -8,7 +8,7 @@ export default function RequestExcelLayout({row}){
   const values={A4:`NOMBRE DEL SOLICITANTE: ${short(row.requester_name,65)}`,E4:`FECHA: ${row.requested_at?.slice(0,10)||''}`,G4:`HORA: ${row.requested_at?.slice(11,16)||''}`,
     A6:improvement?`ÁREA SOLICITANTE: ${short(r.requesting_area,50)}`:`CÓDIGO: ${r.machine_code||''}`,
     C6:improvement?`CÓDIGO: ${r.machine_code||''}`:`ÁREA: ${short(r.area,50)}`,
-    E6:`EQUIPO / SISTEMA / ÁREA: ${short(r.target_area||r.machine_name,90)}`,
+    E6:`PLANTA: ${short(r.plant_name||'No registrada',35)} · TORRE: ${short(r.tower_name||'No registrada',35)}\nEQUIPO / SISTEMA / ÁREA: ${short(r.target_area||r.machine_name,90)}`,
     A8:`${improvement?'SITUACIÓN ACTUAL / PROBLEMA IDENTIFICADO':'DESCRIPCIÓN DE LA ANOMALÍA / DAÑO'}:\n${short(r.description,420)}`}
   const first=improvement?24:16,selected=improvement?28:20,preRow=improvement?34:26,official=preRow+1
   for(const [key,col] of [['n','A'],['i','C'],['c','F']]){
@@ -45,7 +45,7 @@ export default function RequestExcelLayout({row}){
   }
   return <>{[template.rows.filter(r=>r.number<template.split),template.rows.filter(r=>r.number>=template.split)].map((rows,page)=><section className="excel-request-page" key={page}>
     {page===1&&<p className="excel-continuation">AVIPAZ · {improvement?'MT/02-08':'MT/02-05'} · Solicitud #{row.id} · Continuación</p>}
-    <table className="excel-request-table"><colgroup>{Array.from({length:8},(_,i)=><col key={i} style={{width:'12.5%'}}/>)}</colgroup><tbody>{rows.map(line=><tr key={line.number} style={{height:`${line.height*0.75}pt`}}>{line.cells.map(cell=><td key={cell.key} rowSpan={cell.rowSpan} colSpan={cell.colSpan} style={cell.style}>{cell.key==='A1'?<img src="/maintenance-request-logo.png" alt="AVIPAZ"/>:values[cell.key]??cell.text}</td>)}</tr>)}</tbody></table>
+    <table className="excel-request-table"><colgroup>{Array.from({length:8},(_,i)=><col key={i} style={{width:'12.5%'}}/>)}</colgroup><tbody>{rows.map(line=><tr key={line.number} style={{height:`${line.height*0.75}pt`}}>{line.cells.map(cell=><td key={cell.key} rowSpan={cell.rowSpan} colSpan={cell.colSpan} style={cell.style}>{cell.key==='A1'?<img className="request-print-logo" style={{width:"20mm",height:"8mm",maxWidth:"20mm",maxHeight:"8mm",objectFit:"contain"}} src="/maintenance-request-logo.png" alt="AVIPAZ"/>:values[cell.key]??cell.text}</td>)}</tr>)}</tbody></table>
     <p className="excel-continuation">Solicitud #{row.id} · Hoja {page+1} del formulario · Información completa, materiales adicionales y confirmaciones en el anexo.</p>
   </section>)}</>
 }
