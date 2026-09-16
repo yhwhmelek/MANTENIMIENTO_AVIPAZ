@@ -19,10 +19,25 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
 
 
+class TechnicalEvaluation(StrictModel):
+    affects_food_safety: bool
+    requires_shutdown: bool
+    requires_training: bool
+    improves_safety: bool
+    food_safety_notes: str = Field(default='', max_length=500)
+    shutdown_notes: str = Field(default='', max_length=500)
+    training_notes: str = Field(default='', max_length=500)
+    safety_notes: str = Field(default='', max_length=500)
+
+
 class RequestWrite(StrictModel):
-    machine_id: int = Field(gt=0)
+    machine_id: int | None = Field(default=None, gt=0)
     description: str = Field(min_length=1, max_length=1000)
-    maintenance_type: Literal['PREVENTIVO', 'CORRECTIVO']
+    maintenance_type: Literal['PREVENTIVO', 'CORRECTIVO', 'MEJORA_TECNICA']
+    requesting_area: str = Field(default='', max_length=150)
+    target_area: str = Field(default='', max_length=200)
+    improvement_proposal: str = Field(default='', max_length=2000)
+    technical_evaluation: TechnicalEvaluation | None = None
     urgency: int = Field(ge=1, le=4)
     impact: int = Field(ge=1, le=4)
     risk: int = Field(ge=1, le=4)
@@ -37,6 +52,13 @@ class RequestWrite(StrictModel):
 
     @model_validator(mode='after')
     def validate_request(self):
+        if self.maintenance_type == 'MEJORA_TECNICA':
+            if not self.requesting_area or not self.improvement_proposal or self.technical_evaluation is None:
+                raise ValueError('Completa el area solicitante, la propuesta y la evaluacion tecnica')
+            if self.machine_id is None and not self.target_area:
+                raise ValueError('Selecciona una maquina o indica el equipo, sistema o area de la mejora')
+        elif self.machine_id is None:
+            raise ValueError('Selecciona una maquina para la solicitud de mantenimiento')
         for value in (self.detected_at, self.stopped_at, self.planned_start, self.planned_end):
             if value and value.tzinfo is not None:
                 raise ValueError('Usa fechas locales de Ecuador sin zona horaria')
@@ -71,6 +93,8 @@ class ToolReconciliation(StrictModel):
 
 
 class CompleteWrite(StrictModel):
+    improvement_result: str = Field(default='', max_length=2000)
+    other_materials: str = Field(default='', max_length=2000)
     repair_started_at: datetime
     repair_finished_at: datetime
     stopped_at: datetime | None = None
@@ -266,11 +290,11 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
             if not role or role[0] not in ('ADMIN', 'OPERADOR'):
                 raise HTTPException(403, 'Solo operadores y administradores pueden generar solicitudes')
-            machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone()
-            if not machine:
+            machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone() if data.machine_id is not None else None
+            if data.machine_id is not None and not machine:
                 raise HTTPException(422, 'Maquina no encontrada')
             payload = data.model_dump(mode='json')
-            payload.update(machine_code=machine[0], machine_name=machine[1], area=machine[2])
+            payload.update(machine_code=machine[0] if machine else 'N/A', machine_name=machine[1] if machine else data.target_area, area=machine[2] if machine else data.target_area)
             if data.requested_part_id:
                 part, stock, _ = part_stock(cursor, data.requested_part_id)
                 payload.update(requested_part_code=part[0], requested_part_name=part[1], stock_at_request=str(stock), stock_sufficient=stock >= data.requested_quantity)
@@ -297,6 +321,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if row[2] != 'EN_PROCESO':
                 raise HTTPException(409, 'La solicitud ya fue entregada o no esta en proceso')
             original = json.loads(row[3])
+            if original['maintenance_type'] == 'MEJORA_TECNICA' and not data.improvement_result:
+                raise HTTPException(422, 'Describe el resultado de la mejora tecnica')
             if data.repair_started_at < row[4].replace(second=0, microsecond=0):
                 raise HTTPException(422, 'El inicio de reparacion debe ser posterior a la recepcion de la solicitud')
             if original.get('stopped_at') and data.stopped_at != datetime.fromisoformat(original['stopped_at']):

@@ -89,7 +89,7 @@ EVENT_SELECT = """SELECT e.MaintenanceEventId AS maintenance_event_id,
     e.MaintenanceType AS maintenance_type, e.Description AS description,
     m.AssetCode AS machine_code, m.Name AS machine_name,
     el.ElementCode AS element_code, el.Name AS element_name
-    FROM dbo.MaintenanceEvents e JOIN dbo.Machines m ON m.MachineId=e.MachineId
+    FROM dbo.MaintenanceEvents e LEFT JOIN dbo.Machines m ON m.MachineId=e.MachineId
     LEFT JOIN dbo.MachineElements el ON el.MachineId=e.MachineId AND el.ElementId=e.ElementId"""
 PURCHASE_SELECT = """SELECT p.SparePartPurchaseId AS id, p.SparePartId AS spare_part_id,
     s.InternalCode AS internal_code, s.Description AS description,
@@ -109,7 +109,7 @@ CONSUMPTION_SELECT = """SELECT p.MaintenancePartUsedId AS id, p.SparePartId AS s
     p.Notes AS notes, p.VoidedAt AS voided_at, p.VoidReason AS void_reason
     FROM dbo.MaintenancePartsUsed p JOIN dbo.SpareParts s ON s.SparePartId=p.SparePartId
     JOIN dbo.MaintenanceEvents e ON e.MaintenanceEventId=p.MaintenanceEventId
-    JOIN dbo.Machines m ON m.MachineId=e.MachineId
+    LEFT JOIN dbo.Machines m ON m.MachineId=e.MachineId
     LEFT JOIN dbo.MachineElements el ON el.MachineId=e.MachineId AND el.ElementId=e.ElementId"""
 
 

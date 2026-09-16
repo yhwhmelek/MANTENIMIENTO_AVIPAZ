@@ -138,6 +138,14 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
 .request-line { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 10px; margin-bottom: 12px; align-items: end; }
 .request-print { display: none; }
+@media print {
+  .improvement-print h1 { font-size: 13pt; }
+  .improvement-print h3 { font-size: 10pt; background: #eee; padding: 4px; break-after: avoid; }
+  .improvement-print p { margin: 6px 0; overflow-wrap: anywhere; }
+  .improvement-print td, .improvement-print th { border: 1px solid #777; padding: 5px; }
+  .improvement-print tr, .improvement-signatures { break-inside: avoid; }
+  .improvement-print .improvement-signatures { margin: 22px 0 12px; }
+}
 @media (max-width: 700px) { .request-alert-trigger { bottom: 74px; left: auto; right: 18px; max-width: calc(100% - 36px); } .admin-shell { padding-bottom: 134px; } }
 @media print {
   .request-alert-trigger, .request-workspace { display: none !important; }

@@ -36,6 +36,50 @@ class RequestTests(unittest.TestCase):
             if hasattr(route,'dependant'):
                 self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar')) else self.active,[d.call for d in route.dependant.dependencies])
 
+    def improvement(self, **changes):
+        return mod.RequestWrite(**(dict(description='Faltan accesos seguros', maintenance_type='MEJORA_TECNICA',
+            requesting_area='SSOMA', target_area='Torre 7', improvement_proposal='Instalar pasarela',
+            technical_evaluation=dict(affects_food_safety=False,requires_shutdown=True,requires_training=False,improves_safety=True),
+            urgency=1,impact=1,risk=2) | changes))
+
+    def test_improvement_requires_proposal_evaluation_and_target(self):
+        for changes in ({'improvement_proposal':''},{'requesting_area':''},{'technical_evaluation':None},{'target_area':''},{'failure':True}):
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                self.improvement(**changes)
+        with self.assertRaises(ValidationError):
+            mod.RequestWrite(description='Falla',maintenance_type='CORRECTIVO',urgency=1,impact=1,risk=1)
+
+    def test_create_improvement_for_area_without_machine(self):
+        self.cursor.execute.return_value.fetchone.side_effect=[('OPERADOR',),(12,)]
+        result=self.endpoint('')(self.improvement(),usuario_id=1)
+        self.assertEqual(result,{'id':12})
+        args=self.cursor.execute.call_args.args
+        self.assertIsNone(args[1])
+        payload=json.loads(args[4])
+        self.assertEqual(payload['machine_name'],'Torre 7')
+        self.assertEqual(payload['technical_evaluation']['requires_shutdown'],True)
+        self.assertFalse(payload['failure'])
+
+    def test_complete_improvement_preserves_type_and_material_consumption(self):
+        self.original=self.improvement().model_dump(mode='json')
+        self.cursor.execute.return_value.fetchone.side_effect=[self.locked(),(33,)]
+        with patch.object(mod,'part_stock',return_value=(('MAT-1','Material','UN'),Decimal(5),None)):
+            self.endpoint('/{request_id}/completar')(5,self.completion(improvement_result='Acceso seguro',other_materials='Acero recuperado'),usuario_id=9)
+        calls=self.cursor.execute.call_args_list
+        event=next(c.args for c in calls if 'INSERT INTO dbo.MaintenanceEvents' in c.args[0])
+        self.assertIsNone(event[1])
+        self.assertEqual(event[3],'MEJORA_TECNICA')
+        self.assertTrue(any('INSERT INTO dbo.MaintenancePartsUsed' in c.args[0] for c in calls))
+        self.connection.commit.assert_called_once()
+
+    def test_complete_improvement_requires_result(self):
+        self.original=self.improvement().model_dump(mode='json')
+        self.cursor.execute.return_value.fetchone.return_value=self.locked()
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/completar')(5,self.completion(),usuario_id=9)
+        self.assertEqual(error.exception.status_code,422)
+        self.connection.commit.assert_not_called()
+
     def test_delete_request_removes_only_its_flow_in_order(self):
         self.cursor.execute.return_value.fetchone.side_effect=[(33,), (33,)]
         self.endpoint('/{request_id}', 'DELETE')(5, usuario_id=9)
