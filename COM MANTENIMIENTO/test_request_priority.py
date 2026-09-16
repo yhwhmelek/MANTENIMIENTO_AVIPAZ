@@ -108,3 +108,14 @@ class PriorityTests(unittest.TestCase):
         for route in self.app.routes:
             if getattr(route,'path','').endswith(('/evaluar','/programar')):
                 self.assertIn(self.admin,[d.call for d in route.dependant.dependencies])
+
+    def test_same_day_planning_allows_start(self):
+        from maintenance_requests import local_now
+        day=local_now().date().isoformat()
+        plan=self.plan(condition='LISTA',starts_at=day+'T10:00',ends_at=day+'T11:00')
+        self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
+        self.original['planning']=plan.model_dump(mode='json')
+        self.cursor.execute.return_value.fetchone.return_value=self.lock()
+        self.endpoint('atender')(1,usuario_id=9)
+        self.assertIn("Status='EN_PROCESO'",self.cursor.execute.call_args.args[0])
+        self.connection.commit.assert_called_once()

@@ -68,6 +68,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   useEffect(()=>{const refresh=()=>setVersion(v=>v+1);window.addEventListener('maintenance-flow-deleted',refresh);return()=>window.removeEventListener('maintenance-flow-deleted',refresh)},[])
   const row=rows.find(r=>r.id===selected)
   const favorable=row?.request_data.maintenance_type!=='MEJORA_TECNICA'||['PROCEDE','CON_MODIFICACIONES'].includes(row?.request_data.priority_validation?.technical_review?.feasibility)
+  const executionBlock=!row?null:!row.priority?'Falta guardar la evaluación oficial de Mantenimiento. Abre «Validar prioridad y evaluar».':!favorable?'La mejora necesita viabilidad «Procede» o «Procede con modificaciones». Revisa la evaluación técnica.':!row.request_data.planning?'Falta guardar la programación. Abre «Programar actividad».':row.request_data.planning.condition!=='LISTA'?'La programación está en espera. Abre «Programar actividad», revisa los pendientes, selecciona «Lista para ejecutar» y guarda.':null
   const showingDetail=Boolean(row && !form && !showPeriods)
   useEffect(()=>{
     if(open && showingDetail){
@@ -148,7 +149,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {row.received_at&&<p>Recibido por {row.receiver_name || row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF {row.request_data.maintenance_type==='MEJORA_TECNICA'?'MT/02-08':'MT/02-05'}</button>
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
-          {row.status==='PENDIENTE'&&isAdmin&&<button disabled={busy||!row.priority||!favorable||row.request_data.planning?.condition!=='LISTA'} className="primary-action" onClick={()=>mutate(`/${row.id}/atender`)}>Iniciar trabajo programado</button>}
+          {isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&executionBlock&&<p role="status">No se puede iniciar o entregar todavía: {executionBlock}</p>}
+          {row.status==='PENDIENTE'&&isAdmin&&<button disabled={busy||Boolean(executionBlock)} title={executionBlock||'Iniciar el trabajo; puede realizarse el mismo día'} className="primary-action" onClick={()=>mutate(`/${row.id}/atender`)}>Iniciar trabajo programado</button>}
           {row.status==='EN_PROCESO'&&isAdmin&&<button disabled={busy||!catalogReady||!row.priority||!favorable||row.request_data.planning?.condition!=='LISTA'} className="primary-action" onClick={()=>start('complete')}>Registrar trabajo y repuestos</button>}
           {row.status==='POR_RECIBIR'&&(isAdmin||row.requested_by===currentUser.id)&&<button className="primary-action" onClick={()=>start('receive')}>Confirmar recepción del cambio</button>}
         </div></section>}
