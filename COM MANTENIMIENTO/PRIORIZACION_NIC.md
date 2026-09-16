@@ -7,7 +7,7 @@ Implementación basada en los tres documentos proporcionados el 16/09/2026:
 
 ## Flujo
 
-1. ADMIN u OPERADOR registra la solicitud y su preevaluación N-I-C obligatoria,
+1. ADMIN u OPERADOR registra la solicitud y su preevaluación N-I-C opcional (completa, parcial o sin valorar),
    según efectos observables. La mejora requiere área, propuesta y beneficio
    esperado. No se pide evaluación técnica al solicitante.
 2. ADMIN, como responsable de Mantenimiento, confirma o modifica N-I-C y registra
@@ -71,3 +71,11 @@ La migración 010 anterior sigue siendo necesaria para mejoras sin máquina.
 `node src/priorityOrder.test.js` y `npm run build` desde el frontend.
 Las 64 combinaciones se contrastan con `priority_matrix_reference.json`, extraído
 directamente de los cuatro mapas de la hoja Matriz NIC del Excel proporcionado.
+
+## Repuestos previstos
+
+La solicitud admite hasta 30 repuestos previstos, con cantidad por fila y sin duplicados.
+Se conserva el saldo consultado como referencia; solicitar no reserva ni consume stock.
+Al entregar, se cargan todos los previstos para ajustar lo realmente usado.
+Los registros anteriores con un solo repuesto siguen siendo compatibles.
+La evaluacion oficial de Mantenimiento continua exigiendo los tres factores NIC.

@@ -78,16 +78,16 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   function change(name,value){setForm(f=>({...f,[name]:value,...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:''}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
   function start(modeName){
     setMode(modeName);setFormError('')
-    if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',preevaluation:{},equipment_stopped:false,failure:false,description:'',detected_at:localInput()})
+    if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',detected_at:localInput()})
     if(modeName==='complete'){
       const original=row.request_data
-      const plannedPart=original.requested_part_id
-      const available=parts.some(part=>String(part.spare_part_id)===String(plannedPart))
+      const planned=original.requested_parts?.length?original.requested_parts:original.requested_part_id?[{spare_part_id:original.requested_part_id,quantity:original.requested_quantity}]:[]
+      const available=id=>parts.some(part=>String(part.spare_part_id)===String(id))
       setForm({repair_started_at:row.accepted_at.slice(0,16),repair_finished_at:localInput(),
         stopped_at:original.stopped_at?.slice(0,16)||'',restored_at:original.stopped_at?localInput():'',
         hour_meter:original.hour_meter??'',waiting_parts_minutes:'0',work_done:(original.maintenance_type==='MEJORA_TECNICA'?original.improvement_proposal:original.description)||'',
-        parts:plannedPart?[{spare_part_id:available?String(plannedPart):'',quantity:String(original.requested_quantity??1),removed_part:'',position:''}]:[],tools:[]})
-      if(plannedPart&&!available)setFormError(`El repuesto previsto ${original.requested_part_code || plannedPart} ya no est? disponible en el cat?logo activo. Selecciona otro repuesto o quita la fila si no se utiliz?.`)
+        parts:planned.map(p=>({spare_part_id:available(p.spare_part_id)?String(p.spare_part_id):'',quantity:String(p.quantity),removed_part:'',position:''})),tools:[]})
+      if(planned.some(p=>!available(p.spare_part_id)))setFormError('Hay repuestos previstos que ya no están activos. Selecciona otro repuesto o quita las filas no utilizadas.')
     }
     if(modeName==='receive')setForm({notes:''})
   }
@@ -115,6 +115,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       if(!payload.machine_id)payload.machine_id=null
       for(const key of ['stopped_at','planned_start','planned_end','hour_meter','requested_part_id','requested_quantity'])payload[key]=payload[key]||null
       if(payload.requested_part_id)payload.requested_part_id=Number(payload.requested_part_id)
+      payload.requested_parts=(payload.requested_parts||[]).map(p=>({...p,spare_part_id:Number(p.spare_part_id)}))
     }
     if(mode==='complete'){
       for(const key of ['stopped_at','restored_at','hour_meter'])payload[key]=payload[key]||null
@@ -141,7 +142,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button><h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}.</p><p>Planificado: {time(row.request_data.planning?.starts_at)} a {time(row.request_data.planning?.ends_at)}. Parada: {time(row.request_data.stopped_at)}.</p>
         <PriorityWorkflow key={row.id} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
-        {row.request_data.requested_part_id&&<p>Repuesto previsto: {row.request_data.requested_part_code} · {row.request_data.requested_quantity}. Stock al solicitar: {row.request_data.stock_at_request} ({row.request_data.stock_sufficient?'suficiente':'insuficiente'}).</p>}
+        {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}
+        {!row.request_data.requested_parts?.length&&row.request_data.requested_part_id&&<p>Repuesto previsto: {row.request_data.requested_part_code} · {row.request_data.requested_quantity}. Stock al solicitar: {row.request_data.stock_at_request} ({row.request_data.stock_sufficient?'suficiente':'insuficiente'}).</p>}
         {row.execution_data&&<><h4>Trabajo entregado</h4><p>Realizado por: {row.executor_name || row.assignee_name}</p><p>{row.execution_data.work_done}</p><p>Causa: {row.execution_data.cause || 'No aplica'}</p><p>Recomendaciones: {row.execution_data.recommendations || 'No aplica'}</p><p>Condiciones: {row.execution_data.delivery_conditions || 'No aplica'}</p><p>Reparación: {time(row.execution_data.repair_started_at)} — {time(row.execution_data.repair_finished_at)}. Retorno: {time(row.execution_data.restored_at)}.</p><ul>{row.execution_data.parts.map(p=><li key={p.spare_part_id}>{p.internal_code} · {p.quantity} {p.unit_of_measure} consumidos</li>)}</ul></>}
         {row.received_at&&<p>Recibido por {row.receiver_name || row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF {row.request_data.maintenance_type==='MEJORA_TECNICA'?'MT/02-08':'MT/02-05'}</button>
@@ -157,15 +159,14 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <Text label={form.maintenance_type==='MEJORA_TECNICA'?'Situación actual / problema identificado':'Descripción del daño / trabajo solicitado'} name="description" form={form} change={change}/>
           {form.maintenance_type==='MEJORA_TECNICA'&&<TechnicalImprovementFields form={form} change={change}/>}
           <Field label="Fecha y hora de detección del daño / necesidad" type="datetime-local" name="detected_at" required value={form.detected_at} onChange={change}/>
-          <div className="full-field"><h4>Preevaluación de prioridad del solicitante</h4><p>Selecciona N, I y C según la condición observable. No se requiere diagnóstico técnico. Mantenimiento definirá la prioridad oficial.</p><NICFields value={form.preevaluation} onChange={value=>change('preevaluation',value)}/></div>
+          <div className="full-field"><h4>Preevaluación de prioridad del solicitante</h4><p>Opcional: completa solo los factores que conozcas o deja todos sin valorar. No se requiere diagnóstico técnico. Mantenimiento definirá la prioridad oficial.</p><NICFields required={false} value={form.preevaluation} onChange={value=>change('preevaluation',value)}/></div>
           <label className="checkbox-field"><input type="checkbox" disabled={form.maintenance_type!=='CORRECTIVO'} checked={form.failure} onChange={e=>change('failure',e.target.checked)}/> Es una falla del equipo (para MTBF)</label>
           <label className="checkbox-field"><input type="checkbox" checked={form.equipment_stopped} onChange={e=>change('equipment_stopped',e.target.checked)}/> El equipo está parado actualmente</label>
           <Field label="Inicio real de parada" type="datetime-local" name="stopped_at" required={form.equipment_stopped} value={form.stopped_at} onChange={change}/>
           <Field label="Horómetro al solicitar (h, si existe)" type="number" min="0" step="0.01" name="hour_meter" value={form.hour_meter} onChange={change}/>
 
 
-          <label>Repuesto previsto<select value={form.requested_part_id||''} onChange={e=>change('requested_part_id',e.target.value)}><option value="">No definido</option>{parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>
-          <Field label="Cantidad prevista" type="number" min="0.01" step="0.01" name="requested_quantity" value={form.requested_quantity} onChange={change}/>
+          <div className="full-field"><h4>Repuestos previstos (opcional)</h4><p>Puedes indicar varios. El stock se descuenta al entregar el trabajo, según lo realmente utilizado.</p>{(form.requested_parts||[]).map((p,i)=><div className="request-line" key={i}><label>Repuesto<select required value={p.spare_part_id} onChange={e=>updateLine('requested_parts',i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{parts.map(part=><option key={part.spare_part_id} value={part.spare_part_id}>{part.internal_code} · {part.description}</option>)}</select></label><label>Cantidad prevista<input required type="number" min="0.01" max="99999999.99" step="0.01" value={p.quantity} onChange={e=>updateLine('requested_parts',i,'quantity',e.target.value)}/></label><button type="button" onClick={()=>change('requested_parts',form.requested_parts.filter((_,j)=>i!==j))}>Quitar</button></div>)}<button type="button" disabled={(form.requested_parts||[]).length>=30} onClick={()=>change('requested_parts',[...(form.requested_parts||[]),{spare_part_id:'',quantity:'1'}])}>Añadir repuesto previsto</button></div>
         </>}
         {mode==='complete'&&<>
           {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><Text label="Resultado de mejora" name="improvement_result" maxLength={2000} form={form} change={change}/><Text label="Otros materiales utilizados (fuera de inventario)" name="other_materials" maxLength={2000} required={false} form={form} change={change}/></>}

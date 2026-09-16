@@ -36,6 +36,27 @@ class RequestTests(unittest.TestCase):
             if hasattr(route,'dependant'):
                 self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar')) else self.active,[d.call for d in route.dependant.dependencies])
 
+    def test_optional_partial_preevaluation(self):
+        base=dict(machine_id=3,maintenance_type='CORRECTIVO',description='Revisar equipo')
+        for pre in [None,{}, {'n':3}, {'i':2,'c':None}]:
+            with self.subTest(pre=pre):
+                data=mod.RequestWrite(**base,preevaluation=pre)
+                self.assertEqual(data.preevaluation.n if data.preevaluation else None,3 if pre=={'n':3} else None)
+        with self.assertRaises(ValidationError):mod.RequestWrite(**base,preevaluation={'n':5})
+
+    def test_multiple_planned_parts_do_not_consume_stock(self):
+        data=mod.RequestWrite(machine_id=3,maintenance_type='CORRECTIVO',description='Trabajo',requested_parts=[{'spare_part_id':8,'quantity':2},{'spare_part_id':9,'quantity':5}])
+        self.cursor.execute.return_value.fetchone.side_effect=[('OPERADOR',),('MOL-1','Molino','Produccion'),(12,)]
+        with patch.object(mod,'part_stock',side_effect=[(('A','Rodamiento','UN'),Decimal(3),None),(('B','Perno','UN'),Decimal(1),None)]):
+            self.endpoint('')(data,usuario_id=1)
+        saved=json.loads(self.cursor.execute.call_args.args[4])
+        self.assertEqual(len(saved['requested_parts']),2)
+        self.assertTrue(saved['requested_parts'][0]['stock_sufficient'])
+        self.assertFalse(saved['requested_parts'][1]['stock_sufficient'])
+        self.assertFalse(any('INSERT INTO dbo.MaintenancePartsUsed' in c.args[0] for c in self.cursor.execute.call_args_list))
+        for items in [[{'spare_part_id':8,'quantity':0}],[{'spare_part_id':8,'quantity':1}]*2]:
+            with self.assertRaises(ValidationError):mod.RequestWrite(machine_id=3,maintenance_type='CORRECTIVO',description='Trabajo',requested_parts=items)
+
     def improvement(self, **changes):
         return mod.RequestWrite(**(dict(preevaluation={'n':2,'i':2,'c':2},benefits=['SEGURIDAD'],description='Faltan accesos seguros', maintenance_type='MEJORA_TECNICA',
             requesting_area='SSOMA', target_area='Torre 7', improvement_proposal='Instalar pasarela',

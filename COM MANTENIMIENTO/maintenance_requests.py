@@ -31,8 +31,20 @@ class TechnicalEvaluation(StrictModel):
     safety_notes: str = Field(default='', max_length=500)
 
 
+class Preevaluation(StrictModel):
+    n: int | None = Field(default=None, ge=1, le=4, strict=True)
+    i: int | None = Field(default=None, ge=1, le=4, strict=True)
+    c: int | None = Field(default=None, ge=1, le=4, strict=True)
+
+
+class RequestedPart(StrictModel):
+    spare_part_id: int = Field(gt=0)
+    quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+
+
 class RequestWrite(StrictModel):
-    preevaluation: NIC
+    preevaluation: Preevaluation | None = None
+    requested_parts: list[RequestedPart] = Field(default_factory=list, max_length=30)
     equipment_stopped: bool = False
     benefits: list[Literal['SEGURIDAD', 'PRODUCCION', 'CALIDAD', 'AMBIENTE', 'ERGONOMIA', 'COSTOS', 'CONFIABILIDAD', 'LEGAL']] = Field(default_factory=list, max_length=8)
     benefit_notes: str = Field(default='', max_length=1000)
@@ -57,6 +69,10 @@ class RequestWrite(StrictModel):
 
     @model_validator(mode='after')
     def validate_request(self):
+        if len({p.spare_part_id for p in self.requested_parts}) != len(self.requested_parts):
+            raise ValueError('Agrupa la cantidad de cada repuesto previsto en una sola fila')
+        if self.requested_parts and self.requested_part_id is not None:
+            raise ValueError('Usa la lista de repuestos o el campo anterior, no ambos')
         if self.maintenance_type == 'MEJORA_TECNICA':
             if not self.requesting_area or not self.improvement_proposal:
                 raise ValueError('Completa el area solicitante y la propuesta')
@@ -311,6 +327,13 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if data.requested_part_id:
                 part, stock, _ = part_stock(cursor, data.requested_part_id)
                 payload.update(requested_part_code=part[0], requested_part_name=part[1], stock_at_request=str(stock), stock_sufficient=stock >= data.requested_quantity)
+            planned = data.requested_parts or ([RequestedPart(spare_part_id=data.requested_part_id, quantity=data.requested_quantity)] if data.requested_part_id else [])
+            payload['requested_parts'] = []
+            for item in sorted(planned, key=lambda p: p.spare_part_id):
+                part, stock, _ = part_stock(cursor, item.spare_part_id)
+                payload['requested_parts'].append({**item.model_dump(mode='json'), 'internal_code':part[0],
+                    'description':part[1], 'unit_of_measure':part[2], 'stock_at_request':str(stock),
+                    'stock_sufficient':stock >= item.quantity})
             row = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.MaintenanceRequests
                 (MachineId,RequestedBy,RequestedAt,RequestData) VALUES (?,?,?,?);
                 SELECT CAST(SCOPE_IDENTITY() AS int);''', data.machine_id, usuario_id, local_now(), json.dumps(payload, ensure_ascii=False)).fetchone()

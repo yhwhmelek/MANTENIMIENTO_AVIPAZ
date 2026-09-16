@@ -8,8 +8,8 @@ export const criteria=[
   ['i','I · Impacto operativo',['Sin impacto productivo relevante','Reduce eficiencia, capacidad o calidad; la operación continúa','Detiene línea/equipo crítico o reduce significativamente la capacidad','Detiene planta o proceso productivo principal']],
   ['c','C · Consecuencia',['Sin consecuencia relevante apreciable','Consecuencia menor y controlable','Consecuencia importante o riesgo moderado que requiere control','Consecuencia grave en seguridad, inocuidad, ambiente o cumplimiento legal']],
 ]
-export function NICFields({value={},onChange}){
-  return <div className="motor-form-grid">{criteria.map(([key,label,options])=><label key={key}>{label} *<select required value={value[key]||''} onChange={e=>onChange({...value,[key]:Number(e.target.value)})}><option value="">Selecciona según la condición observada</option>{options.map((text,i)=><option key={i} value={i+1}>{i+1} · {text}</option>)}</select></label>)}</div>
+export function NICFields({value={},onChange,required=true}){
+  return <div className="motor-form-grid">{criteria.map(([key,label,options])=><label key={key}>{label} {required?'*':'(opcional)'}<select required={required} value={value[key]||''} onChange={e=>onChange({...value,[key]:e.target.value?Number(e.target.value):null})}><option value="">Sin valorar / selecciona</option>{options.map((text,i)=><option key={i} value={i+1}>{i+1} · {text}</option>)}</select></label>)}</div>
 }
 export function PriorityBadge({priority}){
   return <span className={`priority-badge priority-${priority?.level||'pending'}`}>{priority?`${levels[priority.level]} · PR ${priority.score}`:'Sin validar'}</span>
@@ -17,7 +17,7 @@ export function PriorityBadge({priority}){
 export function PrioritySummary({row}){
   const r=row.request_data,v=r.priority_validation,p=r.preevaluation,plan=r.planning
   return <section className="priority-summary"><h3>Prioridad N × I × C</h3>
-    <p>Preevaluación del solicitante: {p?`N ${p.n} · I ${p.i} · C ${p.c} · PR referencial ${p.n*p.i*p.c}`:'Solicitud anterior al proceso NIC; sin preevaluación NIC. No se convierten los factores antiguos.'}</p>
+    <p>Preevaluación del solicitante: {p?`N ${p.n??'Sin valorar'} · I ${p.i??'Sin valorar'} · C ${p.c??'Sin valorar'}${p.n&&p.i&&p.c?` · PR referencial ${p.n*p.i*p.c}`:' · Incompleta; Mantenimiento definirá los factores oficiales.'}`:'No registrada; Mantenimiento completará la evaluación oficial.'}</p>
     <p>Prioridad oficial: <PriorityBadge priority={row.priority}/>{row.priority?.escalated&&' · Escalada: C = 4 exige mínimo ALTO.'}</p>
     {v&&<><p>Validado por {v.name} · {v.at?.replace('T',' ')} · N {v.factors.n} · I {v.factors.i} · C {v.factors.c}</p><p>Nivel base: {levels[row.priority?.base]}. Observación técnica: {v.justification}</p>
       {v.technical_review&&<><h4>Verificación técnica de Mantenimiento</h4>{Object.entries(checks).map(([key,label])=><p key={key}>{label}: {v.technical_review[key].answer} · {v.technical_review[key].notes||'Sin observaciones'}</p>)}<p>Viabilidad: {feasibility[v.technical_review.feasibility]}</p></>}

@@ -46,8 +46,7 @@ class PriorityTests(unittest.TestCase):
     def test_invalid_factors_and_forged_official_fields_rejected(self):
         for value in [0,5,True,1.5]:
             with self.assertRaises(ValidationError): NIC(n=value,i=1,c=1)
-        with self.assertRaises(ValidationError):
-            RequestWrite(machine_id=1,maintenance_type='CORRECTIVO',description='Anomalia')
+        self.assertIsNone(RequestWrite(machine_id=1,maintenance_type='CORRECTIVO',description='Anomalia').preevaluation)
         with self.assertRaises(ValidationError):
             RequestWrite(machine_id=1,maintenance_type='CORRECTIVO',description='Anomalia',preevaluation={'n':1,'i':1,'c':1},priority_validation={})
         data=RequestWrite(machine_id=1,maintenance_type='CORRECTIVO',description='Anomalia',preevaluation={'n':4,'i':1,'c':1})

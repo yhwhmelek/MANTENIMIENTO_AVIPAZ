@@ -15,6 +15,7 @@ export default function PrioritizedRequestPrint({row}){
     <h3>PREEVALUACIÓN DE PRIORIDAD — SOLICITANTE</h3><p>Según la condición observada; no requiere diagnóstico técnico.</p>
     <table><thead><tr>{criteria.map(([key,label])=><th key={key}>{label}</th>)}</tr></thead><tbody>{[4,3,2,1].map(value=><tr key={value}>{criteria.map(([key,label,options])=><td key={key}>{r.preevaluation?.[key]===value?'[X]':'[ ]'} {value} — {options[value-1]}</td>)}</tr>)}</tbody></table>
     <p className="improvement-signatures">FIRMA DEL SOLICITANTE: ____________________</p>
+    {!!r.requested_parts?.length&&<><h3>REPUESTOS PREVISTOS</h3><table><thead><tr><th>Repuesto</th><th>Cantidad</th><th>Stock al solicitar</th></tr></thead><tbody>{r.requested_parts.map(p=><tr key={p.spare_part_id}><td>{p.internal_code} · {p.description}</td><td>{p.quantity} {p.unit_of_measure}</td><td>{p.stock_at_request}</td></tr>)}</tbody></table></>}
     <h3>VALIDACIÓN {improvement?'Y EVALUACIÓN TÉCNICA ':''}— MANTENIMIENTO</h3><PrioritySummary row={row}/>
     <h3>RECEPCIÓN DE {improvement?'SOLICITUD':'MANTENIMIENTO'}</h3><p>RECIBIDO / ATENDIDO POR: {row.assignee_name||'Pendiente'} · FECHA / HORA: {time(row.accepted_at)}</p>
     <p>REALIZADO POR: {row.executor_name||'Pendiente'} · FECHA / HORA: {time(e.repair_finished_at)}</p>
