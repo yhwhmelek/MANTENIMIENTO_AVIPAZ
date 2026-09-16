@@ -138,6 +138,14 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
 .request-line { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 10px; margin-bottom: 12px; align-items: end; }
 .request-print { display: none; }
+@media print {
+  .excel-request-page { break-after: page; }
+  .request-print .excel-request-table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+  .request-print .excel-request-table td { padding: 1px 3px; border: 0; line-height: 1.08; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Arial, sans-serif; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .request-print .excel-request-table tr { break-inside: avoid; }
+  .excel-request-table img { width: 105px; max-width: 95%; max-height: 42px; object-fit: contain; }
+  .request-print .excel-continuation { font: 8pt Arial, sans-serif; margin: 4px 0; }
+}
 .priority-badge { display: inline-block; border-radius: 5px; padding: 5px 9px; font-weight: 700; border: 1px solid currentColor; }
 .priority-CRITICO { background: #fee2e2; color: #991b1b; }
 .priority-ALTO { background: #ffedd5; color: #9a3412; }

@@ -1,4 +1,5 @@
 import {createPortal} from 'react-dom'
+import RequestExcelLayout from './RequestExcelLayout'
 import {PrioritySummary,benefits,criteria} from './RequestPriority'
 const time=v=>v?v.replace('T',' ').slice(0,16):'Pendiente'
 
@@ -7,6 +8,8 @@ export default function PrioritizedRequestPrint({row}){
   const r=row.request_data,e=row.execution_data||{},improvement=r.maintenance_type==='MEJORA_TECNICA'
   const block=(title,text)=><section><h3>{title}</h3><p style={{whiteSpace:'pre-wrap'}}>{text||(row.execution_data?'No aplica':'Pendiente')}</p></section>
   return createPortal(<article className="request-print improvement-print">
+    <RequestExcelLayout row={row}/>
+    <section className="request-print-annex"><h1>Anexo · Información completa de la solicitud #{row.id}</h1>
     <header><img src="/maintenance-request-logo.png" alt="AVIPAZ" width="100"/><h1>{improvement?'SOLICITUD Y ORDEN DE TRABAJO DE MEJORA TÉCNICA':'SOLICITUD DE MANTENIMIENTO'}</h1><p>CÓDIGO: {improvement?'MT/02-08':'MT/02-05'} · VERSIÓN: {improvement?'00':'05'} - PROPUESTA · Solicitud #{row.id}</p></header>
     <p>NOMBRE DEL SOLICITANTE: {row.requester_name} · FECHA / HORA: {time(row.requested_at)}</p>
     <p>ÁREA: {r.requesting_area||r.area} · CÓDIGO: {r.machine_code} · EQUIPO / SISTEMA / ÁREA: {r.target_area||r.machine_name}</p>
@@ -29,5 +32,6 @@ export default function PrioritizedRequestPrint({row}){
     <p className="improvement-signatures">FIRMA DE RECEPCIÓN: ____________________ · FIRMA DIRECTOR DE PRODUCCIÓN: ____________________</p>
     <h3>TIEMPOS REGISTRADOS</h3><p>Detección: {time(r.detected_at)} · Trabajo: {time(e.repair_started_at)} — {time(e.repair_finished_at)}.</p><p>Parada: {time(e.stopped_at||r.stopped_at)} · Retorno: {time(e.restored_at)} · Espera de repuestos: {e.waiting_parts_minutes??'Sin registrar'} min.</p><p>Horómetro: {r.hour_meter??'No registrado'} — {e.hour_meter??'No registrado'}. Falla correctiva: {r.failure?'Sí':'No'}.</p>
     {!!r.priority_history?.length&&<><h3>TRAZABILIDAD DE VALIDACIÓN</h3>{r.priority_history.map((v,i)=><p key={i}>{v.at} · {v.name} · N {v.factors.n}, I {v.factors.i}, C {v.factors.c} · {v.justification}</p>)}</>}
+    </section>
   </article>,document.body)
 }
