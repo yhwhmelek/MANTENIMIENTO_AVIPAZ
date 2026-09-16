@@ -6,7 +6,7 @@ import json
 import pyodbc
 from pydantic import ValidationError
 from fastapi import FastAPI, HTTPException
-from requisition_records import InvoiceWrite, ReceiptWrite, register_requisition_records
+from requisition_records import RequisitionEdit, InvoiceWrite, ReceiptWrite, register_requisition_records
 from purchase_requisitions import RequisitionWrite
 
 
@@ -29,7 +29,7 @@ class RecordsTests(unittest.TestCase):
     def test_permissions(self):
         for route in self.app.routes:
             if hasattr(route, 'dependant'):
-                expected = self.admin if route.path.endswith(('/recibir','/pendientes')) else self.active
+                expected = self.admin if 'PUT' in route.methods or route.path.endswith(('/recibir','/pendientes')) else self.active
                 self.assertIn(expected, [d.call for d in route.dependant.dependencies])
 
     def test_save_preserves_payload_without_purchase(self):
@@ -123,3 +123,37 @@ class RecordsTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as error:
             self.endpoint('/requisiciones-compra/{record_id}/factura','GET')(7,user=1)
         self.assertEqual(error.exception.status_code,404)
+
+
+    def test_edit_pending_adds_items_without_purchases(self):
+        updated = self.requisition.model_copy(deep=True)
+        updated.items.append(updated.items[0].model_copy())
+        self.cursor.execute.return_value.fetchone.return_value=(self.requisition.model_dump_json(),None,None)
+        result=self.endpoint('/requisiciones-compra/{record_id}','PUT')(7,RequisitionEdit(original=self.requisition,requisition=updated),user=2)
+        self.assertEqual(result,{'id':7,'status':'PENDIENTE'})
+        args=self.cursor.execute.call_args.args
+        self.assertEqual(RequisitionWrite.model_validate_json(args[1]),updated)
+        self.assertIsNone(args[2])
+        self.assertFalse(any('SparePartPurchases' in c.args[0] for c in self.cursor.execute.call_args_list))
+        self.connection.commit.assert_called_once()
+
+    def test_edit_received_preserves_receipt_snapshot(self):
+        receipt={'items':[{'quantity':3}], 'purchase_ids':[42], 'invoice':{'filename':'factura.pdf'}}
+        self.cursor.execute.return_value.fetchone.return_value=(self.requisition.model_dump_json(),date.today(),json.dumps(receipt))
+        updated=self.requisition.model_copy(update={'observations':'Correccion'})
+        result=self.endpoint('/requisiciones-compra/{record_id}','PUT')(7,RequisitionEdit(original=self.requisition,requisition=updated),user=2)
+        saved=json.loads(self.cursor.execute.call_args.args[2])
+        self.assertEqual(result['status'],'RECIBIDA')
+        self.assertEqual(saved['purchase_ids'],[42])
+        self.assertEqual(saved['invoice'],receipt['invoice'])
+        self.assertEqual(saved['requisition_at_receipt'],self.requisition.model_dump(mode='json'))
+        self.assertNotIn('ReceivedAt=',self.cursor.execute.call_args.args[0])
+
+    def test_stale_edit_rejected(self):
+        changed=self.requisition.model_copy(update={'observations':'Otro cambio'})
+        self.cursor.execute.return_value.fetchone.return_value=(changed.model_dump_json(),None,None)
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/requisiciones-compra/{record_id}','PUT')(7,RequisitionEdit(original=self.requisition,requisition=self.requisition),user=2)
+        self.assertEqual(error.exception.status_code,409)
+        self.connection.commit.assert_not_called()
+        self.connection.rollback.assert_called_once()

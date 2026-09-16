@@ -10,6 +10,8 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[]})
   const [catalogError,setCatalogError]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
   const [revision,setRevision]=useState(0)
+  const [editing,setEditing]=useState(null)
+  const editor=useRef(null)
   const saved=useRef(null)
   const submitting=useRef(false)
   const [mailDraft,setMailDraft]=useState(null)
@@ -36,6 +38,16 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
       .catch(err=>{if(err.name!=='AbortError')setCatalogError(err.message)})
     return()=>controller.abort()
   },[apiUrl,token])
+  function editRequisition(row){
+    if(submitting.current)return
+    setEditing(row);setForm({...row.requisition,delivery_on:row.requisition.delivery_on||'',items:row.requisition.items.map(i=>({...i}))})
+    saved.current=null;setMailDraft(null);setError('');setMessage('')
+    editor.current?.scrollIntoView({behavior:'smooth',block:'start'})
+  }
+  function newRequisition(){
+    setEditing(null);saved.current=null;setMailDraft(null);setError('');setMessage('')
+    setForm({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre,items:[newItem()]})
+  }
   function change(key,value){setForm(f=>({...f,[key]:value}))}
   function itemChange(index,key,value){setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,[key]:value}:item)}))}
   function usePart(index,id){
@@ -52,25 +64,29 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
       const fingerprint=JSON.stringify(payload)
       let id=saved.current?.fingerprint===fingerprint?saved.current.id:null
       if(!id){
-        const result=await fetch(`${apiUrl}/requisiciones-compra`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:fingerprint})
+        const result=await fetch(`${apiUrl}/requisiciones-compra${editing?`/${editing.id}`:''}`,{method:editing?'PUT':'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:editing?JSON.stringify({original:editing.requisition,requisition:payload}):fingerprint})
         const data=await result.json()
         if(!result.ok)throw new Error(typeof data.detail==='string'?data.detail:'Revisa los datos de la requisición.')
+        if(editing)setEditing(row=>({...row,requisition:payload,status:data.status}))
         id=data.id;saved.current={id,fingerprint};setRevision(v=>v+1);window.dispatchEvent(new Event('requisitions-updated'))
       }
-      setMessage(`Requisición #${id} guardada. Pendiente de recepción por un administrador.`)
+      setMessage(`Requisición #${id} guardada. ${editing?.status==='RECIBIDA'?'Los datos de compra e inventario se conservan.':'Pendiente de recepción por un administrador.'}`)
       if(action==='email'){setMailDraft(payload);return}
       if(action!=='excel')return
       const response=await fetch(`${apiUrl}/requisiciones-compra/${id}/archivo`,{headers:{Authorization:`Bearer ${token}`}})
       if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(typeof data.detail==='string'?data.detail:'Revisa los campos, las fechas y las cantidades ingresadas.')}
       const blob=await response.blob(),url=URL.createObjectURL(blob),a=document.createElement('a')
       a.href=url;a.download=`CO-01-01_Requisicion_${form.requested_on}.xlsx`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)
-      setMessage(`Requisición #${id} guardada y Excel generado. Pendiente de recepción.`)
+      setMessage(`Requisición #${id} guardada y Excel generado.`)
     }catch(err){setError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   return <>
     <div className="page-heading"><div><p className="eyebrow">ADQUISICIONES</p><h1>Requisición de compra</h1><p>Guarda el pedido, consulta su historial y confirma la llegada para ingresar la compra al inventario.</p></div></div>
     <p>La requisición queda pendiente hasta que un administrador confirme la recepción con las cantidades y precios reales. Puedes incluir hasta 11 ítems.</p>
     {catalogError&&<p role="status">{catalogError}</p>}
+    <div ref={editor}/>
+    {editing&&<p role="status">Editando requisición #{editing.id}. {editing.status==='RECIBIDA'?'Ya fue recibida: estos cambios modifican el documento; las compras, la factura y el inventario conservan los datos de la recepción original.':'Los cambios se guardan en la misma requisición pendiente.'}</p>}
+    {editing&&<button type="button" disabled={busy} onClick={newRequisition}>Salir de edición / Nueva requisición</button>}
     <form onSubmit={generate}><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
       <label>Departamento *<input required maxLength={80} value={form.department} onChange={e=>change('department',e.target.value)}/></label>
       <label>Proveedor (opcional)<input list="requisition-suppliers" maxLength={120} value={form.supplier} placeholder="Por definir" onChange={e=>change('supplier',e.target.value)}/><datalist id="requisition-suppliers">{catalog.suppliers.map(s=><option key={s.supplier_id} value={s.name}/>)}</datalist></label>
@@ -90,8 +106,8 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     </div></section>)}
     <div className="request-toolbar"><button className="secondary-action" type="button" disabled={form.items.length>=11} onClick={()=>change('items',[...form.items,newItem()])}>Añadir ítem ({form.items.length}/11)</button></div>
     <div className="motor-form-grid"><label className="full-field">Observaciones (opcional)<textarea rows={3} maxLength={1000} value={form.observations} onChange={e=>change('observations',e.target.value)}/></label></div>
-    <div className="modal-actions"><button className="primary-action">{busy?'Procesando…':'Guardar requisición'}</button><button type="submit" value="excel" className="secondary-action">Guardar y generar Excel</button><button type="submit" value="email" className="secondary-action">Preparar envío por correo</button></div></fieldset></form>
-    <RequisitionHistory apiUrl={apiUrl} token={token} isAdmin={currentUser.rol==='ADMIN'} catalog={catalog} revision={revision}/>
+    <div className="modal-actions"><button className="primary-action">{busy?'Procesando…':editing?'Guardar cambios':'Guardar requisición'}</button><button type="submit" value="excel" className="secondary-action">Guardar y generar Excel</button><button type="submit" value="email" className="secondary-action">Preparar envío por correo</button></div></fieldset></form>
+    <RequisitionHistory apiUrl={apiUrl} token={token} isAdmin={currentUser.rol==='ADMIN'} catalog={catalog} revision={revision} onEdit={editRequisition} editingBusy={busy}/>
     {mailDraft&&<section className="request-detail"><h2>Revisar correo antes de enviar</h2><p>Adjunto: CO-01-01_Requisicion_{mailDraft.requested_on}.xlsx · {mailDraft.items.length} ítems · Solicitante: {mailDraft.requester}</p><p>Se adjuntarán los datos que tenía el formulario al pulsar Preparar envío. Si modificas la requisición, pulsa ese botón nuevamente.</p><form onSubmit={sendMail}><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
       <label>Para *<input required value={mail.to} placeholder="adquisiciones@empresa.ec" onChange={e=>setMail(m=>({...m,to:e.target.value}))}/></label>
       <label>Copia (CC)<input value={mail.cc} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,cc:e.target.value}))}/></label>

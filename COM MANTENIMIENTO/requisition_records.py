@@ -13,6 +13,11 @@ from pydantic import Field, model_validator
 from purchase_requisitions import TextModel, RequisitionWrite, generate_requisition
 
 
+class RequisitionEdit(TextModel):
+    original: RequisitionWrite
+    requisition: RequisitionWrite
+
+
 class ReceivedItem(TextModel):
     spare_part_id: int = Field(gt=0)
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
@@ -91,6 +96,22 @@ def register_requisition_records(app, connect, active_user, admin_user):
                 (Payload,CreatedBy) VALUES (?,?); SELECT CAST(SCOPE_IDENTITY() AS int);''',
                 data.model_dump_json(), user).fetchone()
             return {'id': row[0], 'status': 'PENDIENTE'}
+        return transact(operation)
+
+    @app.put('/requisiciones-compra/{record_id}')
+    def edit(record_id: int, data: RequisitionEdit, user: int = Depends(admin_user)):
+        def operation(cursor):
+            row = get_record(cursor, record_id, lock=True)
+            original = RequisitionWrite.model_validate_json(row[0])
+            if original != data.original:
+                raise HTTPException(409, 'La requisicion cambio desde que la abriste. Actualiza el historial y vuelve a editar.')
+            receipt = json.loads(row[2]) if row[2] else None
+            if receipt is not None:
+                # Conserva la correspondencia entre los items recibidos y sus compras.
+                receipt.setdefault('requisition_at_receipt', original.model_dump(mode='json'))
+            cursor.execute('UPDATE dbo.PurchaseRequisitions SET Payload=?,Receipt=? WHERE RequisitionId=?',
+                           data.requisition.model_dump_json(), json.dumps(receipt) if receipt is not None else None, record_id)
+            return {'id': record_id, 'status': 'RECIBIDA' if row[1] else 'PENDIENTE'}
         return transact(operation)
 
     @app.get('/requisiciones-compra')
