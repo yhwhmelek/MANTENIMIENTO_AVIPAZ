@@ -1,0 +1,390 @@
+{
+  "source": "Matriz_Priorizacion_Mantenimiento_y_Mejoras.xlsx",
+  "sheet": "Matriz NIC",
+  "cases": [
+    {
+      "n": 1,
+      "i": 1,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 1,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 1,
+      "c": 3,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 1,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 1,
+      "i": 2,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 2,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 2,
+      "c": 3,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 2,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 1,
+      "i": 3,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 3,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 3,
+      "c": 3,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 3,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 1,
+      "i": 4,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 4,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 1,
+      "i": 4,
+      "c": 3,
+      "level": "MEDIO"
+    },
+    {
+      "n": 1,
+      "i": 4,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 2,
+      "i": 1,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 2,
+      "i": 1,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 2,
+      "i": 1,
+      "c": 3,
+      "level": "BAJO"
+    },
+    {
+      "n": 2,
+      "i": 1,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 2,
+      "i": 2,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 2,
+      "i": 2,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 2,
+      "i": 2,
+      "c": 3,
+      "level": "MEDIO"
+    },
+    {
+      "n": 2,
+      "i": 2,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 2,
+      "i": 3,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 2,
+      "i": 3,
+      "c": 2,
+      "level": "MEDIO"
+    },
+    {
+      "n": 2,
+      "i": 3,
+      "c": 3,
+      "level": "MEDIO"
+    },
+    {
+      "n": 2,
+      "i": 3,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 2,
+      "i": 4,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 2,
+      "i": 4,
+      "c": 2,
+      "level": "MEDIO"
+    },
+    {
+      "n": 2,
+      "i": 4,
+      "c": 3,
+      "level": "ALTO"
+    },
+    {
+      "n": 2,
+      "i": 4,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 3,
+      "i": 1,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 3,
+      "i": 1,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 3,
+      "i": 1,
+      "c": 3,
+      "level": "BAJO"
+    },
+    {
+      "n": 3,
+      "i": 1,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 3,
+      "i": 2,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 3,
+      "i": 2,
+      "c": 2,
+      "level": "MEDIO"
+    },
+    {
+      "n": 3,
+      "i": 2,
+      "c": 3,
+      "level": "MEDIO"
+    },
+    {
+      "n": 3,
+      "i": 2,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 3,
+      "i": 3,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 3,
+      "i": 3,
+      "c": 2,
+      "level": "MEDIO"
+    },
+    {
+      "n": 3,
+      "i": 3,
+      "c": 3,
+      "level": "ALTO"
+    },
+    {
+      "n": 3,
+      "i": 3,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 3,
+      "i": 4,
+      "c": 1,
+      "level": "MEDIO"
+    },
+    {
+      "n": 3,
+      "i": 4,
+      "c": 2,
+      "level": "ALTO"
+    },
+    {
+      "n": 3,
+      "i": 4,
+      "c": 3,
+      "level": "ALTO"
+    },
+    {
+      "n": 3,
+      "i": 4,
+      "c": 4,
+      "level": "CRITICO"
+    },
+    {
+      "n": 4,
+      "i": 1,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 4,
+      "i": 1,
+      "c": 2,
+      "level": "BAJO"
+    },
+    {
+      "n": 4,
+      "i": 1,
+      "c": 3,
+      "level": "MEDIO"
+    },
+    {
+      "n": 4,
+      "i": 1,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 4,
+      "i": 2,
+      "c": 1,
+      "level": "BAJO"
+    },
+    {
+      "n": 4,
+      "i": 2,
+      "c": 2,
+      "level": "MEDIO"
+    },
+    {
+      "n": 4,
+      "i": 2,
+      "c": 3,
+      "level": "ALTO"
+    },
+    {
+      "n": 4,
+      "i": 2,
+      "c": 4,
+      "level": "ALTO"
+    },
+    {
+      "n": 4,
+      "i": 3,
+      "c": 1,
+      "level": "MEDIO"
+    },
+    {
+      "n": 4,
+      "i": 3,
+      "c": 2,
+      "level": "ALTO"
+    },
+    {
+      "n": 4,
+      "i": 3,
+      "c": 3,
+      "level": "ALTO"
+    },
+    {
+      "n": 4,
+      "i": 3,
+      "c": 4,
+      "level": "CRITICO"
+    },
+    {
+      "n": 4,
+      "i": 4,
+      "c": 1,
+      "level": "MEDIO"
+    },
+    {
+      "n": 4,
+      "i": 4,
+      "c": 2,
+      "level": "ALTO"
+    },
+    {
+      "n": 4,
+      "i": 4,
+      "c": 3,
+      "level": "CRITICO"
+    },
+    {
+      "n": 4,
+      "i": 4,
+      "c": 4,
+      "level": "CRITICO"
+    }
+  ]
+}

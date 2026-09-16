@@ -138,6 +138,12 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
 .request-line { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 10px; margin-bottom: 12px; align-items: end; }
 .request-print { display: none; }
+.priority-badge { display: inline-block; border-radius: 5px; padding: 5px 9px; font-weight: 700; border: 1px solid currentColor; }
+.priority-CRITICO { background: #fee2e2; color: #991b1b; }
+.priority-ALTO { background: #ffedd5; color: #9a3412; }
+.priority-MEDIO { background: #fef9c3; color: #713f12; }
+.priority-BAJO { background: #dcfce7; color: #166534; }
+.priority-pending { background: #f1f5f9; color: #475569; }
 @media print {
   .improvement-print h1 { font-size: 13pt; }
   .improvement-print h3 { font-size: 10pt; background: #eee; padding: 4px; break-after: avoid; }

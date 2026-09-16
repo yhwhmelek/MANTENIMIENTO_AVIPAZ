@@ -1,4 +1,10 @@
 const labels = {
+  preevaluation: 'Preevaluación del solicitante', factors: 'Factores validados',
+  n: 'Necesidad de intervención (N)', i: 'Impacto operativo (I)', c: 'Consecuencia (C)',
+  technical_review: 'Verificación técnica', feasibility: 'Viabilidad técnica',
+  justification: 'Observación técnica / justificación', benefits: 'Beneficio esperado',
+  starts_at: 'Inicio programado', ends_at: 'Fin programado', responsible: 'Responsable',
+  resources: 'Repuestos y recursos', permits: 'Permisos', window: 'Ventana de intervención',
   repair_started_at: 'Inicio de reparación', repair_finished_at: 'Fin de reparación',
   stopped_at: 'Inicio de parada', restored_at: 'Retorno a servicio',
   work_done: 'Trabajo realizado', hour_meter: 'Horómetro', waiting_parts_minutes: 'Espera por repuestos',

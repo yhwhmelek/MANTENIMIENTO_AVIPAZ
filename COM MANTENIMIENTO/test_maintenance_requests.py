@@ -18,7 +18,7 @@ class RequestTests(unittest.TestCase):
         self.active = lambda: 1
         self.admin = lambda: 9
         mod.register_maintenance_requests(self.app, lambda: self.connection, self.active, self.admin)
-        self.original = {'machine_id': 3, 'maintenance_type': 'CORRECTIVO', 'hour_meter': '100'}
+        self.original = {'machine_id': 3, 'maintenance_type': 'CORRECTIVO', 'hour_meter': '100', 'priority_validation':{'factors':{'n':2,'i':2,'c':2}}, 'planning':{'condition':'LISTA'}}
 
     def endpoint(self, suffix, method='POST'):
         return next(r.endpoint for r in self.app.routes if r.path == '/solicitudes-mantenimiento'+suffix and method in r.methods)
@@ -34,16 +34,16 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar')) else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar')) else self.active,[d.call for d in route.dependant.dependencies])
 
     def improvement(self, **changes):
-        return mod.RequestWrite(**(dict(description='Faltan accesos seguros', maintenance_type='MEJORA_TECNICA',
+        return mod.RequestWrite(**(dict(preevaluation={'n':2,'i':2,'c':2},benefits=['SEGURIDAD'],description='Faltan accesos seguros', maintenance_type='MEJORA_TECNICA',
             requesting_area='SSOMA', target_area='Torre 7', improvement_proposal='Instalar pasarela',
             technical_evaluation=dict(affects_food_safety=False,requires_shutdown=True,requires_training=False,improves_safety=True),
             urgency=1,impact=1,risk=2) | changes))
 
     def test_improvement_requires_proposal_evaluation_and_target(self):
-        for changes in ({'improvement_proposal':''},{'requesting_area':''},{'technical_evaluation':None},{'target_area':''},{'failure':True}):
+        for changes in ({'improvement_proposal':''},{'requesting_area':''},{'benefits':[]},{'target_area':''},{'failure':True}):
             with self.subTest(changes=changes), self.assertRaises(ValidationError):
                 self.improvement(**changes)
         with self.assertRaises(ValidationError):
@@ -61,7 +61,7 @@ class RequestTests(unittest.TestCase):
         self.assertFalse(payload['failure'])
 
     def test_complete_improvement_preserves_type_and_material_consumption(self):
-        self.original=self.improvement().model_dump(mode='json')
+        self.original=self.improvement().model_dump(mode='json') | {'priority_validation':{'factors':{'n':2,'i':2,'c':2},'technical_review':{'feasibility':'PROCEDE'}},'planning':{'condition':'LISTA'}}
         self.cursor.execute.return_value.fetchone.side_effect=[self.locked(),(33,)]
         with patch.object(mod,'part_stock',return_value=(('MAT-1','Material','UN'),Decimal(5),None)):
             self.endpoint('/{request_id}/completar')(5,self.completion(improvement_result='Acceso seguro',other_materials='Acero recuperado'),usuario_id=9)
@@ -73,7 +73,7 @@ class RequestTests(unittest.TestCase):
         self.connection.commit.assert_called_once()
 
     def test_complete_improvement_requires_result(self):
-        self.original=self.improvement().model_dump(mode='json')
+        self.original=self.improvement().model_dump(mode='json') | {'priority_validation':{'factors':{'n':2,'i':2,'c':2},'technical_review':{'feasibility':'PROCEDE'}},'planning':{'condition':'LISTA'}}
         self.cursor.execute.return_value.fetchone.return_value=self.locked()
         with self.assertRaises(HTTPException) as error:
             self.endpoint('/{request_id}/completar')(5,self.completion(),usuario_id=9)
@@ -123,7 +123,7 @@ class RequestTests(unittest.TestCase):
         self.connection.commit.assert_not_called()
 
     def test_operator_creates_and_user_cannot(self):
-        data = mod.RequestWrite(machine_id=3,description='Cambiar malla',maintenance_type='CORRECTIVO',urgency=3,impact=3,risk=2)
+        data = mod.RequestWrite(preevaluation={'n':2,'i':2,'c':2},machine_id=3,description='Cambiar malla',maintenance_type='CORRECTIVO',urgency=3,impact=3,risk=2)
         self.cursor.execute.return_value.fetchone.side_effect = [('USUARIO',)]
         with self.assertRaises(HTTPException) as error:
             self.endpoint('')(data,usuario_id=1)
@@ -286,11 +286,11 @@ class RequestTests(unittest.TestCase):
         for urgency in (1, 2, 3):
             for maintenance_type in ('CORRECTIVO', 'PREVENTIVO'):
                 with self.subTest(urgency=urgency, maintenance_type=maintenance_type):
-                    data = mod.RequestWrite(machine_id=3, description='Trabajo sin parada',
+                    data = mod.RequestWrite(preevaluation={'n':2,'i':2,'c':2},machine_id=3, description='Trabajo sin parada',
                         maintenance_type=maintenance_type, urgency=urgency, impact=1, risk=1)
                     self.assertIsNone(data.stopped_at)
         with self.assertRaises(ValidationError):
-            mod.RequestWrite(machine_id=3,description='Cambio',maintenance_type='CORRECTIVO',urgency=4,impact=3,risk=2)
+            mod.RequestWrite(preevaluation={'n':2,'i':2,'c':2},machine_id=3,description='Cambio',maintenance_type='CORRECTIVO',equipment_stopped=True,urgency=4,impact=3,risk=2)
         self.original['stopped_at']='2026-01-01T08:00:00'
         self.cursor.execute.return_value.fetchone.return_value=self.locked()
         with self.assertRaises(HTTPException) as error:

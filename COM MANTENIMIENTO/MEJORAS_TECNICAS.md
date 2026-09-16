@@ -1,5 +1,11 @@
 # Solicitudes de mejora técnica MT/02-08
 
+Actualización 16/09/2026: ver `PRIORIZACION_NIC.md`. El solicitante registra
+beneficios y preevaluación NIC; la verificación técnica pertenece a Mantenimiento.
+La ejecución requiere validación oficial y programación. La impresión utiliza
+los formatos actualizados entregados en esa fecha. Las secciones siguientes
+describen la integración inicial y deben leerse con esta actualización.
+
 En Solicitudes → Generar solicitud, seleccionar «Mejora técnica (MT/02-08)».
 Comparte la bandeja, alertas, permisos y estados con mantenimiento correctivo:
 PENDIENTE → EN_PROCESO → POR_RECIBIR → CERRADA.

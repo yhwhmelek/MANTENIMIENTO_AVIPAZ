@@ -9,6 +9,7 @@ import pyodbc
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from parts_history import records
+from request_priority import NIC, decorate, backlog_key, register_priority, require_planned
 
 
 def local_now():
@@ -31,6 +32,10 @@ class TechnicalEvaluation(StrictModel):
 
 
 class RequestWrite(StrictModel):
+    preevaluation: NIC
+    equipment_stopped: bool = False
+    benefits: list[Literal['SEGURIDAD', 'PRODUCCION', 'CALIDAD', 'AMBIENTE', 'ERGONOMIA', 'COSTOS', 'CONFIABILIDAD', 'LEGAL']] = Field(default_factory=list, max_length=8)
+    benefit_notes: str = Field(default='', max_length=1000)
     machine_id: int | None = Field(default=None, gt=0)
     description: str = Field(min_length=1, max_length=1000)
     maintenance_type: Literal['PREVENTIVO', 'CORRECTIVO', 'MEJORA_TECNICA']
@@ -38,9 +43,9 @@ class RequestWrite(StrictModel):
     target_area: str = Field(default='', max_length=200)
     improvement_proposal: str = Field(default='', max_length=2000)
     technical_evaluation: TechnicalEvaluation | None = None
-    urgency: int = Field(ge=1, le=4)
-    impact: int = Field(ge=1, le=4)
-    risk: int = Field(ge=1, le=4)
+    urgency: int | None = Field(default=None, ge=1, le=4)
+    impact: int | None = Field(default=None, ge=1, le=4)
+    risk: int | None = Field(default=None, ge=1, le=4)
     failure: bool = False
     detected_at: datetime = Field(default_factory=local_now)
     stopped_at: datetime | None = None
@@ -53,8 +58,10 @@ class RequestWrite(StrictModel):
     @model_validator(mode='after')
     def validate_request(self):
         if self.maintenance_type == 'MEJORA_TECNICA':
-            if not self.requesting_area or not self.improvement_proposal or self.technical_evaluation is None:
-                raise ValueError('Completa el area solicitante, la propuesta y la evaluacion tecnica')
+            if not self.requesting_area or not self.improvement_proposal:
+                raise ValueError('Completa el area solicitante y la propuesta')
+            if not self.benefits and not self.benefit_notes:
+                raise ValueError('Indica el beneficio o resultado esperado de la mejora')
             if self.machine_id is None and not self.target_area:
                 raise ValueError('Selecciona una maquina o indica el equipo, sistema o area de la mejora')
         elif self.machine_id is None:
@@ -64,7 +71,7 @@ class RequestWrite(StrictModel):
                 raise ValueError('Usa fechas locales de Ecuador sin zona horaria')
         if self.stopped_at and self.stopped_at > local_now():
             raise ValueError('La parada no puede ser futura')
-        if self.urgency == 4 and self.stopped_at is None:
+        if self.equipment_stopped and self.stopped_at is None:
             raise ValueError('Si el equipo esta parado, registra el inicio real de la parada')
         if self.detected_at > local_now():
             raise ValueError('La deteccion del daño no puede ser futura')
@@ -177,7 +184,7 @@ SELECT = '''SELECT r.RequestId AS id, r.MachineId AS machine_id,
 def decode(row):
     row['request_data'] = json.loads(row['request_data'])
     row['execution_data'] = json.loads(row['execution_data']) if row['execution_data'] else None
-    return row
+    return decorate(row)
 
 
 def part_stock(cursor, part_id):
@@ -284,6 +291,12 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         except (pyodbc.Error, RuntimeError):
             raise HTTPException(503, 'No se pudieron consultar las solicitudes. Verifica las migraciones 005 y 006.')
 
+    @app.get('/actividades-priorizadas')
+    def prioritized_activities(usuario_id: int = Depends(active_user)):
+        return sorted((row for row in list_requests(usuario_id) if row['status'] != 'CERRADA'), key=backlog_key)
+
+    register_priority(app, write, locked, admin_user, local_now)
+
     @app.post('/solicitudes-mantenimiento', status_code=201)
     def create_request(data: RequestWrite, usuario_id: int = Depends(active_user)):
         def operation(cursor):
@@ -310,6 +323,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             row = locked(cursor, request_id)
             if row[2] != 'PENDIENTE':
                 raise HTTPException(409, 'Esta solicitud ya fue atendida')
+            require_planned(json.loads(row[3]))
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='EN_PROCESO', AssignedTo=?, AcceptedAt=? WHERE RequestId=?", usuario_id, local_now(), request_id)
             return {'id': request_id}
         return write(operation)
@@ -321,6 +335,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if row[2] != 'EN_PROCESO':
                 raise HTTPException(409, 'La solicitud ya fue entregada o no esta en proceso')
             original = json.loads(row[3])
+            require_planned(original)
             if original['maintenance_type'] == 'MEJORA_TECNICA' and not data.improvement_result:
                 raise HTTPException(422, 'Describe el resultado de la mejora tecnica')
             if data.repair_started_at < row[4].replace(second=0, microsecond=0):
