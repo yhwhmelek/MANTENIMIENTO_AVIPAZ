@@ -2,12 +2,13 @@ from io import BytesIO
 from pathlib import PurePosixPath
 import posixpath
 import unittest
+from unittest.mock import MagicMock
 import zipfile
 import xml.etree.ElementTree as E
 
 from fastapi import FastAPI
 from pydantic import ValidationError
-from purchase_requisitions import NS, TEMPLATE, RequisitionWrite, generate_requisition, register_purchase_requisitions
+from purchase_requisitions import NS, TEMPLATE, RequisitionWrite, generate_requisition, machine_locations, register_purchase_requisitions
 
 
 class RequisitionTests(unittest.TestCase):
@@ -32,6 +33,19 @@ class RequisitionTests(unittest.TestCase):
             self.assertEqual(cell('B25'),'Operador de prueba')
             for row in range(10,20):self.assertEqual(cell(f'A{row}'),'')
             self.assertEqual(sheet.find(f'.//{{{NS}}}c[@r="B9"]').get('t'),'n')
+
+    def test_machine_location_and_written_observations_share_excel_cell(self):
+        data = self.data(machine_codes='MOL-01 / MOL-02', observations='Entrega en bodega')
+        connection = MagicMock()
+        connection.cursor.return_value.execute.return_value.fetchall.return_value = [
+            ('MOL-01', 'Samanga', 'Torre 1'), ('MOL-02', 'Samanga', 'Torre 2')]
+        locations = machine_locations(data, lambda: connection)
+        with zipfile.ZipFile(BytesIO(generate_requisition(data, locations))) as z:
+            sheet = E.fromstring(z.read('xl/worksheets/sheet1.xml'))
+            text = ''.join(sheet.find(f'.//{{{NS}}}c[@r="B20"]').itertext())
+            self.assertEqual(text, 'MOL-01: Planta: Samanga · Torre: Torre 1\n'
+                                   'MOL-02: Planta: Samanga · Torre: Torre 2\nEntrega en bodega')
+        self.assertEqual(connection.cursor.return_value.execute.call_args.args[1:], ('MOL-01', 'MOL-02'))
 
     def test_template_preserves_format_but_not_old_business_data(self):
         with zipfile.ZipFile(TEMPLATE) as z:

@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from purchase_requisitions import RequisitionWrite, generate_requisition
+from purchase_requisitions import RequisitionWrite, generate_requisition, machine_locations
 
 
 class RequisitionMail(BaseModel):
@@ -41,7 +41,7 @@ class RequisitionMail(BaseModel):
         return value
 
 
-def send_requisition(data):
+def send_requisition(data, connect=None):
     host = os.getenv('REQUISITION_SMTP_HOST', 'mail.avipaz.ec')
     user = os.getenv('REQUISITION_SMTP_USER', 'mantenimientosamanga@avipaz.ec')
     password = os.getenv('REQUISITION_SMTP_PASSWORD')
@@ -49,7 +49,7 @@ def send_requisition(data):
         raise HTTPException(503, 'Falta configurar la contraseña SMTP en el servidor.')
     try:
         port = int(os.getenv('REQUISITION_SMTP_PORT', '465'))
-        content = generate_requisition(data.requisition)
+        content = generate_requisition(data.requisition, machine_locations(data.requisition, connect))
         message = EmailMessage()
         message['From'] = user
         message['To'] = ', '.join(data.to)
@@ -90,7 +90,7 @@ def send_requisition(data):
         raise HTTPException(503, 'Revisa la configuración SMTP y la plantilla de requisición.')
 
 
-def register_requisition_mail(app, active_user):
+def register_requisition_mail(app, active_user, connect=None):
     @app.post('/requisiciones-compra/enviar')
     def send(data: RequisitionMail, usuario_id: int = Depends(active_user)):
-        return send_requisition(data)
+        return send_requisition(data, connect)

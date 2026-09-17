@@ -1,8 +1,12 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from io import BytesIO
+import zipfile
+import xml.etree.ElementTree as ET
 from pydantic import ValidationError
 from fastapi import HTTPException
 from requisition_mail import RequisitionMail, send_requisition
+from purchase_requisitions import NS
 
 
 class MailTests(unittest.TestCase):
@@ -27,6 +31,21 @@ class MailTests(unittest.TestCase):
             self.assertIn('cid:' + signature['Content-ID'][1:-1], html)
             self.assertEqual(signature.get_content_disposition(), 'inline')
             self.assertTrue(signature.get_payload(decode=True).startswith(b'\xff\xd8'))
+
+    def test_emailed_excel_contains_machine_location_and_observations(self):
+        connection = MagicMock()
+        connection.cursor.return_value.execute.return_value.fetchall.return_value = [('MOL-01', 'Samanga', 'Torre 1')]
+        requisition = self.data(requisition=dict(department='Mantenimiento', requested_on='2026-09-09',
+            urgent=True, requester='Prueba', machine_codes='MOL-01', observations='Entregar mañana',
+            items=[dict(description='Malla',quantity=1,unit='UNIDAD',specifications='')]))
+        with patch.dict('os.environ', {'REQUISITION_SMTP_PASSWORD':'test-only'}), patch('requisition_mail.smtplib.SMTP_SSL') as smtp:
+            smtp.return_value.__enter__.return_value.send_message.return_value = {}
+            send_requisition(requisition, lambda: connection)
+            attachment = next(smtp.return_value.__enter__.return_value.send_message.call_args.args[0].iter_attachments())
+        with zipfile.ZipFile(BytesIO(attachment.get_payload(decode=True))) as z:
+            sheet = ET.fromstring(z.read('xl/worksheets/sheet1.xml'))
+            self.assertEqual(''.join(sheet.find(f'.//{{{NS}}}c[@r="B20"]').itertext()),
+                             'Planta: Samanga · Torre: Torre 1\nEntregar mañana')
 
     def test_body_is_escaped_in_html(self):
         with patch.dict('os.environ', {'REQUISITION_SMTP_PASSWORD':'test-only'}), patch('requisition_mail.smtplib.SMTP_SSL') as smtp:

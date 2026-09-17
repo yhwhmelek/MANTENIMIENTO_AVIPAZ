@@ -10,7 +10,7 @@ from urllib.parse import quote
 import pyodbc
 from fastapi import Depends, HTTPException, Response
 from pydantic import Field, model_validator
-from purchase_requisitions import TextModel, RequisitionWrite, generate_requisition
+from purchase_requisitions import TextModel, RequisitionWrite, generate_requisition, machine_locations
 
 
 class RequisitionEdit(TextModel):
@@ -144,7 +144,8 @@ def register_requisition_records(app, connect, active_user, admin_user):
     @app.get('/requisiciones-compra/{record_id}/archivo')
     def download(record_id: int, user: int = Depends(active_user)):
         payload = transact(lambda cursor: get_record(cursor, record_id)[0])
-        content = generate_requisition(RequisitionWrite.model_validate_json(payload))
+        data = RequisitionWrite.model_validate_json(payload)
+        content = generate_requisition(data, machine_locations(data, connect))
         return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         headers={'Content-Disposition': f'attachment; filename="Requisicion_{record_id}.xlsx"', 'Cache-Control': 'no-store'})
 

@@ -1,5 +1,6 @@
 """Generacion de requisiciones Excel CO/01-01; no registra compras ni movimientos."""
 from datetime import date
+from contextlib import closing
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -7,6 +8,8 @@ import math
 import re
 import zipfile
 import xml.etree.ElementTree as ET
+
+import pyodbc
 
 from fastapi import Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -75,7 +78,37 @@ def set_cell(root, reference, value):
 def wrapped_lines(text, width):
     return sum(max(1, math.ceil(len(line)/width)) for line in text.split('\n'))
 
-def generate_requisition(data: RequisitionWrite):
+def machine_locations(data: RequisitionWrite, connect):
+    if connect is None or not data.machine_codes.strip():
+        return ''
+    codes = list(dict.fromkeys(code.strip() for code in re.split(r'[,;/]', data.machine_codes) if code.strip()))
+    if not codes:
+        return ''
+    placeholders = ','.join('?' for _ in codes)
+    try:
+        with closing(connect()) as connection:
+            rows = connection.cursor().execute(f'''
+                SELECT m.AssetCode, p.Name, t.Name
+                FROM dbo.Machines m
+                LEFT JOIN dbo.Towers t ON t.TowerId=m.TowerId
+                LEFT JOIN dbo.Plants p ON p.PlantId=t.PlantId
+                WHERE UPPER(m.AssetCode) IN ({placeholders})
+            ''', *(code.upper() for code in codes)).fetchall()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(503, 'No se pudo consultar la planta y torre de las maquinas')
+    locations = {str(code).upper(): (plant, tower) for code, plant, tower in rows}
+    lines = []
+    for code in codes:
+        plant, tower = locations.get(code.upper(), (None, None))
+        if plant or tower:
+            prefix = f'{code}: ' if len(codes) > 1 else ''
+            lines.append(prefix + ' · '.join(part for part in (
+                f'Planta: {plant}' if plant else '', f'Torre: {tower}' if tower else '') if part))
+    return '\n'.join(lines)
+
+
+def generate_requisition(data: RequisitionWrite, locations: str = ''):
+    observations = '\n'.join(part for part in (locations, data.observations) if part) or 'No aplica'
     output = BytesIO()
     with zipfile.ZipFile(TEMPLATE) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as result:
         root = ET.fromstring(source.read('xl/worksheets/sheet1.xml'))
@@ -83,7 +116,7 @@ def generate_requisition(data: RequisitionWrite):
                   'B6': data.requested_on.strftime('%d/%m/%Y'),
                   'E6': data.machine_codes or 'No aplica',
                   'B7': 'ASAP / Urgente' if data.urgent else data.delivery_on.strftime('%d/%m/%Y'),
-                  'B20': data.observations or 'No aplica', 'B25': data.requester}
+                  'B20': observations, 'B25': data.requester}
         for reference, value in fields.items():
             set_cell(root, reference, value)
         for row_number in range(9, 20):
@@ -96,7 +129,7 @@ def generate_requisition(data: RequisitionWrite):
                 row = root.find(f'.//{{{NS}}}row[@r="{row_number}"]')
                 row.set('ht', str(max(18, lines*14+4)))
                 row.set('customHeight', '1')
-        for number, text, width in [(5, max(data.department, data.supplier, key=len), 28), (6,data.machine_codes,40), (20,data.observations,75), (25,data.requester,11)]:
+        for number, text, width in [(5, max(data.department, data.supplier, key=len), 28), (6,data.machine_codes,40), (20,observations,75), (25,data.requester,11)]:
             row = root.find(f'.//{{{NS}}}row[@r="{number}"]')
             row.set('ht',str(max(float(row.get('ht','18')),wrapped_lines(text,width)*14+4)))
             row.set('customHeight','1')
@@ -110,11 +143,11 @@ def register_purchase_requisitions(app, active_user, connect=None, admin_user=No
         from requisition_records import register_requisition_records
         register_requisition_records(app, connect, active_user, admin_user)
     from requisition_mail import register_requisition_mail
-    register_requisition_mail(app, active_user)
+    register_requisition_mail(app, active_user, connect)
     @app.post('/requisiciones-compra/archivo')
     def download_requisition(data: RequisitionWrite, usuario_id: int = Depends(active_user)):
         try:
-            content = generate_requisition(data)
+            content = generate_requisition(data, machine_locations(data, connect))
         except (OSError, ValueError, zipfile.BadZipFile, ET.ParseError):
             raise HTTPException(503, 'No se pudo generar el archivo. Verifica la plantilla de requisicion en el servidor.')
         return Response(content, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
