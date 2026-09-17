@@ -6,7 +6,7 @@ const newItem = () => ({ description:'',quantity:'1',unit:'UNIDAD',specification
 const today = () => {const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 
 export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
-  const [form,setForm]=useState({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre,items:[newItem()]})
+  const [form,setForm]=useState({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[newItem()]})
   const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[]})
   const [catalogError,setCatalogError]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
   const [revision,setRevision]=useState(0)
@@ -46,7 +46,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   }
   function newRequisition(){
     setEditing(null);saved.current=null;setMailDraft(null);setError('');setMessage('')
-    setForm({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre,items:[newItem()]})
+    setForm({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[newItem()]})
   }
   function change(key,value){setForm(f=>({...f,[key]:value}))}
   function itemChange(index,key,value){setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,[key]:value}:item)}))}
@@ -94,7 +94,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
       <label>Fecha de entrega {form.urgent?'(urgente)':'*'}<input type="date" required={!form.urgent} disabled={form.urgent} min={form.requested_on} value={form.delivery_on} onChange={e=>change('delivery_on',e.target.value)}/></label>
       <label className="checkbox-field"><input type="checkbox" checked={form.urgent} onChange={e=>setForm(f=>({...f,urgent:e.target.checked,delivery_on:e.target.checked?'':f.delivery_on}))}/> Entrega urgente / ASAP</label>
       <label>Código(s) de máquina (opcional)<input list="requisition-machines" maxLength={100} value={form.machine_codes} placeholder="Ej.: MOL-01 / MOL-02" onChange={e=>change('machine_codes',e.target.value)}/><datalist id="requisition-machines">{catalog.machines.map(m=><option key={m.machine_id} value={m.asset_code}>{m.name}</option>)}</datalist></label>
-      <label>Nombre del solicitante *<input required maxLength={100} value={form.requester} onChange={e=>change('requester',e.target.value)}/></label>
+      <label>Nombre del solicitante *<input required maxLength={201} value={form.requester} onChange={e=>change('requester',e.target.value)}/></label>
     </div>
     <h2>Productos, bienes o servicios</h2>
     {form.items.map((item,index)=><section className="request-detail" key={index}><div className="request-toolbar"><strong>Ítem {index+1}</strong><button type="button" className="secondary-action" disabled={form.items.length===1} onClick={()=>change('items',form.items.filter((_,i)=>i!==index))}>Quitar ítem</button></div><div className="motor-form-grid">

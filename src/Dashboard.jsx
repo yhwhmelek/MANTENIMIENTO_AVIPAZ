@@ -31,6 +31,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   const [duplicatingSparePart, setDuplicatingSparePart] = useState(null)
   const [sparePartCategories, setSparePartCategories] = useState([])
   const [users, setUsers] = useState([])
+  const [editingUser, setEditingUser] = useState(null)
   const [editingSparePart, setEditingSparePart] = useState(null)
   const [showSparePartForm, setShowSparePartForm] = useState(false)
   const [sparePartImagePreview, setSparePartImagePreview] = useState(null)
@@ -352,7 +353,25 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       if (!response.ok) throw new Error(requestError(data, 'No se pudo actualizar el rol.'))
       setUsers((items) => items.map((item) => item.id === userId ? { ...item, rol: data.rol } : item))
       if (currentUser.id === userId) onUserChange({ ...currentUser, rol: data.rol })
-      setMessage(`Rol de ${data.nombre} actualizado.`)
+      setMessage(`Rol de ${data.nombre_completo} actualizado.`)
+    } catch (error) { setMessage(error.message) }
+  }
+
+  async function updateUserName(event) {
+    event.preventDefault()
+    const nombres = editingUser.nombres.trim(), apellidos = editingUser.apellidos.trim()
+    if (!nombres || !apellidos) return setMessage('Ingresa nombre y apellido.')
+    try {
+      const response = await fetch(`${apiUrl}/usuarios/${editingUser.id}/nombre`, {
+        method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombres, apellidos }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(requestError(data, 'No se pudo actualizar el nombre.'))
+      setUsers(items => items.map(item => item.id === data.id ? { ...item, ...data } : item))
+      if (currentUser.id === data.id) onUserChange({ ...currentUser, ...data })
+      setEditingUser(null)
+      setMessage(`Nombre de ${data.nombre_completo} actualizado.`)
     } catch (error) { setMessage(error.message) }
   }
 
@@ -371,7 +390,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>
         {isAdmin && <button className={section === 'users' ? 'selected' : ''} onClick={() => setSection('users')}>Usuarios</button>}
       </nav>
-      <div className="admin-user"><span>{currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
+      <div className="admin-user"><span>{currentUser.nombre_completo || currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
     </header>
 
     <section className="admin-content">
@@ -400,7 +419,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <div className="users-card table-scroll"><table><thead><tr><th>Acciones</th><th>Nombre</th><th>Descripcion</th></tr></thead><tbody>{sparePartCategories.map((category) => <tr key={category.category_id}><td className="row-actions"><button title="Editar" onClick={() => openCategoryForm(category)}><Pencil size={16} /></button><button className="danger" title="Eliminar" onClick={() => deleteCategory(category)}><Trash2 size={16} /></button></td><td><strong>{category.name}</strong></td><td>{category.description || '—'}</td></tr>)}</tbody></table>{!loading && !sparePartCategories.length && <p className="empty-state">No hay categorias registradas.</p>}</div>
       </> : <>
         <div className="page-heading"><div><p className="eyebrow">CONFIGURACION</p><h1>Administrar usuarios</h1><p>Gestion de roles de acceso.</p></div><Users size={28} /></div>
-        <div className="users-card table-scroll"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Creado</th></tr></thead><tbody>{users.map((user) => <tr key={user.id}><td><strong>{user.nombre}</strong></td><td>{user.correo}</td><td><select value={user.rol} onChange={(e) => updateRole(user.id, e.target.value)}><option value="USUARIO">Usuario</option><option value="OPERADOR">Operador</option><option value="ADMIN">Administrador</option></select></td><td>{user.activo ? 'Activo' : 'Inactivo'}</td><td>{new Date(user.creado_en).toLocaleDateString()}</td></tr>)}</tbody></table></div>
+        <div className="users-card table-scroll"><table><thead><tr><th>Nombre y apellido</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Creado</th></tr></thead><tbody>{users.map((user) => <tr key={user.id}><td>{editingUser?.id === user.id ? <form onSubmit={updateUserName}><input aria-label="Nombre" required maxLength={100} value={editingUser.nombres} onChange={e => setEditingUser({...editingUser, nombres:e.target.value})}/><input aria-label="Apellido" required maxLength={100} value={editingUser.apellidos} onChange={e => setEditingUser({...editingUser, apellidos:e.target.value})}/><button type="submit">Guardar</button><button type="button" onClick={() => setEditingUser(null)}>Cancelar</button></form> : <><strong>{user.nombre_completo || user.nombre}</strong> <button type="button" aria-label={`Editar nombre de ${user.nombre_completo || user.nombre}`} onClick={() => setEditingUser({id:user.id,nombres:user.nombres || "",apellidos:user.apellidos || ""})}><Pencil size={15}/></button></>}</td><td>{user.correo}</td><td><select value={user.rol} onChange={(e) => updateRole(user.id, e.target.value)}><option value="USUARIO">Usuario</option><option value="OPERADOR">Operador</option><option value="ADMIN">Administrador</option></select></td><td>{user.activo ? 'Activo' : 'Inactivo'}</td><td>{new Date(user.creado_en).toLocaleDateString()}</td></tr>)}</tbody></table></div>
       </>}
       <p className="admin-message" role="status">{loading ? 'Cargando...' : message}</p>
     </section>

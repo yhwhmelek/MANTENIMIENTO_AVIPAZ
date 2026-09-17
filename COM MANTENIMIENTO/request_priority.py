@@ -117,7 +117,7 @@ def register_priority(app, write, locked, admin_user, now):
         return data
 
     def stamp(cursor, user):
-        person = cursor.execute('SELECT Nombre FROM dbo.Usuarios WHERE Id=?', user).fetchone()
+        person = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios WHERE Id=?", user).fetchone()
         return dict(by=user, name=person[0] if person else str(user), at=now().isoformat())
 
     @app.post('/solicitudes-mantenimiento/{request_id}/evaluar')

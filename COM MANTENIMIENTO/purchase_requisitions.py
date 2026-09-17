@@ -35,7 +35,7 @@ class RequisitionWrite(TextModel):
     urgent: bool = False
     machine_codes: str = Field(default='', max_length=100)
     observations: str = Field(default='', max_length=1000)
-    requester: str = Field(min_length=1, max_length=100)
+    requester: str = Field(min_length=1, max_length=201)
     items: list[RequisitionItem] = Field(min_length=1, max_length=11)
 
     @model_validator(mode='after')

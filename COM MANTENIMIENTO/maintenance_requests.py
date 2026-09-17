@@ -192,8 +192,10 @@ SELECT = '''SELECT r.RequestId AS id, r.MachineId AS machine_id,
     r.CompletedAt AS completed_at, r.ExecutionData AS execution_data,
     r.MaintenanceEventId AS maintenance_event_id, r.ReceivedAt AS received_at,
     r.ReceiptNotes AS receipt_notes, r.ReceivedBy AS received_by,
-    u.Nombre AS requester_name, a.Nombre AS assignee_name,
-    receiver.Nombre AS receiver_name, executor.Nombre AS executor_name
+    COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(u.Nombres, ' ', u.Apellidos))), ''), u.Nombre) AS requester_name,
+    COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(a.Nombres, ' ', a.Apellidos))), ''), a.Nombre) AS assignee_name,
+    COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(receiver.Nombres, ' ', receiver.Apellidos))), ''), receiver.Nombre) AS receiver_name,
+    COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(executor.Nombres, ' ', executor.Apellidos))), ''), executor.Nombre) AS executor_name
     FROM dbo.MaintenanceRequests r JOIN dbo.Usuarios u ON u.Id=r.RequestedBy
     LEFT JOIN dbo.Usuarios a ON a.Id=r.AssignedTo
     LEFT JOIN dbo.Usuarios receiver ON receiver.Id=r.ReceivedBy
@@ -201,9 +203,19 @@ SELECT = '''SELECT r.RequestId AS id, r.MachineId AS machine_id,
     LEFT JOIN dbo.Usuarios executor ON executor.Id=event.CreatedBy'''
 
 
-def decode(row):
+def decode(row, user_names=None):
     row['request_data'] = json.loads(row['request_data'])
     row['execution_data'] = json.loads(row['execution_data']) if row['execution_data'] else None
+    if user_names:
+        data = row['request_data']
+        for key in ('priority_validation', 'planning'):
+            entry = data.get(key)
+            if isinstance(entry, dict) and entry.get('by') in user_names:
+                entry['name'] = user_names[entry['by']]
+        for key in ('priority_history', 'planning_history'):
+            for entry in data.get(key) or []:
+                if isinstance(entry, dict) and entry.get('by') in user_names:
+                    entry['name'] = user_names[entry['by']]
     return decorate(row)
 
 
@@ -307,7 +319,12 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             with closing(connect()) as connection:
                 cursor = connection.cursor()
                 cursor.execute(SELECT + ' ORDER BY r.RequestId DESC')
-                return [decode(row) for row in records(cursor)]
+                rows = records(cursor)
+                if not rows:
+                    return []
+                cursor.execute("SELECT Id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios")
+                names = {user_id: name for user_id, name in cursor.fetchall()}
+                return [decode(row, names) for row in rows]
         except (pyodbc.Error, RuntimeError):
             raise HTTPException(503, 'No se pudieron consultar las solicitudes. Verifica las migraciones 005 y 006.')
 

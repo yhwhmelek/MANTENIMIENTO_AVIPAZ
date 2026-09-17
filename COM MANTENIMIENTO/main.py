@@ -71,6 +71,8 @@ class LoginRequest(BaseModel):
 
 class RegistroRequest(BaseModel):
     nombre: str = Field(min_length=1, max_length=100)
+    nombres: str = Field(min_length=1, max_length=100)
+    apellidos: str = Field(min_length=1, max_length=100)
     correo: EmailStr
     password: str = Field(min_length=8, max_length=128)
 
@@ -78,6 +80,9 @@ class RegistroRequest(BaseModel):
 class UsuarioResponse(BaseModel):
     id: int
     nombre: str
+    nombres: str | None = None
+    apellidos: str | None = None
+    nombre_completo: str
     correo: EmailStr
     rol: str
 
@@ -95,6 +100,21 @@ class UsuarioAdministracionResponse(UsuarioResponse):
 
 class CambioRolRequest(BaseModel):
     rol: Literal["ADMIN", "USUARIO", "OPERADOR"]
+
+
+class CambioNombreRequest(BaseModel):
+    nombres: str = Field(min_length=1, max_length=100)
+    apellidos: str = Field(min_length=1, max_length=100)
+
+
+def nombre_completo(usuario):
+    return ' '.join(filter(None, ((usuario.Nombres or '').strip(), (usuario.Apellidos or '').strip()))) or usuario.Nombre
+
+
+def respuesta_usuario(usuario):
+    return UsuarioResponse(id=usuario.Id, nombre=usuario.Nombre,
+        nombres=usuario.Nombres, apellidos=usuario.Apellidos,
+        nombre_completo=nombre_completo(usuario), correo=usuario.Correo, rol=usuario.Rol)
 
 
 class MotorBase(BaseModel):
@@ -524,7 +544,7 @@ def login(datos: LoginRequest):
         with closing(obtener_conexion()) as conexion:
             usuario = conexion.cursor().execute(
                 """
-                SELECT Id, Nombre, Correo, PasswordHash, Rol, Activo
+                SELECT Id, Nombre, Nombres, Apellidos, Correo, PasswordHash, Rol, Activo
                 FROM dbo.Usuarios
                 WHERE LOWER(Nombre) = LOWER(?)
                 """,
@@ -566,24 +586,36 @@ def login(datos: LoginRequest):
     token = crear_token(usuario.Id, usuario.Rol)
     return LoginResponse(
         access_token=token,
-        usuario=UsuarioResponse(
-            id=usuario.Id,
-            nombre=usuario.Nombre,
-            correo=usuario.Correo,
-            rol=usuario.Rol,
-        ),
+        usuario=respuesta_usuario(usuario),
     )
+
+
+@app.get("/auth/me", response_model=UsuarioResponse)
+def perfil_actual(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            usuario = conexion.cursor().execute("""
+                SELECT Id, Nombre, Nombres, Apellidos, Correo, Rol
+                FROM dbo.Usuarios WHERE Id=?
+            """, usuario_id).fetchone()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar el perfil")
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return respuesta_usuario(usuario)
 
 
 @app.post("/auth/registro", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
 def registrar_usuario(datos: RegistroRequest):
     nombre = datos.nombre.strip()
+    nombres = datos.nombres.strip()
+    apellidos = datos.apellidos.strip()
     correo = str(datos.correo).strip().lower()
 
-    if not nombre:
+    if not nombre or not nombres or not apellidos:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="El nombre de usuario es obligatorio",
+            detail="El usuario, nombre y apellido son obligatorios",
         )
 
     password_hash = bcrypt.hashpw(
@@ -612,11 +644,13 @@ def registrar_usuario(datos: RegistroRequest):
             usuario = cursor.execute(
                 """
                 INSERT INTO dbo.Usuarios
-                    (Nombre, Correo, PasswordHash, Rol, Activo, CreadoEn)
-                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Correo, INSERTED.Rol
-                VALUES (?, ?, ?, 'USUARIO', 1, SYSUTCDATETIME())
+                    (Nombre, Nombres, Apellidos, Correo, PasswordHash, Rol, Activo, CreadoEn)
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
+                VALUES (?, ?, ?, ?, ?, 'USUARIO', 1, SYSUTCDATETIME())
                 """,
                 nombre,
+                nombres,
+                apellidos,
                 correo,
                 password_hash,
             ).fetchone()
@@ -629,12 +663,7 @@ def registrar_usuario(datos: RegistroRequest):
             detail="No se pudo registrar el usuario en la base de datos",
         )
 
-    return UsuarioResponse(
-        id=usuario.Id,
-        nombre=usuario.Nombre,
-        correo=usuario.Correo,
-        rol=usuario.Rol,
-    )
+    return respuesta_usuario(usuario)
 
 
 @app.get("/usuarios", response_model=list[UsuarioAdministracionResponse])
@@ -643,7 +672,7 @@ def listar_usuarios(usuario_id: int = Depends(obtener_admin_actual)):
         with closing(obtener_conexion()) as conexion:
             usuarios = conexion.cursor().execute(
                 """
-                SELECT Id, Nombre, Correo, Rol, Activo, CreadoEn
+                SELECT Id, Nombre, Nombres, Apellidos, Correo, Rol, Activo, CreadoEn
                 FROM dbo.Usuarios
                 ORDER BY CreadoEn DESC, Id DESC
                 """
@@ -658,6 +687,9 @@ def listar_usuarios(usuario_id: int = Depends(obtener_admin_actual)):
         UsuarioAdministracionResponse(
             id=usuario.Id,
             nombre=usuario.Nombre,
+            nombres=usuario.Nombres,
+            apellidos=usuario.Apellidos,
+            nombre_completo=nombre_completo(usuario),
             correo=usuario.Correo,
             rol=usuario.Rol,
             activo=bool(usuario.Activo),
@@ -679,7 +711,7 @@ def cambiar_rol(
                 """
                 UPDATE dbo.Usuarios
                 SET Rol = ?
-                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Correo, INSERTED.Rol
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
                 WHERE Id = ?
                 """,
                 datos.rol,
@@ -699,12 +731,30 @@ def cambiar_rol(
             detail="No se pudo actualizar el rol",
         )
 
-    return UsuarioResponse(
-        id=usuario.Id,
-        nombre=usuario.Nombre,
-        correo=usuario.Correo,
-        rol=usuario.Rol,
-    )
+    return respuesta_usuario(usuario)
+
+
+@app.patch("/usuarios/{usuario_id}/nombre", response_model=UsuarioResponse)
+def cambiar_nombre(usuario_id: int, datos: CambioNombreRequest,
+                  usuario_actual_id: int = Depends(obtener_admin_actual)):
+    nombres, apellidos = datos.nombres.strip(), datos.apellidos.strip()
+    if not nombres or not apellidos:
+        raise HTTPException(status_code=422, detail="El nombre y apellido son obligatorios")
+    try:
+        with closing(obtener_conexion()) as conexion:
+            usuario = conexion.cursor().execute("""
+                UPDATE dbo.Usuarios SET Nombres=?, Apellidos=?
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
+                WHERE Id=?
+            """, nombres, apellidos, usuario_id).fetchone()
+            if usuario is None:
+                raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar el nombre")
+    return respuesta_usuario(usuario)
 
 
 class MachineElementTypeWrite(BaseModel):
