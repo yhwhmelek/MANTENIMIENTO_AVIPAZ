@@ -12,6 +12,7 @@ import SparePartReports from './SparePartReports'
 import MachineElementTypes from './MachineElementTypes'
 import MachineElements from './MachineElements'
 import BusinessContacts from './BusinessContacts'
+import UserProfile from './UserProfile'
 import { Copy, LogOut, Package, Pencil, Plus, Trash2, Truck, Users, Wrench, X } from 'lucide-react'
 
 function requestError(data, fallback) {
@@ -21,6 +22,7 @@ function requestError(data, fallback) {
 export default function Dashboard({ apiUrl, token, currentUser, onUserChange, onLogout }) {
   const isAdmin = currentUser.rol === 'ADMIN'
   const [showRequests, setShowRequests] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
   const [section, setSection] = useState('machines')
   const [historyMachineId, setHistoryMachineId] = useState('')
   const isAssetsSection = ['machines', 'element-types', 'machine-elements', 'events', 'plant-structure'].includes(section)
@@ -377,6 +379,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   }
 
   return <main className="admin-shell">
+    {showProfile && <UserProfile apiUrl={apiUrl} token={token} user={currentUser} onClose={() => setShowProfile(false)} onSaved={user => { onUserChange(user); setUsers(items => items.map(item => item.id === user.id ? { ...item, ...user } : item)) }} />}
     <MaintenanceRequests apiUrl={apiUrl} token={token} currentUser={currentUser} open={showRequests} onOpen={() => setShowRequests(true)} onClose={() => setShowRequests(false)} />
     {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
     <div className="inventory-alerts">
@@ -391,7 +394,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>
         {isAdmin && <button className={section === 'users' ? 'selected' : ''} onClick={() => setSection('users')}>Usuarios</button>}
       </nav>
-      <div className="admin-user"><span>{currentUser.nombre_completo || currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
+      <div className="admin-user"><span>{currentUser.nombre_completo || currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={() => setShowProfile(true)}>Mi perfil</button><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
     </header>
 
     <section className="admin-content">

@@ -107,6 +107,18 @@ class CambioNombreRequest(BaseModel):
     apellidos: str = Field(min_length=1, max_length=100)
 
 
+class PerfilWrite(BaseModel):
+    nombre: str = Field(min_length=1, max_length=100)
+    nombres: str | None = Field(default=None, max_length=100)
+    apellidos: str | None = Field(default=None, max_length=100)
+    correo: EmailStr
+
+
+class CambioPasswordRequest(BaseModel):
+    password_actual: str = Field(min_length=1, max_length=128)
+    password_nueva: str = Field(min_length=8, max_length=128)
+
+
 def nombre_completo(usuario):
     return ' '.join(filter(None, ((usuario.Nombres or '').strip(), (usuario.Apellidos or '').strip()))) or usuario.Nombre
 
@@ -603,6 +615,64 @@ def perfil_actual(usuario_id: int = Depends(obtener_usuario_activo)):
     if usuario is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return respuesta_usuario(usuario)
+
+
+@app.patch("/auth/me", response_model=UsuarioResponse)
+def actualizar_perfil(datos: PerfilWrite, usuario_id: int = Depends(obtener_usuario_activo)):
+    nombre = datos.nombre.strip()
+    nombres = datos.nombres.strip() if datos.nombres else None
+    apellidos = datos.apellidos.strip() if datos.apellidos else None
+    correo = str(datos.correo).strip().lower()
+    if not nombre:
+        raise HTTPException(status_code=422, detail="El usuario es obligatorio")
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            existente = cursor.execute("""
+                SELECT Id FROM dbo.Usuarios
+                WHERE Id<>? AND (LOWER(Nombre)=LOWER(?) OR LOWER(Correo)=LOWER(?))
+            """, usuario_id, nombre, correo).fetchone()
+            if existente is not None:
+                raise HTTPException(status_code=409, detail="El usuario o correo ya esta registrado")
+            usuario = cursor.execute("""
+                UPDATE dbo.Usuarios SET Nombre=?, Nombres=?, Apellidos=?, Correo=?
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
+                WHERE Id=? AND Activo=1
+            """, nombre, nombres, apellidos, correo, usuario_id).fetchone()
+            if usuario is None:
+                raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="El usuario o correo ya esta registrado")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar el perfil")
+    return respuesta_usuario(usuario)
+
+
+@app.patch("/auth/me/password")
+def actualizar_password(datos: CambioPasswordRequest, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            usuario = cursor.execute("SELECT PasswordHash FROM dbo.Usuarios WHERE Id=? AND Activo=1", usuario_id).fetchone()
+            if usuario is None:
+                raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            try:
+                valido = bcrypt.checkpw(datos.password_actual.encode('utf-8'), usuario.PasswordHash.encode('utf-8'))
+            except (TypeError, ValueError):
+                valido = False
+            if not valido:
+                raise HTTPException(status_code=422, detail="La contrasena actual es incorrecta")
+            password_hash = bcrypt.hashpw(datos.password_nueva.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            cursor.execute("UPDATE dbo.Usuarios SET PasswordHash=? WHERE Id=?", password_hash, usuario_id)
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar la contrasena")
+    return {"message": "Contrasena actualizada"}
 
 
 @app.post("/auth/registro", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)

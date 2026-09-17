@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from fastapi import HTTPException
+
 import main
 
 
@@ -22,6 +24,39 @@ class UserNamesTests(unittest.TestCase):
         self.assertEqual(result.nombre, 'operador1')
         connection.commit.assert_called_once()
         self.assertEqual(connection.cursor.return_value.execute.call_args.args[1:], ('Ana', 'Pérez', 1))
+
+    def test_user_updates_own_email_and_login(self):
+        user = SimpleNamespace(Id=1, Nombre='ana2', Nombres='Ana', Apellidos='Pérez',
+                               Correo='nuevo@example.com', Rol='USUARIO')
+        connection = MagicMock()
+        cursor = connection.cursor.return_value
+        cursor.execute.return_value.fetchone.side_effect = [None, user]
+        with patch.object(main, 'obtener_conexion', return_value=connection):
+            result = main.actualizar_perfil(main.PerfilWrite(
+                nombre=' ana2 ', nombres='Ana', apellidos='Pérez', correo='NUEVO@example.com'), 1)
+        self.assertEqual((result.nombre, result.correo), ('ana2', 'nuevo@example.com'))
+        self.assertEqual(cursor.execute.call_args.args[1:], ('ana2', 'Ana', 'Pérez', 'nuevo@example.com', 1))
+        connection.commit.assert_called_once()
+
+    def test_duplicate_email_does_not_update_profile(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value
+        cursor.execute.return_value.fetchone.return_value = (2,)
+        with patch.object(main, 'obtener_conexion', return_value=connection):
+            with self.assertRaises(HTTPException) as raised:
+                main.actualizar_perfil(main.PerfilWrite(nombre='ana', correo='ocupado@example.com'), 1)
+        self.assertEqual(raised.exception.status_code, 409)
+        connection.commit.assert_not_called()
+
+    def test_password_requires_current_password(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value
+        cursor.execute.return_value.fetchone.return_value = SimpleNamespace(PasswordHash='hash')
+        with patch.object(main, 'obtener_conexion', return_value=connection), patch.object(main.bcrypt, 'checkpw', return_value=False):
+            with self.assertRaises(HTTPException) as raised:
+                main.actualizar_password(main.CambioPasswordRequest(password_actual='incorrecta', password_nueva='nueva-clave'), 1)
+        self.assertEqual(raised.exception.status_code, 422)
+        connection.commit.assert_not_called()
 
 
 if __name__ == '__main__':
