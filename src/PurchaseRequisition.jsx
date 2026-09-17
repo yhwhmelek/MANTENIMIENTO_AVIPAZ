@@ -16,6 +16,23 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const submitting=useRef(false)
   const [mailDraft,setMailDraft]=useState(null)
   const [mail,setMail]=useState({to:'',cc:'',subject:'Requisición de compra - Mantenimiento',body:'Estimados,\n\nAdjunto la requisición de compra para su revisión y gestión. Agradezco confirmar la recepción e informar la disponibilidad y el plazo estimado de entrega.\n\nSaludos cordiales,'})
+  const [recipients,setRecipients]=useState([]),[recipientsError,setRecipientsError]=useState('')
+  useEffect(()=>{
+    if(!mailDraft)return
+    const controller=new AbortController()
+    fetch(`${apiUrl}/contactos-correo`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
+      .then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.detail||'No se pudieron cargar los contactos.');setRecipients(data);setRecipientsError('')})
+      .catch(err=>{if(err.name!=='AbortError')setRecipientsError(err.message)})
+    return()=>controller.abort()
+  },[apiUrl,token,mailDraft])
+  function addRecipient(field,email){
+    if(!email)return
+    setMail(current=>{
+      const addresses=current[field].split(/[,;\s]+/).map(value=>value.trim()).filter(Boolean)
+      if(!addresses.some(value=>value.toLowerCase()===email.toLowerCase()))addresses.push(email)
+      return {...current,[field]:addresses.join(', ')}
+    })
+  }
   async function sendMail(event){
     event.preventDefault();if(submitting.current)return
     if(!window.confirm('¿Enviar la requisición Excel a los destinatarios y copias indicados?'))return
@@ -109,8 +126,9 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     <div className="modal-actions"><button className="primary-action">{busy?'Procesando…':editing?'Guardar cambios':'Guardar requisición'}</button><button type="submit" value="excel" className="secondary-action">Guardar y generar Excel</button><button type="submit" value="email" className="secondary-action">Preparar envío por correo</button></div></fieldset></form>
     <RequisitionHistory apiUrl={apiUrl} token={token} isAdmin={currentUser.rol==='ADMIN'} catalog={catalog} revision={revision} onEdit={editRequisition} editingBusy={busy}/>
     {mailDraft&&<section className="request-detail"><h2>Revisar correo antes de enviar</h2><p>Adjunto: CO-01-01_Requisicion_{mailDraft.requested_on}.xlsx · {mailDraft.items.length} ítems · Solicitante: {mailDraft.requester}</p><p>Se adjuntarán los datos que tenía el formulario al pulsar Preparar envío. Si modificas la requisición, pulsa ese botón nuevamente.</p><form onSubmit={sendMail}><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
-      <label>Para *<input required value={mail.to} placeholder="adquisiciones@empresa.ec" onChange={e=>setMail(m=>({...m,to:e.target.value}))}/></label>
-      <label>Copia (CC)<input value={mail.cc} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,cc:e.target.value}))}/></label>
+      <label>Para *<input required value={mail.to} placeholder="adquisiciones@empresa.ec" onChange={e=>setMail(m=>({...m,to:e.target.value}))}/><select aria-label="Añadir contacto a Para" value="" onChange={e=>addRecipient('to',e.target.value)}><option value="">Añadir contacto a Para…</option>{['Contacto empresarial','Proveedor','Usuario'].map(source=><optgroup key={source} label={source}>{recipients.filter(contact=>contact.source===source).map(contact=><option key={`${source}-${contact.email}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</optgroup>)}</select></label>
+      <label>Copia (CC)<input value={mail.cc} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,cc:e.target.value}))}/><select aria-label="Añadir contacto a Copia" value="" onChange={e=>addRecipient('cc',e.target.value)}><option value="">Añadir contacto a Copia…</option>{['Contacto empresarial','Proveedor','Usuario'].map(source=><optgroup key={source} label={source}>{recipients.filter(contact=>contact.source===source).map(contact=><option key={`${source}-${contact.email}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</optgroup>)}</select></label>
+      {recipientsError&&<p className="full-field" role="status">{recipientsError} Puedes escribir las direcciones manualmente.</p>}
       <p className="full-field">Separa varias direcciones con coma o punto y coma.</p>
       <label className="full-field">Asunto *<input required maxLength={200} value={mail.subject} onChange={e=>setMail(m=>({...m,subject:e.target.value}))}/></label>
       <label className="full-field">Descripción del correo *<textarea required rows={8} maxLength={10000} value={mail.body} onChange={e=>setMail(m=>({...m,body:e.target.value}))}/></label>
