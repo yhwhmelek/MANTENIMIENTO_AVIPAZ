@@ -132,6 +132,24 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-alert-trigger.needs-attention { background: #fff3cd; color: #784900; border-color: #c88b21; }
 .request-workspace { width: min(1250px, calc(100% - 28px)); max-height: calc(100vh - 28px); overflow: auto; padding: 26px; border: 0; border-radius: 12px; color: #263d34; }
 .request-workspace::backdrop { background: rgba(10,27,21,.62); }
+.request-workspace .maintenance-requests-table,
+.request-workspace .prioritized-activities-table { table-layout: fixed; }
+.request-workspace .maintenance-requests-table th,
+.request-workspace .maintenance-requests-table td,
+.request-workspace .prioritized-activities-table th,
+.request-workspace .prioritized-activities-table td { padding: 10px 8px; white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.maintenance-requests-table th:nth-child(1) { width: 13%; }
+.maintenance-requests-table th:nth-child(2) { width: 17%; }
+.maintenance-requests-table th:nth-child(3) { width: 24%; }
+.maintenance-requests-table th:nth-child(4) { width: 17%; }
+.maintenance-requests-table th:nth-child(5) { width: 13%; }
+.maintenance-requests-table th:nth-child(6) { width: 16%; }
+.request-workspace .maintenance-requests-table button,
+.request-workspace .prioritized-activities-table button { max-width: 100%; white-space: normal; }
+@media (max-width: 850px) {
+  .request-workspace .maintenance-requests-table,
+  .request-workspace .prioritized-activities-table { min-width: 850px; }
+}
 .request-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 18px 0; }
 .request-detail { margin-top: 24px; padding: 18px; border: 1px solid #cad1cd; border-radius: 8px; }
 .request-detail p { white-space: pre-wrap; overflow-wrap: anywhere; }
