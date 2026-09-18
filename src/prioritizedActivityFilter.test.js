@@ -10,7 +10,8 @@ const row=(id,plant,tower,level,status='PENDIENTE')=>({
 const rows=[row(1,1,10,'MEDIO'),row(2,1,10,'CRITICO'),row(3,1,11,'ALTO'),
   row(4,2,20,'CRITICO'),row(5,1,10,null),row(6,1,10,'ALTO','CERRADA')]
 
-assert.deepEqual(filterPrioritizedActivities(rows,{plantId:1,towerId:10}).map(r=>r.id),[2,1,5])
+assert.deepEqual(filterPrioritizedActivities(rows,{plantId:1,towerId:10}).map(r=>r.id),[5,2,1])
+assert.deepEqual(filterPrioritizedActivities([row(7,1,10,null),row(5,1,10,null),row(2,1,10,'CRITICO')],{}).map(r=>r.id),[5,7,2])
 assert.deepEqual(filterPrioritizedActivities(rows,{plantId:1,towerId:10,level:'SIN_VALIDAR'}).map(r=>r.id),[5])
 assert.deepEqual(filterPrioritizedActivities(rows,{plantId:2}).map(r=>r.id),[4])
 assert.deepEqual(filterPrioritizedActivities([row(7,1,null,'ALTO')],{plantId:1,towerId:'SIN_TORRE'}).map(r=>r.id),[7])

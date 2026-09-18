@@ -80,7 +80,7 @@ def decorate(row):
 def backlog_key(row):
     validation = row['request_data'].get('priority_validation')
     if not validation:
-        return (4, 0, 0, 0, str(row['requested_at']), row['id'])
+        return (-1, 0, 0, 0, str(row['requested_at']), row['id'])
     factors = validation['factors']
     level = priority(factors)['level']
     return ({'CRITICO':0, 'ALTO':1, 'MEDIO':2, 'BAJO':3}[level],

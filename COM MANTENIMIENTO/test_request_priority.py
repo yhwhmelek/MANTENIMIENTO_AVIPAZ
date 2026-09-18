@@ -58,6 +58,12 @@ class PriorityTests(unittest.TestCase):
         rows=[row(1,4,3,2),row(2,1,1,4),row(3,4,4,4),row(4,1,2,4),row(5,2,2,4),row(6,2,2,4,'2025-01-01')]
         self.assertEqual([r['id'] for r in sorted(rows,key=backlog_key)],[3,6,5,4,2,1])
 
+    def test_unvalidated_requests_come_first_by_age(self):
+        rows=[{'id':2,'requested_at':'2026-01-02','request_data':{'priority_validation':None}},
+              {'id':1,'requested_at':'2026-01-01','request_data':{'priority_validation':None}},
+              {'id':3,'requested_at':'2025-01-01','request_data':{'priority_validation':{'factors':{'n':4,'i':4,'c':4}}}}]
+        self.assertEqual([r['id'] for r in sorted(rows,key=backlog_key)],[1,2,3])
+
     def test_validation_preserves_preevaluation_and_records_actor(self):
         self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Jefe',)]
         result=self.endpoint('evaluar')(1,self.validation(),usuario_id=9)
