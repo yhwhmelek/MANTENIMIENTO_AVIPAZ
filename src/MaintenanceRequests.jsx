@@ -26,6 +26,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [showPeriods,setShowPeriods] = useState(false)
   const [photo,setPhoto] = useState(null), [imageUrls,setImageUrls] = useState([])
+  const [removedPhotoPaths,setRemovedPhotoPaths] = useState([])
   const [uploadStage,setUploadStage] = useState('')
   const [photosLoaded,setPhotosLoaded] = useState(0)
   const [showBacklog,setShowBacklog]=useState(true)
@@ -110,7 +111,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   },[open,showingDetail,row?.id])
   function change(name,value){setForm(f=>({...f,[name]:value,...(name==='plant_id'?{tower_id:'',machine_id:''}:name==='tower_id'?{machine_id:''}:{}),...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:''}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
   function start(modeName,targetRow=row){
-    setMode(modeName);setFormError('');setPhoto(null)
+    setMode(modeName);setFormError('');setPhoto(null);setRemovedPhotoPaths([])
     if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',detected_at:localInput()})
     if(modeName==='edit')setForm({...targetRow.request_data,technical_evaluation:targetRow.request_data.technical_evaluation||{}})
     if(modeName==='complete'){
@@ -160,7 +161,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   async function saveImprovement(payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
-    try{await request(`/solicitudes-mantenimiento/${selected}/mejora`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setPhoto(null);setMode('');setVersion(v=>v+1)}
+    try{const result=await request(`/solicitudes-mantenimiento/${selected}/mejora`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setPhoto(null);setRemovedPhotoPaths([]);setMode('');setVersion(v=>v+1);if(result.files_not_deleted)setFormError(`La solicitud se actualizó, pero ${result.files_not_deleted} archivo(s) no se pudieron borrar del servidor.`)}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   async function save(event){
@@ -182,7 +183,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     }
     if(mode==='edit'){
       for(const key of ['plant_id','tower_id','machine_id'])payload[key]=Number(payload[key])||null
-      return saveImprovement(Object.fromEntries(['plant_id','tower_id','machine_id','detected_at','preevaluation','requesting_area','target_area','description','improvement_proposal','technical_evaluation','benefits','benefit_notes','image_data'].filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]])))
+      if(isAdmin)payload.remove_image_paths=removedPhotoPaths
+      return saveImprovement(Object.fromEntries(['plant_id','tower_id','machine_id','detected_at','preevaluation','requesting_area','target_area','description','improvement_proposal','technical_evaluation','benefits','benefit_notes','image_data','remove_image_paths'].filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]])))
     }
     if(mode==='complete'){
       for(const key of ['stopped_at','restored_at','hour_meter'])payload[key]=payload[key]||null
@@ -231,7 +233,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <Text label="Situación actual / problema" name="description" form={form} change={change}/><TechnicalImprovementFields form={form} change={change}/>
           <div className="full-field"><h4>Preevaluación de prioridad</h4><NICFields required={false} value={form.preevaluation||{}} onChange={value=>change('preevaluation',value)}/></div>
           <div className="full-field"><h4>Evaluación técnica del formulario</h4>{evaluationFields.map(([key,notes,label])=><div className="request-line" key={key}><label>{label}<select required value={form.technical_evaluation?.[key]===undefined?'':String(form.technical_evaluation[key])} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[key]:e.target.value==='true'})}><option value="">Selecciona</option><option value="true">Sí</option><option value="false">No</option></select></label><label>Observaciones<input maxLength={500} value={form.technical_evaluation?.[notes]||''} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[notes]:e.target.value})}/></label></div>)}</div>
-          <ImageAttachment label="Añadir foto a la solicitud" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="JPG, PNG o WEBP. Máximo 10 MB. Las fotos actuales se conservan."/></>}
+          {isAdmin&&!!photoPaths.length&&<div className="full-field"><h4>Fotos actuales ({photoPaths.length})</h4><p>Marca las fotos que deseas quitar. Se eliminarán al guardar la solicitud.</p>{photosLoaded<photoPaths.length&&<p role="status">Cargando fotos… {photosLoaded} de {photoPaths.length}</p>}<div className="request-photo-gallery">{photoPaths.map((path,index)=>{const removed=removedPhotoPaths.includes(path);return <div className={`request-photo-edit${removed?' marked-for-removal':''}`} key={path}>{imageUrls[index]?<img src={imageUrls[index]} alt={`Foto ${index+1} de la solicitud ${row.id}`}/>:<span role="status">{photosLoaded<photoPaths.length?'Cargando foto…':'Foto no disponible'}</span>}<button type="button" className="secondary-action" aria-pressed={removed} onClick={()=>setRemovedPhotoPaths(items=>removed?items.filter(item=>item!==path):[...items,path])}>{removed?'Conservar foto':'Quitar foto'}</button>{removed&&<span role="status">Se quitará al guardar</span>}</div>})}</div></div>}
+          <ImageAttachment label="Añadir foto a la solicitud" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="JPG, PNG o WEBP. Máximo 10 MB. Las fotos no marcadas se conservan."/></>}
         {mode==='new'&&<>
           <label>Planta<select required value={form.plant_id||''} onChange={e=>change('plant_id',e.target.value)}><option value="">Selecciona una planta</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
           <label>Torre {form.maintenance_type==='MEJORA_TECNICA'?'(opcional)':''}<select required={form.maintenance_type!=='MEJORA_TECNICA'} disabled={!form.plant_id} value={form.tower_id||''} onChange={e=>change('tower_id',e.target.value)}><option value="">Sin torre / área general</option>{towers.filter(t=>String(t.plant_id)===String(form.plant_id)).map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>

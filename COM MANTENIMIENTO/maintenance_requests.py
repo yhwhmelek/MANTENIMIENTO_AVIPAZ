@@ -192,6 +192,7 @@ class ImportedImprovement(StrictModel):
 
 class ImprovementUpdate(StrictModel):
     image_data: str | None = Field(default=None, max_length=14_000_000)
+    remove_image_paths: list[str] = Field(default_factory=list, max_length=100)
     plant_id: int = Field(gt=0)
     tower_id: int | None = Field(default=None, gt=0)
     machine_id: int | None = Field(default=None, gt=0)
@@ -500,6 +501,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
     @app.put('/solicitudes-mantenimiento/{request_id}/mejora')
     def update_improvement(request_id: int, data: ImprovementUpdate, usuario_id: int = Depends(active_user)):
         new_image = [None]
+        removed_images = []
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
             if not role or role[0] not in ('ADMIN', 'OPERADOR'):
@@ -508,6 +510,13 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             payload = json.loads(row[3])
             if row[2] != 'PENDIENTE' or payload.get('maintenance_type') != 'MEJORA_TECNICA':
                 raise HTTPException(409, 'Solo se puede completar una mejora técnica pendiente')
+            paths = request_photo_paths(payload)
+            to_remove = data.remove_image_paths
+            if to_remove:
+                if role[0] != 'ADMIN':
+                    raise HTTPException(403, 'Solo el administrador puede quitar fotos de solicitudes')
+                if len(to_remove) != len(set(to_remove)) or not set(to_remove).issubset(paths):
+                    raise HTTPException(409, 'Las fotos cambiaron. Actualiza la solicitud antes de guardar')
             location = cursor.execute('SELECT Name FROM dbo.Plants WITH (HOLDLOCK) WHERE PlantId=?', data.plant_id).fetchone()
             if not location:
                 raise HTTPException(422, 'La planta no existe')
@@ -521,15 +530,20 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=? AND TowerId=?', data.machine_id, data.tower_id).fetchone()
                 if not machine:
                     raise HTTPException(422, 'La máquina no pertenece a la torre')
-            payload.update(data.model_dump(mode='json', exclude={'image_data'}))
+            payload.update(data.model_dump(mode='json', exclude={'image_data', 'remove_image_paths'}))
             payload.update(plant_name=location[0], tower_name=tower[0] if tower else None,
                            machine_code=machine[0] if machine else 'N/A',
                            machine_name=machine[1] if machine else data.target_area,
                            area=machine[2] if machine else data.target_area)
+            if to_remove:
+                removed_images.extend(path for path in paths if path in to_remove)
+                paths = [path for path in paths if path not in to_remove]
             if data.image_data:
                 new_image[0] = save_request_image(data.image_data)
-                payload['image_paths'] = [*request_photo_paths(payload), new_image[0]]
-                payload['image_path'] = payload['image_paths'][0]
+                paths.append(new_image[0])
+            if to_remove or data.image_data:
+                payload['image_paths'] = paths
+                payload['image_path'] = paths[0] if paths else None
             cursor.execute('UPDATE dbo.MaintenanceRequests SET MachineId=?, RequestData=? WHERE RequestId=?',
                            data.machine_id, json.dumps(payload, ensure_ascii=False), request_id)
             return {'id': request_id}
@@ -539,6 +553,15 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if new_image[0]:
                 Path(new_image[0]).unlink(missing_ok=True)
             raise
+        files_not_deleted = 0
+        for path_value in removed_images:
+            path = stored_image(path_value)
+            if path:
+                try:
+                    path.unlink()
+                except OSError:
+                    files_not_deleted += 1
+        result['files_not_deleted'] = files_not_deleted
         return result
 
     @app.get('/solicitudes-mantenimiento/{request_id}/imagen', response_class=FileResponse)

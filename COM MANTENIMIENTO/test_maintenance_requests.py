@@ -97,6 +97,46 @@ class RequestTests(unittest.TestCase):
             self.endpoint('/{request_id}/mejora', 'PUT')(1, data, usuario_id=1)
         self.assertEqual(error.exception.status_code, 403)
 
+    def test_only_admin_can_remove_existing_request_photo(self):
+        data = mod.ImprovementUpdate(plant_id=1, detected_at='2026-09-15T08:41',
+            requesting_area='Calidad', target_area='Bodega', description='Pared deteriorada',
+            improvement_proposal='Pintar pared', remove_image_paths=['old.jpg'],
+            technical_evaluation=dict(affects_food_safety=True, requires_shutdown=False,
+                                      requires_training=False, improves_safety=True))
+        original = {'maintenance_type':'MEJORA_TECNICA', 'image_path':'old.jpg',
+                    'image_paths':['old.jpg', 'keep.jpg']}
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            ('OPERADOR',), (1,None,'PENDIENTE',json.dumps(original),None)]
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/mejora', 'PUT')(1, data, usuario_id=1)
+        self.assertEqual(error.exception.status_code, 403)
+
+        with tempfile.TemporaryDirectory() as folder:
+            old = Path(folder) / 'old.jpg'
+            old.write_bytes(b'photo')
+            self.cursor.execute.return_value.fetchone.side_effect = [
+                ('ADMIN',), (1,None,'PENDIENTE',json.dumps(original),None), ('Santa Fe',)]
+            with patch.object(mod, 'stored_image', side_effect=lambda path: old if path == 'old.jpg' else None):
+                result = self.endpoint('/{request_id}/mejora', 'PUT')(1, data, usuario_id=9)
+            saved = json.loads(self.cursor.execute.call_args.args[2])
+            self.assertEqual(saved['image_paths'], ['keep.jpg'])
+            self.assertEqual(saved['image_path'], 'keep.jpg')
+            self.assertFalse(old.exists())
+            self.assertEqual(result['files_not_deleted'], 0)
+
+    def test_cannot_remove_photo_that_is_no_longer_attached(self):
+        data = mod.ImprovementUpdate(plant_id=1, detected_at='2026-09-15T08:41',
+            requesting_area='Calidad', target_area='Bodega', description='Pared deteriorada',
+            improvement_proposal='Pintar pared', remove_image_paths=['other.jpg'],
+            technical_evaluation=dict(affects_food_safety=True, requires_shutdown=False,
+                                      requires_training=False, improves_safety=True))
+        original = {'maintenance_type':'MEJORA_TECNICA', 'image_path':'old.jpg'}
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            ('ADMIN',), (1,None,'PENDIENTE',json.dumps(original),None)]
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/mejora', 'PUT')(1, data, usuario_id=9)
+        self.assertEqual(error.exception.status_code, 409)
+
     def test_request_photo_is_stored_in_configured_folder(self):
         png = b'\x89PNG\r\n\x1a\n' + b'photo'
         with tempfile.TemporaryDirectory() as folder, patch.object(mod,'request_image_directory',return_value=Path(folder)):

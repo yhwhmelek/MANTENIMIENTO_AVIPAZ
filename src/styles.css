@@ -156,6 +156,9 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-photo-gallery { display: flex; flex-wrap: wrap; gap: 12px; }
 .request-photo-gallery a { display: block; border: 1px solid #cad1cd; border-radius: 6px; padding: 4px; }
 .request-photo-gallery img { display: block; width: 180px; height: 140px; max-width: 100%; object-fit: contain; }
+.request-photo-edit { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 190px; border: 1px solid #cad1cd; border-radius: 6px; padding: 5px; }
+.request-photo-edit.marked-for-removal img { opacity: .4; }
+.request-photo-edit img { width: 100%; }
 .request-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
 .request-line { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 10px; margin-bottom: 12px; align-items: end; }
 .request-print { display: none; }
