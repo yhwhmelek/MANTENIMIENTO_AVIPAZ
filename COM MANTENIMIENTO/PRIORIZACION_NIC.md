@@ -14,7 +14,9 @@ Implementación basada en los tres documentos proporcionados el 16/09/2026:
    observación técnica/justificación. Para mejoras completa cinco verificaciones
    (sí/no/no aplica y observaciones) y viabilidad técnica. Se conserva la
    preevaluación original, el evaluador, la fecha y todas las reevaluaciones.
-3. La lista común muestra la prioridad oficial y permite exportar CSV para Excel.
+3. La lista común muestra la prioridad oficial de mayor a menor, filtra por planta,
+   torre, nivel y tipo, y permite imprimir o guardar como PDF un resumen de las
+   actividades filtradas con las fotos adjuntas a cada solicitud.
 4. Mantenimiento programa responsable/técnico, recursos y personal, permisos,
    ventana y fechas. Puede registrar condiciones de espera sin alterar prioridad.
    Para iniciar, la programación debe estar «Lista para ejecutar» y tener fechas.

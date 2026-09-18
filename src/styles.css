@@ -156,6 +156,24 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
 .request-line { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 10px; margin-bottom: 12px; align-items: end; }
 .request-print { display: none; }
+.priority-report-print { display: none; }
+@media print {
+  @page priority-report { size: A4 portrait; margin: 12mm; }
+  body.priority-report-printing > :not(.priority-report-print) { display: none !important; }
+  body.priority-report-printing > .priority-report-print { display: block !important; page: priority-report; color: #111; font: 9pt Arial, sans-serif; }
+  .priority-report-header { display: flex; align-items: center; gap: 12mm; border-bottom: 2px solid #315246; padding-bottom: 5mm; }
+  .priority-report-header img { width: 28mm; max-height: 16mm; object-fit: contain; }
+  .priority-report-header h1 { font-size: 17pt; margin: 0 0 2mm; }
+  .priority-report-header p, .priority-report-order { margin: 2mm 0; }
+  .priority-report-counts { display: flex; flex-wrap: wrap; gap: 4mm; margin: 5mm 0; font-weight: bold; }
+  .priority-report-counts span { border: 1px solid #777; padding: 2mm; }
+  .priority-report-item { border: 1px solid #888; padding: 4mm; margin: 0 0 4mm; break-inside: avoid-page; }
+  .priority-report-item-header { display: flex; justify-content: space-between; align-items: baseline; gap: 4mm; border-bottom: 1px solid #bbb; }
+  .priority-report-item h2 { font-size: 11pt; margin: 0 0 2mm; }
+  .priority-report-item p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 2mm 0; }
+  .priority-report-item figure { margin: 3mm 0 0; }
+  .priority-report-item figure img { display: block; max-width: 100%; max-height: 65mm; object-fit: contain; }
+}
 @media print {
   .excel-request-page { break-after: page; }
   .request-print .excel-request-table { border-collapse: collapse; table-layout: fixed; width: 100%; }
