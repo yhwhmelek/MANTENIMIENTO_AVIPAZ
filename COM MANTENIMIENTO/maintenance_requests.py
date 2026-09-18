@@ -2,7 +2,6 @@
 import json
 import base64
 import binascii
-import os
 import re
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -14,6 +13,7 @@ from uuid import uuid4
 import pyodbc
 from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse
+from image_storage import image_directory, stored_image
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from parts_history import records
 from request_priority import NIC, decorate, backlog_key, register_priority, require_planned
@@ -214,7 +214,7 @@ class ImprovementUpdate(StrictModel):
 
 
 def request_image_directory():
-    return Path(os.getenv('REQUEST_IMAGE_DIR', str(Path(__file__).parent / 'uploads' / 'solicitudes'))).resolve()
+    return image_directory()
 
 
 def save_request_image(image_data):
@@ -500,8 +500,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         path_value = json.loads(row[0]).get('image_path')
         if not path_value:
             raise HTTPException(404, 'La solicitud no tiene foto')
-        path = Path(path_value).resolve()
-        if not path.is_relative_to(request_image_directory()) or not path.is_file():
+        path = stored_image(path_value)
+        if not path:
             raise HTTPException(404, 'No se encontró la foto')
         return FileResponse(path)
 

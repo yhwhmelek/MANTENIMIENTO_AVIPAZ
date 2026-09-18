@@ -17,6 +17,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse
+from image_storage import image_directory, stored_image
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 load_dotenv(Path(__file__).with_name(".env"), override=True)
@@ -472,10 +473,10 @@ def guardar_imagen_placa(asset_code: str, image_data: str | None) -> str | None:
         raise HTTPException(status_code=413, detail="La imagen no puede superar 10 MB")
 
     nombre_seguro = re.sub(r"[^A-Za-z0-9._-]", "_", asset_code.strip())
-    carpeta = Path(os.getenv("MOTOR_NAMEPLATE_DIR", r"D:\MANTENIMIENTO\IMAGES\MOTORES\PLACAS"))
+    carpeta = image_directory()
     try:
         carpeta.mkdir(parents=True, exist_ok=True)
-        ruta = carpeta / f"{nombre_seguro}{extension}"
+        ruta = carpeta / f"motor_{nombre_seguro}_{uuid4().hex}{extension}"
         ruta.write_bytes(contenido)
     except OSError:
         raise HTTPException(status_code=503, detail="No se pudo guardar la imagen de la placa")
@@ -499,10 +500,10 @@ def guardar_imagen_repuesto(internal_code: str, image_data: str | None) -> str |
         raise HTTPException(status_code=413, detail="La imagen no puede superar 10 MB")
 
     nombre_seguro = re.sub(r"[^A-Za-z0-9._-]", "_", internal_code.strip())
-    carpeta = Path(os.getenv("SPARE_PART_IMAGE_DIR", r"D:\MANTENIMIENTO\IMAGES\REPUESTOS"))
+    carpeta = image_directory()
     try:
         carpeta.mkdir(parents=True, exist_ok=True)
-        ruta = carpeta / f"{nombre_seguro}{extension}"
+        ruta = carpeta / f"repuesto_{nombre_seguro}_{uuid4().hex}{extension}"
         ruta.write_bytes(contenido)
     except OSError:
         raise HTTPException(status_code=503, detail="No se pudo guardar la imagen del repuesto")
@@ -1072,9 +1073,8 @@ def imagen_elemento_maquina(element_id: int, usuario_id: int = Depends(obtener_u
         raise HTTPException(status_code=503, detail='No se pudo consultar la imagen')
     if row is None or not row.ImagePath:
         raise HTTPException(status_code=404, detail='El elemento no tiene imagen')
-    path = Path(row.ImagePath).resolve()
-    directory = Path(os.getenv('MACHINE_IMAGE_DIR', str(Path(__file__).parent / 'uploads' / 'maquinas'))).resolve()
-    if not path.is_relative_to(directory) or not path.is_file():
+    path = stored_image(row.ImagePath)
+    if not path:
         raise HTTPException(status_code=404, detail='No se encontro la imagen')
     return FileResponse(path)
 
@@ -1281,9 +1281,8 @@ def imagen_especificaciones_motor(element_id: int, usuario_id: int = Depends(obt
         raise HTTPException(status_code=503, detail='No se pudo consultar la placa')
     if row is None or not row.NameplateImagePath:
         raise HTTPException(status_code=404, detail='No hay foto de placa')
-    path = Path(row.NameplateImagePath).resolve()
-    directory = Path(os.getenv('MACHINE_IMAGE_DIR', str(Path(__file__).parent / 'uploads' / 'maquinas'))).resolve()
-    if not path.is_relative_to(directory) or not path.is_file():
+    path = stored_image(row.NameplateImagePath)
+    if not path:
         raise HTTPException(status_code=404, detail='No se encontro la foto de placa')
     return FileResponse(path)
 
@@ -1324,7 +1323,7 @@ def guardar_imagen_maquina(image_data):
         raise HTTPException(status_code=422, detail="La imagen no es valida")
     if not content or len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=422, detail="La imagen debe contener datos y no superar 10 MB")
-    directory = Path(os.getenv("MACHINE_IMAGE_DIR", str(Path(__file__).parent / "uploads" / "maquinas")))
+    directory = image_directory()
     extension = {"jpeg": ".jpg", "png": ".png", "webp": ".webp"}[match.group(1)]
     path = directory.resolve() / f"{uuid4().hex}{extension}"
     if len(str(path)) > 500:
@@ -1590,8 +1589,8 @@ def ver_imagen_placa(
         raise HTTPException(status_code=503, detail="No se pudo consultar la placa")
     if motor is None or not motor.NameplateImagePath:
         raise HTTPException(status_code=404, detail="El motor no tiene imagen de placa")
-    ruta = Path(motor.NameplateImagePath)
-    if not ruta.is_file():
+    ruta = stored_image(motor.NameplateImagePath)
+    if not ruta:
         raise HTTPException(status_code=404, detail="No se encontro el archivo de la placa")
     return FileResponse(ruta)
 
@@ -1929,8 +1928,8 @@ def ver_imagen_repuesto(
         raise HTTPException(status_code=503, detail="No se pudo consultar la imagen")
     if repuesto is None or not repuesto.ImagePath:
         raise HTTPException(status_code=404, detail="El repuesto no tiene imagen")
-    ruta = Path(repuesto.ImagePath)
-    if not ruta.is_file():
+    ruta = stored_image(repuesto.ImagePath)
+    if not ruta:
         raise HTTPException(status_code=404, detail="No se encontro el archivo de la imagen")
     return FileResponse(ruta)
 

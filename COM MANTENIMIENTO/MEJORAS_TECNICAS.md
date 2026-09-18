@@ -20,10 +20,11 @@ Mientras la mejora siga pendiente, un administrador u operador puede pulsar
 superior del detalle para editar la
 ubicación, máquina opcional, fecha de detección, preevaluación, textos y respuestas
 del formulario. Desde ese formulario, o al crear una solicitud, se puede adjuntar
-una foto JPG, PNG o WEBP de hasta 10 MB. La API guarda el archivo en
-`REQUEST_IMAGE_DIR`; si no se configura, usa `uploads/solicitudes` junto al
-backend. La foto se consulta con autenticación desde el detalle. Conviene incluir
-esa carpeta en los respaldos del servidor.
+una foto JPG, PNG o WEBP de hasta 10 MB. La API guarda esta foto y las nuevas
+fotos de máquinas, elementos, placas de motor y repuestos en `IMAGE_DIR`; si no
+se configura, usa `uploads/solicitudes` junto al backend. Las imágenes ya
+registradas en las rutas antiguas siguen disponibles para consulta. Conviene
+incluir la carpeta nueva y las anteriores en los respaldos del servidor.
 
 Actualización 16/09/2026: ver `PRIORIZACION_NIC.md`. El solicitante registra
 beneficios y preevaluación NIC; la verificación técnica pertenece a Mantenimiento.
