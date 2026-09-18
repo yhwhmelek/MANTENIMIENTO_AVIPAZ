@@ -37,7 +37,27 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar','/importar-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar','/importar-santafe-haccp','/importar-fotos-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
+
+    def test_haccp_photos_keep_manual_photo_and_do_not_duplicate(self):
+        existing=[(number,json.dumps({'source_key':f'SANTAFE-HACCP-2026-{number:02d}',
+                                      'image_path':'manual.jpg' if number==1 else None}))
+                  for number in range(1,30)]
+        self.cursor.execute.return_value.fetchall.return_value=existing
+        with patch.object(mod,'save_request_image',side_effect=lambda _:f'new-{mod.uuid4().hex}.jpg') as save:
+            result=self.endpoint('/importar-fotos-santafe-haccp')(usuario_id=9)
+            self.assertEqual(result,{'photos_added':37,'requests_updated':29})
+            updates=[call for call in self.cursor.execute.call_args_list if call.args[0].startswith('UPDATE dbo.MaintenanceRequests')]
+            self.assertEqual(len(updates),29)
+            first=json.loads(updates[0].args[1])
+            self.assertEqual(first['image_path'],'manual.jpg')
+            self.assertEqual(len(first['image_paths']),2)
+            self.assertEqual(len(first['source_photo_keys']),1)
+            self.cursor.execute.return_value.fetchall.return_value=[(call.args[2],call.args[1]) for call in updates]
+            self.cursor.execute.reset_mock()
+            again=self.endpoint('/importar-fotos-santafe-haccp')(usuario_id=9)
+            self.assertEqual(again,{'photos_added':0,'requests_updated':0})
+            self.assertEqual(save.call_count,37)
 
     def test_improvement_can_target_plant_without_tower(self):
         data = mod.RequestWrite(plant_id=1, maintenance_type='MEJORA_TECNICA', description='Adecuar área',

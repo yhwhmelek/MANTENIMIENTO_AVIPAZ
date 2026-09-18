@@ -26,6 +26,14 @@ se configura, usa `uploads/solicitudes` junto al backend. Las imágenes ya
 registradas en las rutas antiguas siguen disponibles para consulta. Conviene
 incluir la carpeta nueva y las anteriores en los respaldos del servidor.
 
+El paquete `data/santafe_haccp_photos.zip` conserva las fotos originales de las
+29 hojas, sin el logotipo repetido. Tras actualizar la API y publicar la app,
+un administrador pulsa **Añadir fotos del Excel HACCP · Santa Fe** una vez.
+Se asocian 37 fotos (36 archivos distintos) por `source_key`; algunas hojas
+tienen dos o tres imágenes. La operación se puede repetir sin duplicados y
+conserva las fotos agregadas manualmente. Las rutas se guardan en `RequestData`
+y los archivos en `IMAGE_DIR`, sin una nueva migración SQL.
+
 Actualización 16/09/2026: ver `PRIORIZACION_NIC.md`. El solicitante registra
 beneficios y preevaluación NIC; la verificación técnica pertenece a Mantenimiento.
 La ejecución requiere validación oficial y programación. La impresión utiliza

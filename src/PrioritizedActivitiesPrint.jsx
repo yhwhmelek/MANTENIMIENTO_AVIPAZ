@@ -22,7 +22,7 @@ export default function PrioritizedActivitiesPrint({report}){
         <p><b>Prioridad:</b> {levels[row.priority?.level]||'Sin validar'}{row.priority?.score!=null?` · PR ${row.priority.score}`:''} · <b>N / I / C:</b> {validation?`${validation.n} / ${validation.i} / ${validation.c}`:'Sin validar'}</p>
         <p><b>Programación:</b> {plan?`${conditions[plan.condition]||plan.condition||'Sin condición'} · ${date(plan.starts_at)} a ${date(plan.ends_at)} · Responsable: ${plan.responsible||'Sin asignar'}`:'Sin programar'}</p>
         {plan?.notes&&<p><b>Observaciones:</b> {plan.notes}</p>}
-        {data.image_path&&<figure>{photos[row.id]?<img src={photos[row.id]} alt={`Foto de la solicitud ${row.id}`}/>:<figcaption>Foto no disponible al generar el PDF</figcaption>}</figure>}
+        {(photos[row.id]||[]).map((url,photoIndex)=><figure key={photoIndex}>{url?<img src={url} alt={`Foto ${photoIndex+1} de la solicitud ${row.id}`}/>:<figcaption>Foto {photoIndex+1} no disponible al generar el PDF</figcaption>}</figure>)}
       </section>
     })}
   </article>,document.body)

@@ -28,7 +28,7 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
       cancelled=true
       window.removeEventListener('afterprint',finish)
       document.body.classList.remove('priority-report-printing')
-      Object.values(report.photos).forEach(url=>URL.revokeObjectURL(url))
+      Object.values(report.photos).flat().filter(Boolean).forEach(url=>URL.revokeObjectURL(url))
     }
   },[report])
 
@@ -38,27 +38,31 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
     const controller=new AbortController()
     printAbort.current=controller
     const photos={}
-    const photoRows=sorted.filter(row=>row.request_data.image_path)
+    const photoRows=sorted.flatMap(row=>{
+      const paths=row.request_data.image_paths?.length?row.request_data.image_paths:row.request_data.image_path?[row.request_data.image_path]:[]
+      photos[row.id]=Array(paths.length).fill(null)
+      return paths.map((_,index)=>({row,index}))
+    })
     let next=0,failed=0
     try{
       await Promise.all(Array.from({length:Math.min(4,photoRows.length)},async()=>{
         while(next<photoRows.length&&!controller.signal.aborted){
-          const row=photoRows[next++]
+          const {row,index}=photoRows[next++]
           try{
-            const response=await fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/imagen`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
+            const response=await fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/imagenes/${index}`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
             if(!response.ok)throw new Error('Foto no disponible')
-            photos[row.id]=URL.createObjectURL(await response.blob())
+            photos[row.id][index]=URL.createObjectURL(await response.blob())
           }catch{if(!controller.signal.aborted)failed++}
         }
       }))
-      if(controller.signal.aborted){Object.values(photos).forEach(url=>URL.revokeObjectURL(url));return}
+      if(controller.signal.aborted){Object.values(photos).flat().filter(Boolean).forEach(url=>URL.revokeObjectURL(url));return}
       const plantName=plants.find(p=>String(p.plant_id)===String(plantFilter))?.name||'Todas'
       const towerName=towerId==='SIN_TORRE'?'Sin torre':towers.find(t=>String(t.tower_id)===String(towerId))?.name||'Todas'
       setReport({rows:[...sorted],photos,createdAt:new Date().toLocaleString('es-EC'),
         filters:`Planta: ${plantName} · Torre: ${towerName} · Prioridad: ${levels[level]|| (level==='SIN_VALIDAR'?'Sin validar':'Todas')} · Tipo: ${typeLabel[type]||'Todos'} · Estado: ${statusFilter?statusFilter.replaceAll('_',' '):'Todos los abiertos'}`})
       if(failed)setPrintError(`${failed} foto${failed===1?' no estuvo disponible':'s no estuvieron disponibles'} para el PDF.`)
     }catch(error){
-      Object.values(photos).forEach(url=>URL.revokeObjectURL(url))
+      Object.values(photos).flat().filter(Boolean).forEach(url=>URL.revokeObjectURL(url))
       setPrintError(error.message||'No se pudo preparar el PDF')
     }finally{if(printAbort.current===controller)printAbort.current=null;setPrintBusy(false)}
   }

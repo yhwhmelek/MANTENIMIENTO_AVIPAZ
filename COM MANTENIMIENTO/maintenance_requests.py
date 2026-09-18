@@ -3,6 +3,7 @@ import json
 import base64
 import binascii
 import re
+import zipfile
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -242,6 +243,14 @@ def save_request_image(image_data):
     return str(path)
 
 
+def request_photo_paths(payload):
+    paths = list(payload.get('image_paths') or [])
+    primary = payload.get('image_path')
+    if primary and primary not in paths:
+        paths.insert(0, primary)
+    return paths
+
+
 class OperatingPeriodWrite(StrictModel):
     machine_id: int = Field(gt=0)
     starts_at: datetime
@@ -436,10 +445,61 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             return {'created': created, 'existing': len(items)-created}
         return write(operation)
 
+    @app.post('/solicitudes-mantenimiento/importar-fotos-santafe-haccp')
+    def import_santafe_photos(usuario_id: int = Depends(admin_user)):
+        archive_path = Path(__file__).parent / 'data' / 'santafe_haccp_photos.zip'
+        if not archive_path.is_file():
+            raise HTTPException(503, 'No se encontró el paquete de fotos HACCP en el servidor')
+        created_paths = []
+        def operation(cursor):
+            existing = cursor.execute("SELECT RequestId, RequestData FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestData LIKE '%SANTAFE-HACCP-2026-%'").fetchall()
+            requests = {}
+            for request_id, request_json in existing:
+                payload = json.loads(request_json)
+                if payload.get('source_key'):
+                    requests[payload['source_key']] = (request_id, payload)
+            with zipfile.ZipFile(archive_path) as archive:
+                manifest = json.loads(archive.read('manifest.json'))
+                if len(manifest) != 29 or set(manifest) != set(requests):
+                    raise HTTPException(409, 'Las 29 solicitudes HACCP deben existir antes de cargar sus fotos')
+                updated = 0
+                for source_key, entries in manifest.items():
+                    request_id, payload = requests[source_key]
+                    paths = request_photo_paths(payload)
+                    imported = set(payload.get('source_photo_keys') or [])
+                    added = 0
+                    for name in entries:
+                        if name in imported:
+                            continue
+                        if not re.fullmatch(r'photos/image\d+\.(png|jpe?g|webp)', name):
+                            raise HTTPException(422, 'El paquete contiene una ruta de foto inválida')
+                        raw = archive.read(name)
+                        if len(raw) > 10 * 1024 * 1024:
+                            raise HTTPException(413, 'Una foto supera 10 MB')
+                        kind = 'jpeg' if name.lower().endswith(('.jpeg','.jpg')) else name.rsplit('.',1)[-1]
+                        path = save_request_image(f'data:image/{kind};base64,'+base64.b64encode(raw).decode('ascii'))
+                        created_paths.append(path)
+                        paths.append(path)
+                        imported.add(name)
+                        added += 1
+                    if added:
+                        payload['image_paths'] = paths
+                        payload['image_path'] = paths[0]
+                        payload['source_photo_keys'] = sorted(imported)
+                        cursor.execute('UPDATE dbo.MaintenanceRequests SET RequestData=? WHERE RequestId=?',
+                                       json.dumps(payload, ensure_ascii=False), request_id)
+                        updated += 1
+                return {'photos_added': len(created_paths), 'requests_updated': updated}
+        try:
+            return write(operation)
+        except Exception:
+            for path in created_paths:
+                Path(path).unlink(missing_ok=True)
+            raise
+
     @app.put('/solicitudes-mantenimiento/{request_id}/mejora')
     def update_improvement(request_id: int, data: ImprovementUpdate, usuario_id: int = Depends(active_user)):
         new_image = [None]
-        old_image = [None]
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
             if not role or role[0] not in ('ADMIN', 'OPERADOR'):
@@ -468,8 +528,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                            area=machine[2] if machine else data.target_area)
             if data.image_data:
                 new_image[0] = save_request_image(data.image_data)
-                old_image[0] = payload.get('image_path')
-                payload['image_path'] = new_image[0]
+                payload['image_paths'] = [*request_photo_paths(payload), new_image[0]]
+                payload['image_path'] = payload['image_paths'][0]
             cursor.execute('UPDATE dbo.MaintenanceRequests SET MachineId=?, RequestData=? WHERE RequestId=?',
                            data.machine_id, json.dumps(payload, ensure_ascii=False), request_id)
             return {'id': request_id}
@@ -479,13 +539,6 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if new_image[0]:
                 Path(new_image[0]).unlink(missing_ok=True)
             raise
-        if old_image[0]:
-            old_path = Path(old_image[0]).resolve()
-            if old_path.is_relative_to(request_image_directory()):
-                try:
-                    old_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
         return result
 
     @app.get('/solicitudes-mantenimiento/{request_id}/imagen', response_class=FileResponse)
@@ -501,6 +554,23 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         if not path_value:
             raise HTTPException(404, 'La solicitud no tiene foto')
         path = stored_image(path_value)
+        if not path:
+            raise HTTPException(404, 'No se encontró la foto')
+        return FileResponse(path)
+
+    @app.get('/solicitudes-mantenimiento/{request_id}/imagenes/{index}', response_class=FileResponse)
+    def request_image_at(request_id: int, index: int, usuario_id: int = Depends(active_user)):
+        try:
+            with closing(connect()) as connection:
+                row = connection.cursor().execute('SELECT RequestData FROM dbo.MaintenanceRequests WHERE RequestId=?', request_id).fetchone()
+        except (pyodbc.Error, RuntimeError):
+            raise HTTPException(503, 'No se pudieron consultar las fotos')
+        if not row:
+            raise HTTPException(404, 'Solicitud no encontrada')
+        paths = request_photo_paths(json.loads(row[0]))
+        if index < 0 or index >= len(paths):
+            raise HTTPException(404, 'Foto no encontrada')
+        path = stored_image(paths[index])
         if not path:
             raise HTTPException(404, 'No se encontró la foto')
         return FileResponse(path)
@@ -544,6 +614,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     'stock_sufficient':stock >= item.quantity})
             if data.image_data:
                 new_image[0] = save_request_image(data.image_data)
+                payload['image_paths'] = [new_image[0]]
                 payload['image_path'] = new_image[0]
             row = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.MaintenanceRequests
                 (MachineId,RequestedBy,RequestedAt,RequestData) VALUES (?,?,?,?);

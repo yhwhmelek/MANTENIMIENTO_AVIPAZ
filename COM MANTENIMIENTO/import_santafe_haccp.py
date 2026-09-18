@@ -3,6 +3,7 @@
 Usage: python import_santafe_haccp.py source.xlsx ../src/santafe-haccp-2026.json
 """
 import json
+import posixpath
 import re
 import sys
 import zipfile
@@ -11,6 +12,10 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 NS = {'x': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+DRAWING_NS = {'x': 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing',
+              'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'}
+REL_NS = '{http://schemas.openxmlformats.org/package/2006/relationships}'
+OFFICE_REL = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
 
 
 def extract(source):
@@ -55,7 +60,51 @@ def extract(source):
         return result
 
 
+def extract_photos(source, destination):
+    """Package all non-logo sheet photos and their request keys for server import."""
+    manifest = {}
+    with zipfile.ZipFile(source) as workbook, zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as output:
+        sheets = sorted((name for name in workbook.namelist() if re.fullmatch(r'xl/worksheets/sheet\d+\.xml', name)),
+                        key=lambda name: int(re.search(r'sheet(\d+)', name).group(1)))
+        added = set()
+        for number, sheet in enumerate(sheets, 1):
+            root = ET.fromstring(workbook.read(sheet))
+            drawing_ref = root.find('x:drawing', NS)
+            if drawing_ref is None:
+                raise ValueError(f'Hoja {number} sin dibujo')
+            sheet_rels = f'xl/worksheets/_rels/{posixpath.basename(sheet)}.rels'
+            links = {node.attrib['Id']: node.attrib['Target'] for node in ET.fromstring(workbook.read(sheet_rels))}
+            drawing = posixpath.normpath(posixpath.join('xl/worksheets', links[drawing_ref.attrib[OFFICE_REL+'id']]))
+            drawing_rels = f'xl/drawings/_rels/{posixpath.basename(drawing)}.rels'
+            images = {node.attrib['Id']: node.attrib['Target'] for node in ET.fromstring(workbook.read(drawing_rels))}
+            photos = []
+            for anchor in ET.fromstring(workbook.read(drawing)):
+                blip = anchor.find('.//a:blip', DRAWING_NS)
+                if blip is None:
+                    continue
+                row = anchor.find('x:from/x:row', DRAWING_NS)
+                if row is None or int(row.text) < 8:
+                    continue  # The repeated company logo is anchored at the top of each form.
+                target = posixpath.normpath(posixpath.join('xl/drawings', images[blip.attrib[OFFICE_REL+'embed']]))
+                if not target.startswith('xl/media/'):
+                    raise ValueError(f'Imagen fuera de xl/media: {target}')
+                name = f'photos/{posixpath.basename(target)}'
+                if name not in added:
+                    output.writestr(name, workbook.read(target))
+                    added.add(name)
+                photos.append(name)
+            if not photos:
+                raise ValueError(f'Hoja {number} sin fotos de solicitud')
+            manifest[f'SANTAFE-HACCP-2026-{number:02d}'] = photos
+        output.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=2))
+    return manifest
+
+
 if __name__ == '__main__':
-    items = extract(Path(sys.argv[1]))
-    Path(sys.argv[2]).write_text(json.dumps(items, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print(f'{len(items)} solicitudes extraídas')
+    if len(sys.argv) > 3 and sys.argv[3] == '--photos':
+        manifest = extract_photos(Path(sys.argv[1]), Path(sys.argv[2]))
+        print(f'{len(manifest)} solicitudes, {sum(map(len, manifest.values()))} fotos asociadas')
+    else:
+        items = extract(Path(sys.argv[1]))
+        Path(sys.argv[2]).write_text(json.dumps(items, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        print(f'{len(items)} solicitudes extraídas')

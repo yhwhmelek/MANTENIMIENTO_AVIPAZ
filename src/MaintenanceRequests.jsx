@@ -24,7 +24,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [selected,setSelected] = useState(null), [form,setForm] = useState(null), [mode,setMode] = useState('')
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [showPeriods,setShowPeriods] = useState(false)
-  const [photo,setPhoto] = useState(null), [imageUrl,setImageUrl] = useState('')
+  const [photo,setPhoto] = useState(null), [imageUrls,setImageUrls] = useState([])
   const [showBacklog,setShowBacklog]=useState(true)
   const dialog=useRef(null), submitting=useRef(false)
   const detail=useRef(null)
@@ -71,16 +71,17 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   },[printRow])
   useEffect(()=>{const refresh=()=>setVersion(v=>v+1);window.addEventListener('maintenance-flow-deleted',refresh);return()=>window.removeEventListener('maintenance-flow-deleted',refresh)},[])
   const row=rows.find(r=>r.id===selected)
+  const photoPaths=row?.request_data.image_paths?.length?row.request_data.image_paths:row?.request_data.image_path?[row.request_data.image_path]:[]
   useEffect(()=>{
-    if(!open||!row?.request_data.image_path){setImageUrl('');return}
+    if(!open||!photoPaths.length){setImageUrls([]);return}
     const controller=new AbortController()
-    let url=''
-    fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/imagen`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
+    let urls=[]
+    Promise.all(photoPaths.map((_,index)=>fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/imagenes/${index}`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
       .then(response=>{if(!response.ok)throw new Error('Foto no disponible');return response.blob()})
-      .then(blob=>{if(!controller.signal.aborted){url=URL.createObjectURL(blob);setImageUrl(url)}})
-      .catch(()=>{if(!controller.signal.aborted)setImageUrl('')})
-    return()=>{controller.abort();if(url)URL.revokeObjectURL(url);setImageUrl('')}
-  },[open,row?.id,row?.request_data.image_path,apiUrl,token])
+      .then(blob=>URL.createObjectURL(blob)).catch(()=>null)))
+      .then(results=>{urls=results.filter(Boolean);if(!controller.signal.aborted)setImageUrls(urls);else urls.forEach(url=>URL.revokeObjectURL(url))})
+    return()=>{controller.abort();urls.forEach(url=>URL.revokeObjectURL(url));setImageUrls([])}
+  },[open,row?.id,photoPaths.join('|'),apiUrl,token])
   const favorable=row?.request_data.maintenance_type!=='MEJORA_TECNICA'||['PROCEDE','CON_MODIFICACIONES'].includes(row?.request_data.priority_validation?.technical_review?.feasibility)
   const executionBlock=!row?null:!row.priority?'Falta guardar la evaluación oficial de Mantenimiento. Abre «Validar prioridad y evaluar».':!favorable?'La mejora necesita viabilidad «Procede» o «Procede con modificaciones». Revisa la evaluación técnica.':!row.request_data.planning?'Falta guardar la programación. Abre «Programar actividad».':row.request_data.planning.condition!=='LISTA'?'La programación está en espera. Abre «Programar actividad», revisa los pendientes, selecciona «Lista para ejecutar» y guarda.':null
   const showingDetail=Boolean(row && !form && !showPeriods)
@@ -133,6 +134,12 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     try{const result=await request('/solicitudes-mantenimiento/importar-santafe-haccp',{method:'POST',body:JSON.stringify(santafeHaccp)});setVersion(v=>v+1);setShowBacklog(false);setPlantFilter(String(plants.find(p=>p.name==='Santa Fe')?.plant_id||''));setFormError(`${result.created} solicitudes de Santa Fe incorporadas; ${result.existing} ya existían.`)}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
+  async function importSantafePhotos(){
+    if(submitting.current)return
+    submitting.current=true;setBusy(true);setFormError('')
+    try{const result=await request('/solicitudes-mantenimiento/importar-fotos-santafe-haccp',{method:'POST'});setVersion(v=>v+1);setFormError(`${result.photos_added} fotos añadidas a ${result.requests_updated} solicitudes de Santa Fe.`)}
+    catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
+  }
   async function saveImprovement(payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
@@ -175,7 +182,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
       <button className="secondary-action" disabled={busy||!!form} onClick={()=>setShowPeriods(v=>!v)}>{showPeriods?'Volver a solicitudes':'Datos de operación para indicadores'}</button>
       {showPeriods ? <OperatingPeriods request={request} machines={machines} canCreate={canCreate&&catalogReady}/> : <>
-      <div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}{isAdmin&&<button className="secondary-action" disabled={busy||!catalogReady} onClick={importSantafe}>Cargar 29 mejoras HACCP · Santa Fe</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button><label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>{!showBacklog&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}</div>
+      <div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}{isAdmin&&<button className="secondary-action" disabled={busy||!catalogReady} onClick={importSantafe}>Cargar 29 mejoras HACCP · Santa Fe</button>}{isAdmin&&<button className="secondary-action" disabled={busy} onClick={importSantafePhotos}>Añadir fotos del Excel HACCP · Santa Fe</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button><label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>{!showBacklog&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}</div>
       {error&&<p role="alert">{error}</p>}{formError&&<p role="alert">{formError}</p>}
       {!loaded&&!error&&<p>Cargando solicitudes…</p>}
       {!form&&!row&&<button type="button" className="secondary-action" onClick={()=>setShowBacklog(v=>!v)}>{showBacklog?'Ver todas las solicitudes / cerradas':'Ver actividades priorizadas'}</button>}
@@ -183,7 +190,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       {!form&&!row&&!showBacklog&&<div className="table-scroll"><table className="maintenance-requests-table"><thead><tr><th>Acción</th><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>{rows.filter(r=>(!filter||r.status===filter)&&(!plantFilter||String(r.request_data.plant_id)===plantFilter)).map(r=><tr key={r.id}><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button>{r.request_data.maintenance_type==='MEJORA_TECNICA'&&<button type='button' className='secondary-action' disabled={busy||!canCreate||!catalogReady||r.status!=='PENDIENTE'} title={!canCreate?'Solo operadores y administradores pueden modificar':r.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>editRequest(r.id)}>Modificar</button>}</td><td>#{r.id}<br/>{time(r.requested_at)}<br/>{r.request_data.maintenance_type==='MEJORA_TECNICA'?'Mejora técnica':r.request_data.maintenance_type}</td><td>{r.request_data.machine_code}<br/>{[r.request_data.plant_name,r.request_data.tower_name].filter(Boolean).join(' / ')}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.request_data.source_requester||r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
       {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button>{row.request_data.maintenance_type==='MEJORA_TECNICA'&&<button type='button' className='primary-action' disabled={busy||!canCreate||!catalogReady||row.status!=='PENDIENTE'} title={!canCreate?'Solo operadores y administradores pueden modificar':row.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>editRequest(row.id)}>Modificar solicitud</button>}<h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}.</p><p>Planificado: {time(row.request_data.planning?.starts_at)} a {time(row.request_data.planning?.ends_at)}. Parada: {time(row.request_data.stopped_at)}.</p>
         <p>Solicitante: {row.request_data.source_requester||row.requester_name} · Planta: {row.request_data.plant_name||'No registrada'} · Torre: {row.request_data.tower_name||'No registrada'}</p>
-        {imageUrl&&<div className="full-field"><p>Foto de la solicitud</p><a href={imageUrl} target="_blank" rel="noreferrer"><img src={imageUrl} alt={`Foto de la solicitud ${row.id}`} style={{maxWidth:'100%',maxHeight:320,objectFit:'contain'}}/></a></div>}
+        {!!imageUrls.length&&<div className="full-field"><p>Fotos de la solicitud ({imageUrls.length})</p><div className="request-photo-gallery">{imageUrls.map((url,index)=><a key={url} href={url} target="_blank" rel="noreferrer"><img src={url} alt={`Foto ${index+1} de la solicitud ${row.id}`}/></a>)}</div></div>}
         <PriorityWorkflow key={row.id} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
         {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}
@@ -206,7 +213,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <Text label="Situación actual / problema" name="description" form={form} change={change}/><TechnicalImprovementFields form={form} change={change}/>
           <div className="full-field"><h4>Preevaluación de prioridad</h4><NICFields required={false} value={form.preevaluation||{}} onChange={value=>change('preevaluation',value)}/></div>
           <div className="full-field"><h4>Evaluación técnica del formulario</h4>{evaluationFields.map(([key,notes,label])=><div className="request-line" key={key}><label>{label}<select required value={form.technical_evaluation?.[key]===undefined?'':String(form.technical_evaluation[key])} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[key]:e.target.value==='true'})}><option value="">Selecciona</option><option value="true">Sí</option><option value="false">No</option></select></label><label>Observaciones<input maxLength={500} value={form.technical_evaluation?.[notes]||''} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[notes]:e.target.value})}/></label></div>)}</div>
-          <ImageAttachment label="Foto de la solicitud" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="JPG, PNG o WEBP. Máximo 10 MB. Si no eliges otra foto, se conserva la actual."/></>}
+          <ImageAttachment label="Añadir foto a la solicitud" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="JPG, PNG o WEBP. Máximo 10 MB. Las fotos actuales se conservan."/></>}
         {mode==='new'&&<>
           <label>Planta<select required value={form.plant_id||''} onChange={e=>change('plant_id',e.target.value)}><option value="">Selecciona una planta</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
           <label>Torre {form.maintenance_type==='MEJORA_TECNICA'?'(opcional)':''}<select required={form.maintenance_type!=='MEJORA_TECNICA'} disabled={!form.plant_id} value={form.tower_id||''} onChange={e=>change('tower_id',e.target.value)}><option value="">Sin torre / área general</option>{towers.filter(t=>String(t.plant_id)===String(form.plant_id)).map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>
