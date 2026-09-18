@@ -15,8 +15,9 @@ La carga requiere la migración 010 y que exista la planta `Santa Fe` (migració
 la cuenta administradora que ejecuta la carga queda registrada como usuario del
 sistema. No se inventan torre, máquina, prioridad, ejecución ni firmas.
 
-Mientras la mejora siga pendiente, un administrador puede abrir
-**Completar / corregir datos** para editar la
+Mientras la mejora siga pendiente, un administrador u operador puede pulsar
+**Modificar** en la lista de actividades, en el listado general o en la parte
+superior del detalle para editar la
 ubicación, máquina opcional, fecha de detección, preevaluación, textos y respuestas
 del formulario. Desde ese formulario, o al crear una solicitud, se puede adjuntar
 una foto JPG, PNG o WEBP de hasta 10 MB. La API guarda el archivo en

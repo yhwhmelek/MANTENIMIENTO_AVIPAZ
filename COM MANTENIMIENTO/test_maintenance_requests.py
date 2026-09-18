@@ -37,7 +37,7 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar','/mejora','/importar-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar','/importar-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
 
     def test_improvement_can_target_plant_without_tower(self):
         data = mod.RequestWrite(plant_id=1, maintenance_type='MEJORA_TECNICA', description='Adecuar área',
@@ -53,7 +53,7 @@ class RequestTests(unittest.TestCase):
         original = {'maintenance_type':'MEJORA_TECNICA','source_key':'SANTAFE-HACCP-2026-01',
                     'source_requester':'Equipo HACCP','image_path':'old.jpg'}
         self.cursor.execute.return_value.fetchone.side_effect = [
-            (1,None,'PENDIENTE',json.dumps(original),None), ('Santa Fe',)]
+            ('OPERADOR',), (1,None,'PENDIENTE',json.dumps(original),None), ('Santa Fe',)]
         data = mod.ImprovementUpdate(plant_id=1, detected_at='2026-09-15T08:41',
             requesting_area='Calidad', target_area='Bodega', description='Pared deteriorada',
             improvement_proposal='Pintar pared',
@@ -65,6 +65,17 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(saved['plant_name'], 'Santa Fe')
         self.assertEqual(saved['description'], 'Pared deteriorada')
         self.assertEqual(saved['image_path'], 'old.jpg')
+
+    def test_user_cannot_modify_improvement(self):
+        self.cursor.execute.return_value.fetchone.return_value = ('USUARIO',)
+        data = mod.ImprovementUpdate(plant_id=1, detected_at='2026-09-15T08:41',
+            requesting_area='Calidad', target_area='Bodega', description='Pared deteriorada',
+            improvement_proposal='Pintar pared',
+            technical_evaluation=dict(affects_food_safety=True,requires_shutdown=False,
+                                      requires_training=False,improves_safety=True))
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/mejora', 'PUT')(1, data, usuario_id=1)
+        self.assertEqual(error.exception.status_code, 403)
 
     def test_request_photo_is_stored_in_configured_folder(self):
         png = b'\x89PNG\r\n\x1a\n' + b'photo'

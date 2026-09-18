@@ -437,10 +437,13 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         return write(operation)
 
     @app.put('/solicitudes-mantenimiento/{request_id}/mejora')
-    def update_improvement(request_id: int, data: ImprovementUpdate, usuario_id: int = Depends(admin_user)):
+    def update_improvement(request_id: int, data: ImprovementUpdate, usuario_id: int = Depends(active_user)):
         new_image = [None]
         old_image = [None]
         def operation(cursor):
+            role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
+            if not role or role[0] not in ('ADMIN', 'OPERADOR'):
+                raise HTTPException(403, 'Solo operadores y administradores pueden modificar solicitudes')
             row = locked(cursor, request_id)
             payload = json.loads(row[3])
             if row[2] != 'PENDIENTE' or payload.get('maintenance_type') != 'MEJORA_TECNICA':
