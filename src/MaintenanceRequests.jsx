@@ -3,6 +3,7 @@ import PriorityWorkflow from './PriorityWorkflow'
 import PrioritizedActivities from './PrioritizedActivities'
 import PrioritizedRequestPrint from './PrioritizedRequestPrint'
 import TechnicalImprovementFields, {evaluationFields} from './TechnicalImprovementFields'
+import ImageAttachment from './ImageAttachment'
 import santafeHaccp from './santafe-haccp-2026.json'
 import { useEffect, useRef, useState } from 'react'
 import { Bell, X } from 'lucide-react'
@@ -23,6 +24,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [selected,setSelected] = useState(null), [form,setForm] = useState(null), [mode,setMode] = useState('')
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [showPeriods,setShowPeriods] = useState(false)
+  const [photo,setPhoto] = useState(null), [imageUrl,setImageUrl] = useState('')
   const [showBacklog,setShowBacklog]=useState(true)
   const dialog=useRef(null), submitting=useRef(false)
   const detail=useRef(null)
@@ -69,6 +71,16 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   },[printRow])
   useEffect(()=>{const refresh=()=>setVersion(v=>v+1);window.addEventListener('maintenance-flow-deleted',refresh);return()=>window.removeEventListener('maintenance-flow-deleted',refresh)},[])
   const row=rows.find(r=>r.id===selected)
+  useEffect(()=>{
+    if(!open||!row?.request_data.image_path){setImageUrl('');return}
+    const controller=new AbortController()
+    let url=''
+    fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/imagen`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
+      .then(response=>{if(!response.ok)throw new Error('Foto no disponible');return response.blob()})
+      .then(blob=>{if(!controller.signal.aborted){url=URL.createObjectURL(blob);setImageUrl(url)}})
+      .catch(()=>{if(!controller.signal.aborted)setImageUrl('')})
+    return()=>{controller.abort();if(url)URL.revokeObjectURL(url);setImageUrl('')}
+  },[open,row?.id,row?.request_data.image_path,apiUrl,token])
   const favorable=row?.request_data.maintenance_type!=='MEJORA_TECNICA'||['PROCEDE','CON_MODIFICACIONES'].includes(row?.request_data.priority_validation?.technical_review?.feasibility)
   const executionBlock=!row?null:!row.priority?'Falta guardar la evaluación oficial de Mantenimiento. Abre «Validar prioridad y evaluar».':!favorable?'La mejora necesita viabilidad «Procede» o «Procede con modificaciones». Revisa la evaluación técnica.':!row.request_data.planning?'Falta guardar la programación. Abre «Programar actividad».':row.request_data.planning.condition!=='LISTA'?'La programación está en espera. Abre «Programar actividad», revisa los pendientes, selecciona «Lista para ejecutar» y guarda.':null
   const showingDetail=Boolean(row && !form && !showPeriods)
@@ -80,7 +92,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   },[open,showingDetail,row?.id])
   function change(name,value){setForm(f=>({...f,[name]:value,...(name==='plant_id'?{tower_id:'',machine_id:''}:name==='tower_id'?{machine_id:''}:{}),...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:''}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
   function start(modeName){
-    setMode(modeName);setFormError('')
+    setMode(modeName);setFormError('');setPhoto(null)
     if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',detected_at:localInput()})
     if(modeName==='edit')setForm({...row.request_data,technical_evaluation:row.request_data.technical_evaluation||{}})
     if(modeName==='complete'){
@@ -98,7 +110,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   async function mutate(suffix,payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
-    try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});setSelected(result.id);setForm(null);setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
+    try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});setSelected(result.id);setForm(null);setPhoto(null);setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   async function deleteRequest(){
@@ -119,13 +131,18 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   async function saveImprovement(payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
-    try{await request(`/solicitudes-mantenimiento/${selected}/mejora`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setMode('');setVersion(v=>v+1)}
+    try{await request(`/solicitudes-mantenimiento/${selected}/mejora`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setPhoto(null);setMode('');setVersion(v=>v+1)}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
-  function save(event){
+  async function save(event){
     event.preventDefault();const payload={...form}
     if(submitting.current)return
     if(mode==='receive' && !window.confirm('Al aceptar, confirmas que recibiste el trabajo y estás conforme con la entrega. Si no ingresaste observaciones, se registrará «Entrega conforme». ¿Deseas aceptar?'))return
+    if((mode==='new'||mode==='edit')&&photo){
+      if(!['image/jpeg','image/png','image/webp'].includes(photo.type)||photo.size>10*1024*1024){setFormError('La foto debe ser JPG, PNG o WEBP y no superar 10 MB');return}
+      try{payload.image_data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('No se pudo leer la foto'));reader.readAsDataURL(photo)})}
+      catch(err){setFormError(err.message);return}
+    }
     if(mode==='new'){
       for(const key of ['machine_id','plant_id','tower_id'])payload[key]=Number(payload[key])||null
       if(!payload.machine_id)payload.machine_id=null
@@ -133,7 +150,10 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       if(payload.requested_part_id)payload.requested_part_id=Number(payload.requested_part_id)
       payload.requested_parts=(payload.requested_parts||[]).map(p=>({...p,spare_part_id:Number(p.spare_part_id)}))
     }
-    if(mode==='edit')return saveImprovement(Object.fromEntries(['requesting_area','target_area','description','improvement_proposal','technical_evaluation','benefits','benefit_notes'].map(key=>[key,payload[key]])))
+    if(mode==='edit'){
+      for(const key of ['plant_id','tower_id','machine_id'])payload[key]=Number(payload[key])||null
+      return saveImprovement(Object.fromEntries(['plant_id','tower_id','machine_id','detected_at','preevaluation','requesting_area','target_area','description','improvement_proposal','technical_evaluation','benefits','benefit_notes','image_data'].filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]])))
+    }
     if(mode==='complete'){
       for(const key of ['stopped_at','restored_at','hour_meter'])payload[key]=payload[key]||null
       payload.waiting_parts_minutes=Number(payload.waiting_parts_minutes)
@@ -158,6 +178,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       {!form&&!row&&!showBacklog&&<div className="table-scroll"><table className="maintenance-requests-table"><thead><tr><th>Acción</th><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>{rows.filter(r=>(!filter||r.status===filter)&&(!plantFilter||String(r.request_data.plant_id)===plantFilter)).map(r=><tr key={r.id}><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button></td><td>#{r.id}<br/>{time(r.requested_at)}<br/>{r.request_data.maintenance_type==='MEJORA_TECNICA'?'Mejora técnica':r.request_data.maintenance_type}</td><td>{r.request_data.machine_code}<br/>{[r.request_data.plant_name,r.request_data.tower_name].filter(Boolean).join(' / ')}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.request_data.source_requester||r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
       {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button><h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}.</p><p>Planificado: {time(row.request_data.planning?.starts_at)} a {time(row.request_data.planning?.ends_at)}. Parada: {time(row.request_data.stopped_at)}.</p>
         <p>Solicitante: {row.request_data.source_requester||row.requester_name} · Planta: {row.request_data.plant_name||'No registrada'} · Torre: {row.request_data.tower_name||'No registrada'}</p>
+        {imageUrl&&<div className="full-field"><p>Foto de la solicitud</p><a href={imageUrl} target="_blank" rel="noreferrer"><img src={imageUrl} alt={`Foto de la solicitud ${row.id}`} style={{maxWidth:'100%',maxHeight:320,objectFit:'contain'}}/></a></div>}
         <PriorityWorkflow key={row.id} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
         {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}
@@ -173,7 +194,15 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           {row.status==='POR_RECIBIR'&&(isAdmin||row.requested_by===currentUser.id)&&<button className="primary-action" onClick={()=>start('receive')}>Confirmar recepción del cambio</button>}
         </div></section>}
       {form&&<form onSubmit={save}><h3>{mode==='new'?'Generar solicitud':mode==='edit'?'Completar mejora técnica':mode==='complete'?'Registrar trabajo realizado':'Confirmar recepción'}</h3><p>Fechas y horas locales de Ecuador (UTC−5).</p><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
-        {mode==='edit'&&<><p className="full-field">Solicitud original: {form.source_requester||row.requester_name} · hoja {form.source_sheet||'sin referencia'}. Completa los datos que faltan y corrige los transcritos.</p><Text label="Situación actual / problema" name="description" form={form} change={change}/><TechnicalImprovementFields form={form} change={change}/><div className="full-field"><h4>Evaluación técnica del formulario</h4>{evaluationFields.map(([key,notes,label])=><div className="request-line" key={key}><label>{label}<select value={String(form.technical_evaluation?.[key]??false)} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[key]:e.target.value==='true'})}><option value="true">Sí</option><option value="false">No</option></select></label><label>Observaciones<input maxLength={500} value={form.technical_evaluation?.[notes]||''} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[notes]:e.target.value})}/></label></div>)}</div></>}
+        {mode==='edit'&&<><p className="full-field">Solicitud original: {form.source_requester||row.requester_name} · hoja {form.source_sheet||'sin referencia'}. Completa los datos que faltan y corrige los transcritos.{row.request_data.priority_validation&&' Si cambias la solicitud, revisa también la evaluación oficial de prioridad.'}</p>
+          <label>Planta<select required value={form.plant_id||''} onChange={e=>change('plant_id',e.target.value)}><option value="">Selecciona una planta</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
+          <label>Torre (opcional)<select disabled={!form.plant_id} value={form.tower_id||''} onChange={e=>change('tower_id',e.target.value)}><option value="">Sin torre / área general</option>{towers.filter(t=>String(t.plant_id)===String(form.plant_id)).map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>
+          <label>Máquina (opcional)<select disabled={!form.tower_id} value={form.machine_id||''} onChange={e=>change('machine_id',e.target.value)}><option value="">Sin máquina</option>{machines.filter(m=>String(m.tower_id)===String(form.tower_id)).map(m=><option key={m.machine_id} value={m.machine_id}>{m.asset_code} · {m.name}</option>)}</select></label>
+          <Field label="Fecha y hora de detección" type="datetime-local" name="detected_at" required value={form.detected_at?.slice(0,16)||''} onChange={change}/>
+          <Text label="Situación actual / problema" name="description" form={form} change={change}/><TechnicalImprovementFields form={form} change={change}/>
+          <div className="full-field"><h4>Preevaluación de prioridad</h4><NICFields required={false} value={form.preevaluation||{}} onChange={value=>change('preevaluation',value)}/></div>
+          <div className="full-field"><h4>Evaluación técnica del formulario</h4>{evaluationFields.map(([key,notes,label])=><div className="request-line" key={key}><label>{label}<select required value={form.technical_evaluation?.[key]===undefined?'':String(form.technical_evaluation[key])} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[key]:e.target.value==='true'})}><option value="">Selecciona</option><option value="true">Sí</option><option value="false">No</option></select></label><label>Observaciones<input maxLength={500} value={form.technical_evaluation?.[notes]||''} onChange={e=>change('technical_evaluation',{...form.technical_evaluation,[notes]:e.target.value})}/></label></div>)}</div>
+          <ImageAttachment label="Foto de la solicitud" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="JPG, PNG o WEBP. Máximo 10 MB. Si no eliges otra foto, se conserva la actual."/></>}
         {mode==='new'&&<>
           <label>Planta<select required value={form.plant_id||''} onChange={e=>change('plant_id',e.target.value)}><option value="">Selecciona una planta</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
           <label>Torre {form.maintenance_type==='MEJORA_TECNICA'?'(opcional)':''}<select required={form.maintenance_type!=='MEJORA_TECNICA'} disabled={!form.plant_id} value={form.tower_id||''} onChange={e=>change('tower_id',e.target.value)}><option value="">Sin torre / área general</option>{towers.filter(t=>String(t.plant_id)===String(form.plant_id)).map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>
@@ -182,6 +211,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <label>Tipo<select value={form.maintenance_type} onChange={e=>change('maintenance_type',e.target.value)}><option>CORRECTIVO</option><option>PREVENTIVO</option><option value="MEJORA_TECNICA">Mejora técnica (MT/02-08)</option></select></label>
           <Text label={form.maintenance_type==='MEJORA_TECNICA'?'Situación actual / problema identificado':'Descripción del daño / trabajo solicitado'} name="description" form={form} change={change}/>
           {form.maintenance_type==='MEJORA_TECNICA'&&<TechnicalImprovementFields form={form} change={change}/>}
+          <ImageAttachment label="Foto de la solicitud" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="JPG, PNG o WEBP. Máximo 10 MB."/>
           <Field label="Fecha y hora de detección del daño / necesidad" type="datetime-local" name="detected_at" required value={form.detected_at} onChange={change}/>
           <div className="full-field"><h4>Preevaluación de prioridad del solicitante</h4><p>Opcional: completa solo los factores que conozcas o deja todos sin valorar. No se requiere diagnóstico técnico. Mantenimiento definirá la prioridad oficial.</p><NICFields required={false} value={form.preevaluation} onChange={value=>change('preevaluation',value)}/></div>
           <label className="checkbox-field"><input type="checkbox" disabled={form.maintenance_type!=='CORRECTIVO'} checked={form.failure} onChange={e=>change('failure',e.target.checked)}/> Es una falla del equipo (para MTBF)</label>

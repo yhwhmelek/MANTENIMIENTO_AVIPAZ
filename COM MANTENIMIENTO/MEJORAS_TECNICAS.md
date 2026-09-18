@@ -15,6 +15,15 @@ La carga requiere la migración 010 y que exista la planta `Santa Fe` (migració
 la cuenta administradora que ejecuta la carga queda registrada como usuario del
 sistema. No se inventan torre, máquina, prioridad, ejecución ni firmas.
 
+Mientras la mejora siga pendiente, un administrador puede abrir
+**Completar / corregir datos** para editar la
+ubicación, máquina opcional, fecha de detección, preevaluación, textos y respuestas
+del formulario. Desde ese formulario, o al crear una solicitud, se puede adjuntar
+una foto JPG, PNG o WEBP de hasta 10 MB. La API guarda el archivo en
+`REQUEST_IMAGE_DIR`; si no se configura, usa `uploads/solicitudes` junto al
+backend. La foto se consulta con autenticación desde el detalle. Conviene incluir
+esa carpeta en los respaldos del servidor.
+
 Actualización 16/09/2026: ver `PRIORIZACION_NIC.md`. El solicitante registra
 beneficios y preevaluación NIC; la verificación técnica pertenece a Mantenimiento.
 La ejecución requiere validación oficial y programación. La impresión utiliza

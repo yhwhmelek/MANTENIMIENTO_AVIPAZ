@@ -1,12 +1,19 @@
 """Solicitudes, entrega y recepcion. Fechas operativas en hora local de Ecuador (UTC-5)."""
 import json
+import base64
+import binascii
+import os
+import re
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 import pyodbc
 from fastapi import Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from parts_history import records
 from request_priority import NIC, decorate, backlog_key, register_priority, require_planned
@@ -43,6 +50,7 @@ class RequestedPart(StrictModel):
 
 
 class RequestWrite(StrictModel):
+    image_data: str | None = Field(default=None, max_length=14_000_000)
     plant_id: int | None = Field(default=None, gt=0)
     tower_id: int | None = Field(default=None, gt=0)
     preevaluation: Preevaluation | None = None
@@ -182,6 +190,12 @@ class ImportedImprovement(StrictModel):
 
 
 class ImprovementUpdate(StrictModel):
+    image_data: str | None = Field(default=None, max_length=14_000_000)
+    plant_id: int = Field(gt=0)
+    tower_id: int | None = Field(default=None, gt=0)
+    machine_id: int | None = Field(default=None, gt=0)
+    detected_at: datetime
+    preevaluation: Preevaluation | None = None
     requesting_area: str = Field(min_length=1, max_length=150)
     target_area: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=1000)
@@ -189,6 +203,43 @@ class ImprovementUpdate(StrictModel):
     technical_evaluation: TechnicalEvaluation
     benefits: list[Literal['SEGURIDAD', 'PRODUCCION', 'CALIDAD', 'AMBIENTE', 'ERGONOMIA', 'COSTOS', 'CONFIABILIDAD', 'LEGAL']] = Field(default_factory=list)
     benefit_notes: str = Field(default='', max_length=1000)
+
+    @model_validator(mode='after')
+    def validate_location(self):
+        if self.machine_id is not None and self.tower_id is None:
+            raise ValueError('Selecciona la torre de la máquina')
+        if self.detected_at.tzinfo is not None or self.detected_at > local_now():
+            raise ValueError('La fecha de detección debe ser una hora local pasada')
+        return self
+
+
+def request_image_directory():
+    return Path(os.getenv('REQUEST_IMAGE_DIR', str(Path(__file__).parent / 'uploads' / 'solicitudes'))).resolve()
+
+
+def save_request_image(image_data):
+    match = re.fullmatch(r'data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)', image_data or '')
+    if not match:
+        raise HTTPException(422, 'La foto debe ser JPG, PNG o WEBP')
+    try:
+        content = base64.b64decode(match.group(2), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, 'La foto no es válida')
+    signatures = {'jpeg': (b'\xff\xd8\xff',), 'png': (b'\x89PNG\r\n\x1a\n',), 'webp': (b'RIFF',)}
+    kind = match.group(1)
+    valid = any(content.startswith(prefix) for prefix in signatures[kind])
+    if kind == 'webp':
+        valid = valid and content[8:12] == b'WEBP'
+    if not valid or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(422, 'La foto no es válida o supera 10 MB')
+    extension = {'jpeg': '.jpg', 'png': '.png', 'webp': '.webp'}[kind]
+    path = request_image_directory() / f'{uuid4().hex}{extension}'
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    except OSError:
+        raise HTTPException(503, 'No se pudo guardar la foto en el servidor')
+    return str(path)
 
 
 class OperatingPeriodWrite(StrictModel):
@@ -387,21 +438,73 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
 
     @app.put('/solicitudes-mantenimiento/{request_id}/mejora')
     def update_improvement(request_id: int, data: ImprovementUpdate, usuario_id: int = Depends(admin_user)):
+        new_image = [None]
+        old_image = [None]
         def operation(cursor):
             row = locked(cursor, request_id)
             payload = json.loads(row[3])
             if row[2] != 'PENDIENTE' or payload.get('maintenance_type') != 'MEJORA_TECNICA':
                 raise HTTPException(409, 'Solo se puede completar una mejora técnica pendiente')
-            payload.update(data.model_dump(mode='json'))
-            payload['machine_name'] = payload['target_area']
-            payload['area'] = payload['target_area']
-            cursor.execute('UPDATE dbo.MaintenanceRequests SET RequestData=? WHERE RequestId=?',
-                           json.dumps(payload, ensure_ascii=False), request_id)
+            location = cursor.execute('SELECT Name FROM dbo.Plants WITH (HOLDLOCK) WHERE PlantId=?', data.plant_id).fetchone()
+            if not location:
+                raise HTTPException(422, 'La planta no existe')
+            tower = None
+            if data.tower_id is not None:
+                tower = cursor.execute('SELECT Name FROM dbo.Towers WITH (HOLDLOCK) WHERE TowerId=? AND PlantId=?', data.tower_id, data.plant_id).fetchone()
+                if not tower:
+                    raise HTTPException(422, 'La torre no pertenece a la planta')
+            machine = None
+            if data.machine_id is not None:
+                machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=? AND TowerId=?', data.machine_id, data.tower_id).fetchone()
+                if not machine:
+                    raise HTTPException(422, 'La máquina no pertenece a la torre')
+            payload.update(data.model_dump(mode='json', exclude={'image_data'}))
+            payload.update(plant_name=location[0], tower_name=tower[0] if tower else None,
+                           machine_code=machine[0] if machine else 'N/A',
+                           machine_name=machine[1] if machine else data.target_area,
+                           area=machine[2] if machine else data.target_area)
+            if data.image_data:
+                new_image[0] = save_request_image(data.image_data)
+                old_image[0] = payload.get('image_path')
+                payload['image_path'] = new_image[0]
+            cursor.execute('UPDATE dbo.MaintenanceRequests SET MachineId=?, RequestData=? WHERE RequestId=?',
+                           data.machine_id, json.dumps(payload, ensure_ascii=False), request_id)
             return {'id': request_id}
-        return write(operation)
+        try:
+            result = write(operation)
+        except Exception:
+            if new_image[0]:
+                Path(new_image[0]).unlink(missing_ok=True)
+            raise
+        if old_image[0]:
+            old_path = Path(old_image[0]).resolve()
+            if old_path.is_relative_to(request_image_directory()):
+                try:
+                    old_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return result
+
+    @app.get('/solicitudes-mantenimiento/{request_id}/imagen', response_class=FileResponse)
+    def request_image(request_id: int, usuario_id: int = Depends(active_user)):
+        try:
+            with closing(connect()) as connection:
+                row = connection.cursor().execute('SELECT RequestData FROM dbo.MaintenanceRequests WHERE RequestId=?', request_id).fetchone()
+        except (pyodbc.Error, RuntimeError):
+            raise HTTPException(503, 'No se pudo consultar la foto')
+        if not row:
+            raise HTTPException(404, 'Solicitud no encontrada')
+        path_value = json.loads(row[0]).get('image_path')
+        if not path_value:
+            raise HTTPException(404, 'La solicitud no tiene foto')
+        path = Path(path_value).resolve()
+        if not path.is_relative_to(request_image_directory()) or not path.is_file():
+            raise HTTPException(404, 'No se encontró la foto')
+        return FileResponse(path)
 
     @app.post('/solicitudes-mantenimiento', status_code=201)
     def create_request(data: RequestWrite, usuario_id: int = Depends(active_user)):
+        new_image = [None]
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
             if not role or role[0] not in ('ADMIN', 'OPERADOR'):
@@ -422,7 +525,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     raise HTTPException(422, 'La planta seleccionada no existe')
                 if data.machine_id is not None:
                     raise HTTPException(422, 'Selecciona la torre de la máquina')
-            payload = data.model_dump(mode='json')
+            payload = data.model_dump(mode='json', exclude={'image_data'})
             if location:
                 payload.update(plant_name=location[0], tower_name=location[1])
             payload.update(machine_code=machine[0] if machine else 'N/A', machine_name=machine[1] if machine else data.target_area, area=machine[2] if machine else data.target_area)
@@ -436,11 +539,19 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 payload['requested_parts'].append({**item.model_dump(mode='json'), 'internal_code':part[0],
                     'description':part[1], 'unit_of_measure':part[2], 'stock_at_request':str(stock),
                     'stock_sufficient':stock >= item.quantity})
+            if data.image_data:
+                new_image[0] = save_request_image(data.image_data)
+                payload['image_path'] = new_image[0]
             row = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.MaintenanceRequests
                 (MachineId,RequestedBy,RequestedAt,RequestData) VALUES (?,?,?,?);
                 SELECT CAST(SCOPE_IDENTITY() AS int);''', data.machine_id, usuario_id, local_now(), json.dumps(payload, ensure_ascii=False)).fetchone()
             return {'id': row[0]}
-        return write(operation)
+        try:
+            return write(operation)
+        except Exception:
+            if new_image[0]:
+                Path(new_image[0]).unlink(missing_ok=True)
+            raise
 
     @app.post('/solicitudes-mantenimiento/{request_id}/atender')
     def accept_request(request_id: int, usuario_id: int = Depends(admin_user)):

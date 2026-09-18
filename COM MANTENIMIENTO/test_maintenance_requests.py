@@ -1,5 +1,8 @@
 import json
+import base64
+import tempfile
 import unittest
+from pathlib import Path
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -45,6 +48,32 @@ class RequestTests(unittest.TestCase):
         saved = json.loads(self.cursor.execute.call_args.args[4])
         self.assertEqual(saved['plant_name'], 'Santa Fe')
         self.assertIsNone(saved['tower_id'])
+
+    def test_pending_imported_improvement_can_be_completed(self):
+        original = {'maintenance_type':'MEJORA_TECNICA','source_key':'SANTAFE-HACCP-2026-01',
+                    'source_requester':'Equipo HACCP','image_path':'old.jpg'}
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            (1,None,'PENDIENTE',json.dumps(original),None), ('Santa Fe',)]
+        data = mod.ImprovementUpdate(plant_id=1, detected_at='2026-09-15T08:41',
+            requesting_area='Calidad', target_area='Bodega', description='Pared deteriorada',
+            improvement_proposal='Pintar pared',
+            technical_evaluation=dict(affects_food_safety=True,requires_shutdown=False,
+                                      requires_training=False,improves_safety=True), benefits=['CALIDAD'])
+        self.endpoint('/{request_id}/mejora', 'PUT')(1, data, usuario_id=9)
+        saved = json.loads(self.cursor.execute.call_args.args[2])
+        self.assertEqual(saved['source_key'], original['source_key'])
+        self.assertEqual(saved['plant_name'], 'Santa Fe')
+        self.assertEqual(saved['description'], 'Pared deteriorada')
+        self.assertEqual(saved['image_path'], 'old.jpg')
+
+    def test_request_photo_is_stored_in_configured_folder(self):
+        png = b'\x89PNG\r\n\x1a\n' + b'photo'
+        with tempfile.TemporaryDirectory() as folder, patch.object(mod,'request_image_directory',return_value=Path(folder)):
+            path = Path(mod.save_request_image('data:image/png;base64,'+base64.b64encode(png).decode()))
+            self.assertEqual(path.parent, Path(folder))
+            self.assertEqual(path.read_bytes(), png)
+            with self.assertRaises(HTTPException):
+                mod.save_request_image('data:image/png;base64,'+base64.b64encode(b'not a png').decode())
 
     def test_request_location_snapshot(self):
         data = mod.RequestWrite(machine_id=3, plant_id=1, tower_id=2, maintenance_type='CORRECTIVO', description='Revisar')
