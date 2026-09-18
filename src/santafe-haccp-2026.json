@@ -1,0 +1,466 @@
+[
+  {
+    "source_key": "SANTAFE-HACCP-2026-01",
+    "source_sheet": "1",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T08:41",
+    "requesting_area": "MACRO INGREDIENTES",
+    "target_area": "MACRO INGREDIENTES",
+    "description": "Infraestructura sin cumplir los criterios de BPM de almacenes.",
+    "improvement_proposal": "Cambio de infraestructura para cumplir cirterios.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-02",
+    "source_sheet": "2",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T08:50",
+    "requesting_area": "MACRO INGREDIENTES",
+    "target_area": "MACRO INGREDIENTES",
+    "description": "No existe un lugar específicos para muebles y equipos obsoletos sin cumplir los criterios de BPM de almacenes.",
+    "improvement_proposal": "Desalojo y reubicación de los muebles y equipos, en caso de que se encuentren obsoletos dar de baja",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-03",
+    "source_sheet": "3",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T08:56",
+    "requesting_area": "MACRO INGREDIENTES",
+    "target_area": "MACRO INGREDIENTES",
+    "description": "Puertas de salida sin contemplar aperturas que no se crucen con los soportes. Evitar accidentes, desinstalar escalera interna.",
+    "improvement_proposal": "Evitar accidentes.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": true,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-04",
+    "source_sheet": "4",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:01",
+    "requesting_area": "MACRO INGREDIENTES/ PRODUCCIÓN",
+    "target_area": "MACRO INGREDIENTES /  PRODUCCIÓN",
+    "description": "Bordes cóncavos en mal sin cumplir los criterios de BPM de almacenes.",
+    "improvement_proposal": "Cumplir criterios de normativa",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-05",
+    "source_sheet": "5",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:06",
+    "requesting_area": "MICRO INGREDIENTES",
+    "target_area": "MICRO INGREDIENTES",
+    "description": "Bordes cóncavos en mal sin cumplir los criterios de BPM de almacenes.",
+    "improvement_proposal": "Cumplir criterios de normativa con la infraestructura en óptimas condiciones",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-06",
+    "source_sheet": "6",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:10",
+    "requesting_area": "MICRO INGREDIENTES",
+    "target_area": "MICRO INGREDIENTES",
+    "description": "Infraestructura oxidada sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Pintura de infraestructura para evitar contaminación.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": true,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-07",
+    "source_sheet": "7",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:15",
+    "requesting_area": "MICRO INGREDIENTES",
+    "target_area": "MICRO INGREDIENTES",
+    "description": "Cortinas deterioradas sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Retiro de cortinas para evitar contaminación física, química y biológica.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-08",
+    "source_sheet": "8",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:21",
+    "requesting_area": "MICRO INGREDIENTES",
+    "target_area": "MICRO INGREDIENTES",
+    "description": "Ducha y vestidor de operadores  no cumple limpieza ni demás lineamientos legales.",
+    "improvement_proposal": "Habilitar y dejar en condiciones óptimas el vestidor para el personal del área.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-09",
+    "source_sheet": "9",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:29",
+    "requesting_area": "PRODUCTO TERMINADO",
+    "target_area": "PRODUCTO TERMINADO",
+    "description": "Techo de anden de carga sin cumplir los criterios de BPM de almacenes.",
+    "improvement_proposal": "Cambio de techado en el área de bodega de producto terminado.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-10",
+    "source_sheet": "10",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:36",
+    "requesting_area": "PRODUCTO TERMINADO",
+    "target_area": "PRODUCTO TERMINADO",
+    "description": "No cumple BPM  Orden y Limpieza",
+    "improvement_proposal": "Retiro de material que se encuentra alrededor de la bodega de producto terminado.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-11",
+    "source_sheet": "11",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:45",
+    "requesting_area": "PRODUCTO TERMINADO",
+    "target_area": "PRODUCTO TERMINADO",
+    "description": "Bodega de producto devuelto No cumple BPM  Orden, Limpieza y Pintura",
+    "improvement_proposal": "Pintura y adecuación del área de producto devuelto.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-12",
+    "source_sheet": "12",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T09:52",
+    "requesting_area": "PRODUCTO TERMINADO",
+    "target_area": "PRODUCTO TERMINADO",
+    "description": "Falta de iluminación en el anden de carga",
+    "improvement_proposal": "El área va a estar mejor cuando se despacha en la noche.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-13",
+    "source_sheet": "13",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:00",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "Existen goteras, se coloca un plástico para evitar que se moje la banda y por ende el producto",
+    "improvement_proposal": "Revisión, cambio y sellado del techo en toda la planta de producción para evitar goteras y que el producto sea no inocuo",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": true,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-14",
+    "source_sheet": "14",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:10",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "Colocar puerta divisoria para no tener contacto con los armarios eléctricos",
+    "improvement_proposal": "Colocar puerta divisoria para cumplir normativa.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-15",
+    "source_sheet": "15",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:18",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "Sensores de llenado en la automatización, cambiar porque se puede mezclar materias primas.",
+    "improvement_proposal": "Evitar derrames y contaminación cruzada",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": true,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-16",
+    "source_sheet": "16",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:25",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "En la zona de armarios eléctricos, colocar ventiladores por la generación de calor.",
+    "improvement_proposal": "Equipos en óptimas condiciones",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-17",
+    "source_sheet": "17",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:39",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "El ingreso a producción sacar la reja y colocar gradas, que facilitaría la rápida respuesta ante algún inconveniente",
+    "improvement_proposal": "Colocar gradas para que se facilite el acceso al personal para planta de producción.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-18",
+    "source_sheet": "18",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:40",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "En el área que se recibe materia prima, colocar una escalera fija, para evitar que el personal pase por debajo de la zaranda sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Colocar gradas para que se facilite el acceso al personal.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-19",
+    "source_sheet": "19",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:45",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "Arreglos de pintura y paredes sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Pintura y arreglo de paredes en el área de producción.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-20",
+    "source_sheet": "20",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:48",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "Ampliación del cuarto de control de producción por ergonomía e higiene industrial sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Pintura, ampliación y arreglo de paredes en el área de producción, cambio de malla para control de plagas.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": true,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-21",
+    "source_sheet": "21",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T10:53",
+    "requesting_area": "PLANTA DE PRODUCCIÓN",
+    "target_area": "PLANTA DE PRODUCCIÓN",
+    "description": "Arreglos de translucidos sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Cambio de traslúcidos al ingreso de la planta de producción para evitar contaminación.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-22",
+    "source_sheet": "22",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:05",
+    "requesting_area": "CONTROL DE CALIDAD",
+    "target_area": "CONTROL DE CALIDAD",
+    "description": "Arreglos de pintura sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Pintura y arreglo de paredes en el área de Control de Calidad.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-23",
+    "source_sheet": "23",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:12",
+    "requesting_area": "MANTENIMIENTO",
+    "target_area": "MANTENIMIENTO",
+    "description": "Orden y Limpieza, separar el gas en un lugar seguro sin cumplir los criterios de BPM de almacenamiento.",
+    "improvement_proposal": "Orden y limpieza, separación de gas en bodega de mantenimiento para cumplir criterios.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-24",
+    "source_sheet": "24",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:19",
+    "requesting_area": "MANTENIMIENTO",
+    "target_area": "MANTENIMIENTO",
+    "description": "Se evidencia tomacorriente instalado de forma inadecuada, sin tapa de protección y con elementos de la instalación eléctrica expuestos.",
+    "improvement_proposal": "Conexiones eléctricas seguras",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-25",
+    "source_sheet": "25",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:25",
+    "requesting_area": "MANTENIMIENTO",
+    "target_area": "MANTENIMIENTO",
+    "description": "Se evidencia instalación eléctrica con conductores expuestos sobre la estructura metálica de la cubierta, sin una canalización.",
+    "improvement_proposal": "Conexiones eléctricas seguras",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-26",
+    "source_sheet": "26",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:32",
+    "requesting_area": "MANTENIMIENTO",
+    "target_area": "MANTENIMIENTO",
+    "description": "Se evidencia duchas con cables expuestos",
+    "improvement_proposal": "Duchas eléctricas en óptimas condiciones de uso.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-27",
+    "source_sheet": "27",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:38",
+    "requesting_area": "MANTENIMIENTO",
+    "target_area": "MANTENIMIENTO",
+    "description": "No se encuentran los sanitarios y lavamanos en perfecto estado sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Destimar el número de sanitarios y lavamanos de acuerdo a normativa vigente, los mismo deben contar ccon agua y dotados de elementos de higuiene.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-28",
+    "source_sheet": "28",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:43",
+    "requesting_area": "MANTENIMIENTO",
+    "target_area": "MANTENIMIENTO",
+    "description": "No se encuentran los extractores realizados mantenimiento sin cumplir los criterios de BPM de proceso.",
+    "improvement_proposal": "Funcianamiento correcto de los extractores.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  },
+  {
+    "source_key": "SANTAFE-HACCP-2026-29",
+    "source_sheet": "29",
+    "source_requester": "Equipo HACCP",
+    "requested_at": "2026-09-15T11:43",
+    "requesting_area": "MANTENIMIENTO/SSOMA",
+    "target_area": "MANTENIMIENTO /SSOMA",
+    "description": "Desechos sin cumplir los criterios de BPM de almacén.",
+    "improvement_proposal": "Retiro, orden y limpieza de chatarra y material obsoleto.",
+    "technical_evaluation": {
+      "affects_food_safety": true,
+      "requires_shutdown": false,
+      "requires_training": false,
+      "improves_safety": true
+    }
+  }
+]

@@ -1,5 +1,20 @@
 # Solicitudes de mejora técnica MT/02-08
 
+## Solicitudes HACCP de Santa Fe (15/09/2026)
+
+Las 29 hojas del libro entregado se extrajeron a `src/santafe-haccp-2026.json`.
+Con la aplicación y la API actualizadas, un administrador abre **Solicitudes** y
+pulsa **Cargar 29 mejoras HACCP · Santa Fe**. La carga crea solicitudes pendientes
+en la planta Santa Fe sin asignarles torre ni máquina; puede repetirse sin duplicar
+registros. El filtro **Planta** permite verlas por separado. Cada solicitud muestra
+**Completar / corregir datos** mientras esté pendiente para llenar beneficios,
+observaciones y otros datos que faltaban en el libro.
+
+La carga requiere la migración 010 y que exista la planta `Santa Fe` (migración
+007). Conserva el nombre original `Equipo HACCP` y la fecha y hora de cada hoja;
+la cuenta administradora que ejecuta la carga queda registrada como usuario del
+sistema. No se inventan torre, máquina, prioridad, ejecución ni firmas.
+
 Actualización 16/09/2026: ver `PRIORIZACION_NIC.md`. El solicitante registra
 beneficios y preevaluación NIC; la verificación técnica pertenece a Mantenimiento.
 La ejecución requiere validación oficial y programación. La impresión utiliza

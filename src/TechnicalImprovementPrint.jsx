@@ -8,7 +8,7 @@ export default function TechnicalImprovementPrint({row}){
   const block=(title,text)=><section className="improvement-print-block"><h3>{title}</h3><p style={{whiteSpace:'pre-wrap'}}>{text||'Pendiente'}</p></section>
   return createPortal(<article className="request-print improvement-print">
     <header><img src="/maintenance-request-logo.png" alt="AVIPAZ" width="100"/><h1>SOLICITUD Y ORDEN DE TRABAJO DE MEJORA TÉCNICA</h1><p>CÓDIGO: MT/02-08 · VERSIÓN: 00 · Solicitud #{row.id}</p></header>
-    <p>NOMBRE DEL SOLICITANTE: {row.requester_name} · FECHA / HORA: {stamp(row.requested_at)}</p>
+    <p>NOMBRE DEL SOLICITANTE: {r.source_requester||row.requester_name} · FECHA / HORA: {stamp(row.requested_at)}</p>
     <p>ÁREA SOLICITANTE: {r.requesting_area} · CÓDIGO: {r.machine_code}</p><p>EQUIPO / SISTEMA / ÁREA: {r.target_area||r.machine_name}</p>
     {block('SITUACIÓN ACTUAL / PROBLEMA IDENTIFICADO',r.description)}
     {block('PROPUESTA DE MEJORA',r.improvement_proposal)}

@@ -71,8 +71,10 @@ class RequestWrite(StrictModel):
 
     @model_validator(mode='after')
     def validate_request(self):
-        if (self.plant_id is None) != (self.tower_id is None):
-            raise ValueError("Selecciona planta y torre juntas")
+        if self.tower_id is not None and self.plant_id is None:
+            raise ValueError("Selecciona la planta de la torre")
+        if self.maintenance_type != 'MEJORA_TECNICA' and self.plant_id is not None and self.tower_id is None:
+            raise ValueError("Selecciona una torre")
         if len({p.spare_part_id for p in self.requested_parts}) != len(self.requested_parts):
             raise ValueError('Agrupa la cantidad de cada repuesto previsto en una sola fila')
         if self.requested_parts and self.requested_part_id is not None:
@@ -165,6 +167,28 @@ class ReceiptWrite(StrictModel):
     def default_receipt_notes(self):
         self.notes = self.notes or 'Entrega conforme'
         return self
+
+
+class ImportedImprovement(StrictModel):
+    source_key: str = Field(pattern=r'^SANTAFE-HACCP-2026-\d{2}$')
+    source_sheet: str
+    source_requester: str
+    requested_at: datetime
+    requesting_area: str = Field(min_length=1, max_length=150)
+    target_area: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=1000)
+    improvement_proposal: str = Field(min_length=1, max_length=2000)
+    technical_evaluation: TechnicalEvaluation
+
+
+class ImprovementUpdate(StrictModel):
+    requesting_area: str = Field(min_length=1, max_length=150)
+    target_area: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=1000)
+    improvement_proposal: str = Field(min_length=1, max_length=2000)
+    technical_evaluation: TechnicalEvaluation
+    benefits: list[Literal['SEGURIDAD', 'PRODUCCION', 'CALIDAD', 'AMBIENTE', 'ERGONOMIA', 'COSTOS', 'CONFIABILIDAD', 'LEGAL']] = Field(default_factory=list)
+    benefit_notes: str = Field(default='', max_length=1000)
 
 
 class OperatingPeriodWrite(StrictModel):
@@ -334,6 +358,48 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
 
     register_priority(app, write, locked, admin_user, local_now)
 
+    @app.post('/solicitudes-mantenimiento/importar-santafe-haccp')
+    def import_santafe_haccp(items: list[ImportedImprovement], usuario_id: int = Depends(admin_user)):
+        if len(items) != 29 or len({item.source_key for item in items}) != 29:
+            raise HTTPException(422, 'Se esperan las 29 hojas únicas del archivo HACCP')
+        def operation(cursor):
+            plant = cursor.execute("SELECT PlantId, Name FROM dbo.Plants WITH (HOLDLOCK) WHERE Name=N'Santa Fe'").fetchone()
+            if not plant:
+                raise HTTPException(422, 'Primero registra la planta Santa Fe')
+            existing = cursor.execute("SELECT RequestData FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestData LIKE '%SANTAFE-HACCP-2026-%'").fetchall()
+            keys = {json.loads(row[0]).get('source_key') for row in existing}
+            created = 0
+            for item in items:
+                if item.source_key in keys:
+                    continue
+                data = item.model_dump(mode='json')
+                data.update(plant_id=plant[0], plant_name=plant[1], tower_id=None, tower_name=None,
+                            machine_id=None, machine_code='N/A', machine_name=item.target_area,
+                            area=item.target_area, maintenance_type='MEJORA_TECNICA',
+                            detected_at=item.requested_at.isoformat(), failure=False,
+                            equipment_stopped=False, benefits=[], benefit_notes='',
+                            requested_parts=[], preevaluation=None)
+                cursor.execute('INSERT INTO dbo.MaintenanceRequests (MachineId,RequestedBy,RequestedAt,RequestData) VALUES (NULL,?,?,?)',
+                               usuario_id, item.requested_at, json.dumps(data, ensure_ascii=False))
+                created += 1
+            return {'created': created, 'existing': len(items)-created}
+        return write(operation)
+
+    @app.put('/solicitudes-mantenimiento/{request_id}/mejora')
+    def update_improvement(request_id: int, data: ImprovementUpdate, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            row = locked(cursor, request_id)
+            payload = json.loads(row[3])
+            if row[2] != 'PENDIENTE' or payload.get('maintenance_type') != 'MEJORA_TECNICA':
+                raise HTTPException(409, 'Solo se puede completar una mejora técnica pendiente')
+            payload.update(data.model_dump(mode='json'))
+            payload['machine_name'] = payload['target_area']
+            payload['area'] = payload['target_area']
+            cursor.execute('UPDATE dbo.MaintenanceRequests SET RequestData=? WHERE RequestId=?',
+                           json.dumps(payload, ensure_ascii=False), request_id)
+            return {'id': request_id}
+        return write(operation)
+
     @app.post('/solicitudes-mantenimiento', status_code=201)
     def create_request(data: RequestWrite, usuario_id: int = Depends(active_user)):
         def operation(cursor):
@@ -350,6 +416,12 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     raise HTTPException(422, 'La torre no pertenece a la planta seleccionada')
                 if data.machine_id is not None and not cursor.execute('SELECT MachineId FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=? AND TowerId=?', data.machine_id, data.tower_id).fetchone():
                     raise HTTPException(422, 'La maquina no pertenece a la torre seleccionada')
+            elif data.plant_id is not None:
+                location = cursor.execute('SELECT Name, NULL FROM dbo.Plants WITH (HOLDLOCK) WHERE PlantId=?', data.plant_id).fetchone()
+                if not location:
+                    raise HTTPException(422, 'La planta seleccionada no existe')
+                if data.machine_id is not None:
+                    raise HTTPException(422, 'Selecciona la torre de la máquina')
             payload = data.model_dump(mode='json')
             if location:
                 payload.update(plant_name=location[0], tower_name=location[1])

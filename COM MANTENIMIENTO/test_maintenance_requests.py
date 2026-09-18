@@ -34,7 +34,17 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar')) else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar','/mejora','/importar-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
+
+    def test_improvement_can_target_plant_without_tower(self):
+        data = mod.RequestWrite(plant_id=1, maintenance_type='MEJORA_TECNICA', description='Adecuar área',
+                                requesting_area='Calidad', target_area='Bodega', improvement_proposal='Pintar',
+                                benefits=['CALIDAD'])
+        self.cursor.execute.return_value.fetchone.side_effect = [('OPERADOR',), ('Santa Fe', None), (12,)]
+        self.endpoint('')(data, usuario_id=1)
+        saved = json.loads(self.cursor.execute.call_args.args[4])
+        self.assertEqual(saved['plant_name'], 'Santa Fe')
+        self.assertIsNone(saved['tower_id'])
 
     def test_request_location_snapshot(self):
         data = mod.RequestWrite(machine_id=3, plant_id=1, tower_id=2, maintenance_type='CORRECTIVO', description='Revisar')
