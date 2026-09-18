@@ -1,5 +1,6 @@
 import ImageAttachment from './ImageAttachment'
-import { useEffect, useState } from 'react'
+import { imageToDataUrl } from './imageUpload'
+import { useEffect, useRef, useState } from 'react'
 import { normalizeName } from './nameSearch'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
 import MotorSpecifications from './MotorSpecifications'
@@ -82,12 +83,7 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
     try {
       if (photo) {
         if (photo.size > 10 * 1024 * 1024) throw new Error('La imagen no puede superar 10 MB.')
-        payload.image_data = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
-          reader.onerror = () => reject(new Error('No se pudo leer la imagen.'))
-          reader.readAsDataURL(photo)
-        })
+        payload.image_data = await imageToDataUrl(photo)
       }
       const response = await fetch(`${apiUrl}/elementos-maquinas${editing ? `/${editing.element_id}` : ''}`, {
         method: editing ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -149,15 +145,29 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
 
 function ElementImage({ apiUrl, token, item, large = false }) {
   const [src, setSrc] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const [visible, setVisible] = useState(large)
+  const placeholder = useRef(null)
   useEffect(() => {
+    if (visible) return
+    if (!('IntersectionObserver' in window)) { setVisible(true); return }
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) { setVisible(true); observer.disconnect() }
+    }, { rootMargin: '200px' })
+    if (placeholder.current) observer.observe(placeholder.current)
+    return () => observer.disconnect()
+  }, [visible])
+  useEffect(() => {
+    if (!visible) return
     const controller = new AbortController()
     let url
     setSrc(null)
+    setFailed(false)
     fetch(`${apiUrl}/elementos-maquinas/${item.element_id}/imagen`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
       .then((response) => { if (!response.ok) throw new Error(); return response.blob() })
       .then((blob) => { if (!controller.signal.aborted) { url = URL.createObjectURL(blob); setSrc(url) } })
-      .catch(() => {})
+      .catch((error) => { if (error.name !== 'AbortError') setFailed(true) })
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
-  }, [apiUrl, token, item.element_id, item.image_path])
-  return src ? <img src={src} className={large ? 'nameplate-large' : 'nameplate-thumb'} alt={`Foto de ${item.name}`} /> : <span className="no-image">Imagen no disponible</span>
+  }, [apiUrl, token, item.element_id, item.image_path, visible])
+  return src ? <img src={src} loading="lazy" className={large ? 'nameplate-large' : 'nameplate-thumb'} alt={`Foto de ${item.name}`} /> : <span ref={placeholder} className="no-image" role="status">{failed ? 'Imagen no disponible' : visible ? 'Cargando foto…' : 'Foto pendiente'}</span>
 }

@@ -1,4 +1,5 @@
 import ImageAttachment from './ImageAttachment'
+import { imageToDataUrl } from './imageUpload'
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
@@ -24,6 +25,7 @@ export default function MotorSpecifications({ apiUrl, token, element, isAdmin, o
   const [photo, setPhoto] = useState(null)
   const [preview, setPreview] = useState(null)
   const [storedImage, setStoredImage] = useState(null)
+  const [imageFailed, setImageFailed] = useState(false)
   const [version, setVersion] = useState(0)
   const endpoint = `${apiUrl}/elementos-maquinas/${element.element_id}/especificaciones-motor`
 
@@ -49,13 +51,14 @@ export default function MotorSpecifications({ apiUrl, token, element, isAdmin, o
 
   useEffect(() => {
     setStoredImage(null)
+    setImageFailed(false)
     if (!data?.nameplate_image_path) return
     const controller = new AbortController()
     let url
     fetch(`${endpoint}/placa`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
       .then((response) => { if (!response.ok) throw new Error(); return response.blob() })
       .then((blob) => { if (!controller.signal.aborted) { url = URL.createObjectURL(blob); setStoredImage(url) } })
-      .catch(() => {})
+      .catch((error) => { if (error.name !== 'AbortError') setImageFailed(true) })
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
   }, [endpoint, token, data?.nameplate_image_path])
 
@@ -68,12 +71,7 @@ export default function MotorSpecifications({ apiUrl, token, element, isAdmin, o
     try {
       if (photo) {
         if (photo.size > 10 * 1024 * 1024) throw new Error('La imagen no puede superar 10 MB.')
-        payload.image_data = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
-          reader.onerror = () => reject(new Error('No se pudo leer la imagen.'))
-          reader.readAsDataURL(photo)
-        })
+        payload.image_data = await imageToDataUrl(photo)
       }
       const response = await fetch(endpoint, { method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const result = await response.json().catch(() => ({}))
@@ -101,7 +99,7 @@ export default function MotorSpecifications({ apiUrl, token, element, isAdmin, o
         {textFields.map(([name, label, maxLength]) => <label key={name}>{label}<input name={name} maxLength={maxLength} defaultValue={data?.[name] ?? ''} readOnly={!isAdmin} /></label>)}
         {isAdmin && <ImageAttachment label="Foto de la placa" onChange={(event) => setPhoto(event.target.files[0] || null)} help="JPG, PNG o WEBP. Máximo 10 MB. La foto actual se conserva si no seleccionas otra." />}
         {(preview || storedImage) && <div className="full-field nameplate-preview"><img src={preview || storedImage} alt={`Placa de ${element.name}`} /></div>}
-        {data?.nameplate_image_path && !storedImage && !preview && <p className="full-field field-help">La data tiene una foto guardada, pero la vista previa no está disponible.</p>}
+        {data?.nameplate_image_path && !storedImage && !preview && <p className="full-field field-help" role="status">{imageFailed ? 'La foto de la placa no está disponible.' : 'Cargando foto de la placa…'}</p>}
         <label className="full-field">Notas<textarea name="notes" maxLength={500} rows={3} defaultValue={data?.notes ?? ''} readOnly={!isAdmin} /></label>
       </div>{isAdmin && <div className="modal-actions">{data && <button type="button" className="secondary-action" disabled={busy} onClick={remove}>Eliminar data</button>}<button className="primary-action" disabled={busy}>{busy ? 'Procesando...' : 'Guardar data'}</button></div>}</form>}
     </>}

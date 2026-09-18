@@ -1,4 +1,5 @@
 import ImageAttachment from './ImageAttachment'
+import { imageToDataUrl } from './imageUpload'
 import { useEffect, useState } from 'react'
 import { normalizeName } from './nameSearch'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
@@ -32,6 +33,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [photo, setPhoto] = useState(null)
+  const [saveStage, setSaveStage] = useState('')
   const [preview, setPreview] = useState(null)
 
   useEffect(() => {
@@ -79,13 +81,10 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
     try {
       if (photo) {
         if (photo.size > 10 * 1024 * 1024) throw new Error('La imagen no puede superar 10 MB.')
-        payload.image_data = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result)
-          reader.onerror = () => reject(new Error('No se pudo leer la imagen.'))
-          reader.readAsDataURL(photo)
-        })
+        setSaveStage('Comprimiendo foto…')
+        payload.image_data = await imageToDataUrl(photo)
       }
+      setSaveStage('Guardando máquina…')
       const response = await fetch(`${apiUrl}/maquinas${editing ? `/${editing.machine_id}` : ''}`, {
         method: editing ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -96,7 +95,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
       setShowForm(false)
       setPhoto(null)
       setMessage(`Máquina ${data.asset_code} guardada correctamente.`)
-    } catch (error) { setError(error.message) } finally { setSaving(false) }
+    } catch (error) { setError(error.message) } finally { setSaving(false); setSaveStage('') }
   }
 
   function closeForm() { if (!saving) { setShowForm(false); setPhoto(null) } }
@@ -154,7 +153,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
         {editing?.machine_image_path && !photo && <p className="full-field field-help">Esta máquina tiene una foto guardada. Se conservará si no seleccionas otra.</p>}
         {preview && <div className="full-field nameplate-preview"><img src={preview} alt="Vista previa de la máquina" /></div>}
         <label className="full-field">Notas<textarea name="notes" defaultValue={editing?.notes || ''} rows={3} /></label>
-      </div>{error && <p role="alert" className="admin-message">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={closeForm} disabled={saving}>Cancelar</button><button className="primary-action" disabled={saving || !structureReady}>{saving ? 'Guardando...' : 'Guardar máquina'}</button></div></form>
+      </div>{error && <p role="alert" className="admin-message">{error}</p>}{saving && <p role="status" className="admin-message">{saveStage || 'Preparando…'}</p>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={closeForm} disabled={saving}>Cancelar</button><button className="primary-action" disabled={saving || !structureReady}>{saving ? 'Guardando...' : 'Guardar máquina'}</button></div></form>
     </div></div>}
   </>
 }

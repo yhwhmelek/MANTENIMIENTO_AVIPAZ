@@ -1,5 +1,6 @@
 import ImageAttachment from './ImageAttachment'
-import { useEffect, useState } from 'react'
+import { imageToDataUrl } from './imageUpload'
+import { useEffect, useRef, useState } from 'react'
 import Machines from './Machines'
 import PlantStructure from './PlantStructure'
 import StockAlerts from './StockAlerts'
@@ -160,7 +161,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
     const imageFile = form.get('image')
     if (imageFile?.size) {
       if (imageFile.size > 10 * 1024 * 1024) return setMessage('La imagen no puede superar 10 MB.')
-      payload.image_data = await readFileAsDataUrl(imageFile)
+      payload.image_data = await imageToDataUrl(imageFile)
     }
     setLoading(true)
     try {
@@ -488,26 +489,32 @@ function Field({ label, name, value, type = 'text', ...props }) {
   return <label>{label}<input name={name} type={type} defaultValue={value ?? ''} {...props} /></label>
 }
 
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = () => reject(new Error('No se pudo leer la imagen.'))
-    reader.readAsDataURL(file)
-  })
-}
-
 function SparePartImage({ apiUrl, token, sparePartId, fileName, large = false }) {
   const [src, setSrc] = useState(null)
   const [mimeType, setMimeType] = useState('image/jpeg')
+  const [failed, setFailed] = useState(false)
+  const [visible, setVisible] = useState(large)
+  const placeholder = useRef(null)
   useEffect(() => {
+    if (visible) return
+    if (!('IntersectionObserver' in window)) { setVisible(true); return }
+    const observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) { setVisible(true); observer.disconnect() }
+    }, { rootMargin: '200px' })
+    if (placeholder.current) observer.observe(placeholder.current)
+    return () => observer.disconnect()
+  }, [visible])
+  useEffect(() => {
+    if (!visible) return
     let objectUrl
+    setSrc(null)
+    setFailed(false)
     fetch(`${apiUrl}/repuestos/${sparePartId}/imagen`, { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => { if (!response.ok) throw new Error(); return response.blob() })
       .then((blob) => { objectUrl = URL.createObjectURL(blob); setMimeType(blob.type); setSrc(objectUrl) })
-      .catch(() => setSrc(null))
+      .catch(() => setFailed(true))
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
-  }, [apiUrl, token, sparePartId])
+  }, [apiUrl, token, sparePartId, visible])
 
   function downloadImage() {
     if (!window.confirm(`¿Quieres descargar la imagen del repuesto ${fileName}?`)) return
@@ -520,5 +527,5 @@ function SparePartImage({ apiUrl, token, sparePartId, fileName, large = false })
     link.remove()
   }
 
-  return src ? <button className="nameplate-download" type="button" onClick={downloadImage} title="Haz clic para descargar la imagen"><img className={large ? 'nameplate-large' : 'nameplate-thumb'} src={src} alt={`Repuesto ${fileName}`} /></button> : <span className="no-image">Cargando...</span>
+  return src ? <button className="nameplate-download" type="button" onClick={downloadImage} title="Haz clic para descargar la imagen"><img loading="lazy" className={large ? 'nameplate-large' : 'nameplate-thumb'} src={src} alt={`Repuesto ${fileName}`} /></button> : <span ref={placeholder} className="no-image" role="status">{failed ? 'Imagen no disponible' : visible ? 'Cargando foto…' : 'Foto pendiente'}</span>
 }

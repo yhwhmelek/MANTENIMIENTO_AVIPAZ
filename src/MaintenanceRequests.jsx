@@ -4,6 +4,7 @@ import PrioritizedActivities from './PrioritizedActivities'
 import PrioritizedRequestPrint from './PrioritizedRequestPrint'
 import TechnicalImprovementFields, {evaluationFields} from './TechnicalImprovementFields'
 import ImageAttachment from './ImageAttachment'
+import { imageToDataUrl } from './imageUpload'
 import santafeHaccp from './santafe-haccp-2026.json'
 import { useEffect, useRef, useState } from 'react'
 import { Bell, X } from 'lucide-react'
@@ -25,6 +26,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [showPeriods,setShowPeriods] = useState(false)
   const [photo,setPhoto] = useState(null), [imageUrls,setImageUrls] = useState([])
+  const [uploadStage,setUploadStage] = useState('')
+  const [photosLoaded,setPhotosLoaded] = useState(0)
   const [showBacklog,setShowBacklog]=useState(true)
   const dialog=useRef(null), submitting=useRef(false)
   const detail=useRef(null)
@@ -73,14 +76,28 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const row=rows.find(r=>r.id===selected)
   const photoPaths=row?.request_data.image_paths?.length?row.request_data.image_paths:row?.request_data.image_path?[row.request_data.image_path]:[]
   useEffect(()=>{
-    if(!open||!photoPaths.length){setImageUrls([]);return}
+    if(!open||!photoPaths.length){setImageUrls([]);setPhotosLoaded(0);return}
     const controller=new AbortController()
-    let urls=[]
-    Promise.all(photoPaths.map((_,index)=>fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/imagenes/${index}`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
-      .then(response=>{if(!response.ok)throw new Error('Foto no disponible');return response.blob()})
-      .then(blob=>URL.createObjectURL(blob)).catch(()=>null)))
-      .then(results=>{urls=results.filter(Boolean);if(!controller.signal.aborted)setImageUrls(urls);else urls.forEach(url=>URL.revokeObjectURL(url))})
-    return()=>{controller.abort();urls.forEach(url=>URL.revokeObjectURL(url));setImageUrls([])}
+    const urls=Array(photoPaths.length).fill(null)
+    let next=0, completed=0
+    setImageUrls([...urls]);setPhotosLoaded(0)
+    async function worker(){
+      while(next<urls.length&&!controller.signal.aborted){
+        const index=next++
+        try{
+          const response=await fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/imagenes/${index}`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
+          if(!response.ok)throw new Error('Foto no disponible')
+          const blob=await response.blob()
+          if(controller.signal.aborted)break
+          urls[index]=URL.createObjectURL(blob)
+          setImageUrls([...urls])
+        }catch(error){if(error.name==='AbortError')break}
+        completed++
+        setPhotosLoaded(completed)
+      }
+    }
+    Array.from({length:Math.min(4,urls.length)},()=>worker())
+    return()=>{controller.abort();urls.filter(Boolean).forEach(url=>URL.revokeObjectURL(url))}
   },[open,row?.id,photoPaths.join('|'),apiUrl,token])
   const favorable=row?.request_data.maintenance_type!=='MEJORA_TECNICA'||['PROCEDE','CON_MODIFICACIONES'].includes(row?.request_data.priority_validation?.technical_review?.feasibility)
   const executionBlock=!row?null:!row.priority?'Falta guardar la evaluación oficial de Mantenimiento. Abre «Validar prioridad y evaluar».':!favorable?'La mejora necesita viabilidad «Procede» o «Procede con modificaciones». Revisa la evaluación técnica.':!row.request_data.planning?'Falta guardar la programación. Abre «Programar actividad».':row.request_data.planning.condition!=='LISTA'?'La programación está en espera. Abre «Programar actividad», revisa los pendientes, selecciona «Lista para ejecutar» y guarda.':null
@@ -152,8 +169,9 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     if(mode==='receive' && !window.confirm('Al aceptar, confirmas que recibiste el trabajo y estás conforme con la entrega. Si no ingresaste observaciones, se registrará «Entrega conforme». ¿Deseas aceptar?'))return
     if((mode==='new'||mode==='edit')&&photo){
       if(!['image/jpeg','image/png','image/webp'].includes(photo.type)||photo.size>10*1024*1024){setFormError('La foto debe ser JPG, PNG o WEBP y no superar 10 MB');return}
-      try{payload.image_data=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('No se pudo leer la foto'));reader.readAsDataURL(photo)})}
+      try{setBusy(true);setUploadStage('Comprimiendo foto…');payload.image_data=await imageToDataUrl(photo)}
       catch(err){setFormError(err.message);return}
+      finally{setBusy(false);setUploadStage('')}
     }
     if(mode==='new'){
       for(const key of ['machine_id','plant_id','tower_id'])payload[key]=Number(payload[key])||null
@@ -183,14 +201,14 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       <button className="secondary-action" disabled={busy||!!form} onClick={()=>setShowPeriods(v=>!v)}>{showPeriods?'Volver a solicitudes':'Datos de operación para indicadores'}</button>
       {showPeriods ? <OperatingPeriods request={request} machines={machines} canCreate={canCreate&&catalogReady}/> : <>
       <div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}{isAdmin&&<button className="secondary-action" disabled={busy||!catalogReady} onClick={importSantafe}>Cargar 29 mejoras HACCP · Santa Fe</button>}{isAdmin&&<button className="secondary-action" disabled={busy} onClick={importSantafePhotos}>Añadir fotos del Excel HACCP · Santa Fe</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button><label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>{!showBacklog&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}</div>
-      {error&&<p role="alert">{error}</p>}{formError&&<p role="alert">{formError}</p>}
+      {error&&<p role="alert">{error}</p>}{formError&&<p role="alert">{formError}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
       {!loaded&&!error&&<p>Cargando solicitudes…</p>}
       {!form&&!row&&<button type="button" className="secondary-action" onClick={()=>setShowBacklog(v=>!v)}>{showBacklog?'Ver todas las solicitudes / cerradas':'Ver actividades priorizadas'}</button>}
       {!form&&!row&&showBacklog&&<PrioritizedActivities rows={rows.filter(r=>!filter||r.status===filter)} plants={plants} towers={towers} plantFilter={plantFilter} setPlantFilter={setPlantFilter} statusFilter={filter} apiUrl={apiUrl} token={token} busy={busy} canEdit={canCreate&&catalogReady} onOpen={id=>{setSelected(id);setFormError('')}} onEdit={editRequest}/>}
       {!form&&!row&&!showBacklog&&<div className="table-scroll"><table className="maintenance-requests-table"><thead><tr><th>Acción</th><th>Solicitud</th><th>Equipo / daño</th><th>Solicitante</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>{rows.filter(r=>(!filter||r.status===filter)&&(!plantFilter||String(r.request_data.plant_id)===plantFilter)).map(r=><tr key={r.id}><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button>{r.request_data.maintenance_type==='MEJORA_TECNICA'&&<button type='button' className='secondary-action' disabled={busy||!canCreate||!catalogReady||r.status!=='PENDIENTE'} title={!canCreate?'Solo operadores y administradores pueden modificar':r.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>editRequest(r.id)}>Modificar</button>}</td><td>#{r.id}<br/>{time(r.requested_at)}<br/>{r.request_data.maintenance_type==='MEJORA_TECNICA'?'Mejora técnica':r.request_data.maintenance_type}</td><td>{r.request_data.machine_code}<br/>{[r.request_data.plant_name,r.request_data.tower_name].filter(Boolean).join(' / ')}<br/>{r.request_data.description.slice(0,80)}</td><td>{r.request_data.source_requester||r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
       {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button>{row.request_data.maintenance_type==='MEJORA_TECNICA'&&<button type='button' className='primary-action' disabled={busy||!canCreate||!catalogReady||row.status!=='PENDIENTE'} title={!canCreate?'Solo operadores y administradores pueden modificar':row.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>editRequest(row.id)}>Modificar solicitud</button>}<h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}.</p><p>Planificado: {time(row.request_data.planning?.starts_at)} a {time(row.request_data.planning?.ends_at)}. Parada: {time(row.request_data.stopped_at)}.</p>
         <p>Solicitante: {row.request_data.source_requester||row.requester_name} · Planta: {row.request_data.plant_name||'No registrada'} · Torre: {row.request_data.tower_name||'No registrada'}</p>
-        {!!imageUrls.length&&<div className="full-field"><p>Fotos de la solicitud ({imageUrls.length})</p><div className="request-photo-gallery">{imageUrls.map((url,index)=><a key={url} href={url} target="_blank" rel="noreferrer"><img src={url} alt={`Foto ${index+1} de la solicitud ${row.id}`}/></a>)}</div></div>}
+        {!!photoPaths.length&&<div className="full-field"><p>Fotos de la solicitud ({photoPaths.length})</p>{photosLoaded<photoPaths.length&&<p role="status">Cargando fotos… {photosLoaded} de {photoPaths.length}</p>}<div className="request-photo-gallery">{imageUrls.map((url,index)=>url?<a key={index} href={url} target="_blank" rel="noreferrer"><img loading="lazy" src={url} alt={`Foto ${index+1} de la solicitud ${row.id}`}/></a>:null)}</div>{photosLoaded===photoPaths.length&&!imageUrls.some(Boolean)&&<p>Fotos no disponibles.</p>}</div>}
         <PriorityWorkflow key={row.id} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
         {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}

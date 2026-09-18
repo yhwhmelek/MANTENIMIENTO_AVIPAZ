@@ -1,10 +1,12 @@
 import ImageAttachment from './ImageAttachment'
+import { imageToDataUrl } from './imageUpload'
 import {useEffect, useState} from 'react'
 
 export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revision,onEdit,editingBusy}){
   const [rows,setRows]=useState([]),[selected,setSelected]=useState(null),[receipt,setReceipt]=useState(null)
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[refresh,setRefresh]=useState(0)
   const [invoice,setInvoice]=useState(null),[pendingOnly,setPendingOnly]=useState(isAdmin)
+  const [uploadStage,setUploadStage]=useState('')
   const visibleRows=pendingOnly?rows.filter(row=>row.status==='PENDIENTE'):rows
   const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'}
   useEffect(()=>{
@@ -36,29 +38,32 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
       let attachment=null
       if(invoice){
         if(invoice.size>10*1024*1024||!invoice.size)throw new Error('La factura debe tener contenido y pesar como máximo 10 MB.')
-        const content=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(new Error('No se pudo leer la factura.'));reader.readAsDataURL(invoice)})
-        attachment={filename:invoice.name,content_base64:content}
+        setUploadStage(invoice.type==='application/pdf'?'Leyendo PDF…':'Comprimiendo foto de la factura…')
+        const dataUrl=await imageToDataUrl(invoice)
+        const filename=dataUrl.startsWith('data:image/webp,')||dataUrl.startsWith('data:image/webp;') ? invoice.name.replace(/\.[^.]+$/, '')+'.webp' : invoice.name
+        attachment={filename,content_base64:dataUrl.split(',')[1]}
       }
+      setUploadStage('Guardando recepción…')
       const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,invoice:attachment})})
       const data=await r.json();if(!r.ok)throw new Error(typeof data.detail==='string'?data.detail:'Revisa cantidades, precios y datos de compra.')
       setSelected(null);setRefresh(v=>v+1)
       window.dispatchEvent(new Event('requisitions-updated'));window.dispatchEvent(new Event('stock-updated'))
-    }catch(e){setError(e.message)}finally{setBusy(false)}
+    }catch(e){setError(e.message)}finally{setBusy(false);setUploadStage('')}
   }
   async function downloadInvoice(){
-    setBusy(true);setError('')
+    setBusy(true);setError('');setUploadStage('Descargando factura…')
     try{
       const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/factura`,{headers})
       if(!r.ok)throw new Error('No se pudo descargar la factura.')
       const url=URL.createObjectURL(await r.blob()),a=document.createElement('a')
       a.href=url;a.download=selected.receipt.invoice.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)
-    }catch(e){setError(e.message)}finally{setBusy(false)}
+    }catch(e){setError(e.message)}finally{setBusy(false);setUploadStage('')}
   }
   function change(key,value){setReceipt(r=>({...r,[key]:value}))}
   function itemChange(index,key,value){setReceipt(r=>({...r,items:r.items.map((i,n)=>n===index?{...i,[key]:value}:i)}))}
   return <section className="request-detail"><h2>Requisiciones guardadas</h2><button type="button" disabled={busy} onClick={()=>setRefresh(v=>v+1)}>Actualizar historial</button>
     <label className="checkbox-field"><input type="checkbox" checked={pendingOnly} onChange={e=>setPendingOnly(e.target.checked)}/> Mostrar solo pendientes de llegada ({rows.filter(row=>row.status==='PENDIENTE').length})</label>
-    {error&&<p role="alert">{error}</p>}
+    {error&&<p role="alert">{error}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
     <div className="table-scroll"><table><thead><tr><th>Número</th><th>Fecha</th><th>Solicitante</th><th>Proveedor</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleRows.map(row=><tr key={row.id}><td>#{row.id}</td><td>{row.requisition.requested_on}</td><td>{row.requisition.requester}</td><td>{row.requisition.supplier||'Por definir'}</td><td>{row.status==='RECIBIDA'?'Recibida':'Pendiente de recepción'}</td><td>{isAdmin&&<button disabled={busy||editingBusy} onClick={()=>{setSelected(null);onEdit(row)}}>Editar</button>} <button disabled={busy} onClick={()=>open(row)}>Ver detalle</button> <button disabled={busy} onClick={()=>excel(row)}>Excel</button></td></tr>)}</tbody></table></div>
     {!visibleRows.length&&!error&&<p>{pendingOnly?'No hay requisiciones pendientes de llegada.':'No hay requisiciones guardadas.'}</p>}
     {selected&&<section className="request-detail"><h3>Requisición #{selected.id}</h3><p>{selected.requisition.department} · {selected.requisition.requester} · Entrega: {selected.requisition.urgent?'Urgente':selected.requisition.delivery_on}</p><p>Máquinas: {selected.requisition.machine_codes||'No aplica'}</p><p>{selected.requisition.observations}</p>
