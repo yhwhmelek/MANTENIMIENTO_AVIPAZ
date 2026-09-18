@@ -409,7 +409,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     return []
                 cursor.execute("SELECT Id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios")
                 names = {user_id: name for user_id, name in cursor.fetchall()}
-                return [decode(row, names) for row in rows]
+                return sorted((decode(row, names) for row in rows), key=backlog_key)
         except (pyodbc.Error, RuntimeError):
             raise HTTPException(503, 'No se pudieron consultar las solicitudes. Verifica las migraciones 005 y 006.')
 
