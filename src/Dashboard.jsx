@@ -129,6 +129,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   }
 
   function openSparePartForm(sparePart = null) {
+    if (!isAdmin) return
     setEditingSparePart(sparePart)
     setSparePartImagePreview(null)
     setShowSparePartForm(true)
@@ -137,6 +138,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
 
   async function saveSparePart(event) {
     event.preventDefault()
+    if (!isAdmin) return
     const form = new FormData(event.currentTarget)
     const minimumStock = Number(form.get('minimum_stock'))
     const maximumStock = form.get('maximum_stock') === '' ? null : Number(form.get('maximum_stock'))
@@ -412,7 +414,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         {isAdmin && <button aria-current={section === 'categories' ? 'page' : undefined} onClick={() => setSection('categories')}>Categorías</button>}
       </nav>}
       {section === 'plant-structure' ? <PlantStructure apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'requisitions' ? <PurchaseRequisition apiUrl={apiUrl} token={token} currentUser={currentUser} /> : ['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} /> : section === 'spare-parts' ? <>
-        <div className="page-heading"><div><p className="eyebrow">INVENTARIO</p><h1>Repuestos</h1><p>Catalogo, existencias y costos de repuestos.</p></div><button className="primary-action" onClick={() => openSparePartForm()}><Plus size={18} /> Nuevo repuesto</button></div>
+        <div className="page-heading"><div><p className="eyebrow">INVENTARIO</p><h1>Repuestos</h1><p>Catalogo, existencias y costos de repuestos.</p></div>{isAdmin && <button className="primary-action" onClick={() => openSparePartForm()}><Plus size={18} /> Nuevo repuesto</button>}</div>
         <p>Stock de bodega: saldo inicial m?s compras menos consumos posteriores al corte, excluyendo anulados. Se actualiza cada 30 segundos.</p>{stockError && <p role="alert">{stockError}</p>}
         <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Categoria</th><th>Descripcion</th><th>Marca / Modelo</th><th>N.° parte</th><th>Unidad</th><th>Stock de bodega</th><th>Stock min. / max.</th><th>Costo unit.</th><th>Ubicacion</th><th>Estado</th><th>Imagen</th></tr></thead>
           <tbody>{spareParts.map((part) => <tr key={part.spare_part_id}>{isAdmin && <td className="row-actions"><button title="Proveedores" onClick={() => openPartSuppliers(part)}><Truck size={16} /></button><button title="Saldo inicial de bodega" aria-label={`Saldo inicial de ${part.internal_code}`} onClick={() => setOpeningBalancePart(part)}><Package size={16} /></button><button title="Duplicar repuesto" aria-label={`Duplicar ${part.internal_code}`} disabled={duplicatingSparePart !== null} onClick={() => duplicateSparePart(part)}><Copy size={16} /></button><button title="Editar" onClick={() => openSparePartForm(part)}><Pencil size={16} /></button><button className="danger" title="Eliminar" onClick={() => deleteSparePart(part)}><Trash2 size={16} /></button></td>}<td><strong>{part.internal_code}</strong>{/--copy(?:-\d+)?$/i.test(part.internal_code) && <span className="status-badge inactive" title="Pendiente de asignar un código interno definitivo">Copia</span>}</td><td>{sparePartCategories.find((category) => category.category_id === part.category_id)?.name || part.category_id}</td><td>{part.description}</td><td>{[part.brand, part.model].filter(Boolean).join(' / ') || '—'}</td><td>{part.part_number || '—'}</td><td>{part.unit_of_measure}</td><td><strong>{stockError ? 'No disponible' : warehouseStock?.[part.spare_part_id] == null ? 'Consultando?' : Number(warehouseStock[part.spare_part_id]).toLocaleString('es-EC', { maximumFractionDigits: 2 })}</strong></td><td>{part.minimum_stock} / {part.maximum_stock ?? '—'}</td><td>{part.unit_cost != null ? `$${Number(part.unit_cost).toFixed(4)}` : '—'}</td><td>{part.storage_location || '—'}</td><td><span className={`status-badge ${part.active ? 'active' : 'inactive'}`}>{part.active ? 'Activo' : 'Inactivo'}</span></td><td>{part.image_path ? <SparePartImage apiUrl={apiUrl} token={token} sparePartId={part.spare_part_id} fileName={part.internal_code} /> : <span className="no-image">Sin foto</span>}</td></tr>)}</tbody></table>{!loading && !spareParts.length && <p className="empty-state">No hay repuestos registrados.</p>}</div>
@@ -430,7 +432,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       <p className="admin-message" role="status">{loading ? 'Cargando...' : message}</p>
     </section>
 
-    {showSparePartForm && <div className="modal-backdrop" role="presentation"><div className="motor-modal" role="dialog" aria-modal="true"><div className="modal-header"><div><p className="eyebrow">REPUESTO</p><h2>{editingSparePart ? 'Editar repuesto' : 'Nuevo repuesto'}</h2></div><button onClick={() => setShowSparePartForm(false)} aria-label="Cerrar"><X /></button></div>
+    {isAdmin && showSparePartForm && <div className="modal-backdrop" role="presentation"><div className="motor-modal" role="dialog" aria-modal="true"><div className="modal-header"><div><p className="eyebrow">REPUESTO</p><h2>{editingSparePart ? 'Editar repuesto' : 'Nuevo repuesto'}</h2></div><button onClick={() => setShowSparePartForm(false)} aria-label="Cerrar"><X /></button></div>
       <form onSubmit={saveSparePart}><div className="motor-form-grid">
         <Field name="internal_code" label="Codigo interno *" value={editingSparePart?.internal_code} maxLength="50" required />
         <label>Categoria *<select name="category_id" defaultValue={editingSparePart?.category_id ?? ''} required><option value="" disabled>Selecciona una categoria</option>{sparePartCategories.map((category) => <option key={category.category_id} value={category.category_id}>{category.name}</option>)}</select></label>

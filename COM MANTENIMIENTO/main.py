@@ -1348,7 +1348,7 @@ def listar_maquinas(usuario_id: int = Depends(obtener_usuario_activo)):
 
 
 @app.post("/maquinas", status_code=status.HTTP_201_CREATED)
-def crear_maquina(datos: MachineWrite, usuario_id: int = Depends(obtener_usuario_activo)):
+def crear_maquina(datos: MachineWrite, usuario_id: int = Depends(obtener_admin_actual)):
     image_path = None
     committed = False
     try:
@@ -1469,7 +1469,7 @@ def obtener_motor(motor_id: int, usuario_id: int = Depends(obtener_usuario_activ
 
 
 @app.post("/motores", response_model=MotorResponse, status_code=status.HTTP_201_CREATED)
-def crear_motor(datos: MotorWrite, usuario_id: int = Depends(obtener_usuario_activo)):
+def crear_motor(datos: MotorWrite, usuario_id: int = Depends(obtener_admin_actual)):
     valores = datos.model_dump(exclude={"nameplate_image_data"})
     valores["asset_code"] = valores["asset_code"].strip()
     valores["description"] = valores["description"].strip()
@@ -1760,7 +1760,7 @@ def obtener_repuesto(spare_part_id: int, usuario_id: int = Depends(obtener_usuar
 
 
 @app.post("/repuestos", response_model=SparePartResponse, status_code=status.HTTP_201_CREATED)
-def crear_repuesto(datos: SparePartWrite, usuario_id: int = Depends(obtener_usuario_activo)):
+def crear_repuesto(datos: SparePartWrite, usuario_id: int = Depends(obtener_admin_actual)):
     valores = datos.model_dump(exclude={"image_data"})
     valores["internal_code"] = valores["internal_code"].strip()
     valores["description"] = valores["description"].strip()

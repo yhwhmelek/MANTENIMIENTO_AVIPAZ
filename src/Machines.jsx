@@ -71,7 +71,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
 
   async function saveMachine(event) {
     event.preventDefault()
-    if (saving || !structureReady) return
+    if (!isAdmin || saving || !structureReady) return
     const form = new FormData(event.currentTarget)
     const payload = Object.fromEntries([...form.entries()].map(([key, value]) => [key, value.trim() || null]))
     payload.tower_id = selectedTower ? Number(selectedTower) : null
@@ -101,6 +101,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
   function closeForm() { if (!saving) { setShowForm(false); setPhoto(null) } }
 
   function openForm(machine = null) {
+    if (!isAdmin) return
     setSelectedPlant(machine?.plant_id ? String(machine.plant_id) : '')
     setSelectedTower(machine?.tower_id ? String(machine.tower_id) : '')
     setEditing(machine)
@@ -128,7 +129,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
 
   return <>
     {partsMachine && <MachineSpareParts key={partsMachine.machine_id} apiUrl={apiUrl} token={token} machine={partsMachine} isAdmin={isAdmin} onClose={() => setPartsMachine(null)} />}
-    <div className="page-heading"><div><p className="eyebrow">ACTIVOS</p><h1>Máquinas</h1><p>Inventario de máquinas y datos de operación.</p></div><button className="primary-action" onClick={() => openForm()}><Plus size={18} /> Nueva máquina</button></div>
+    <div className="page-heading"><div><p className="eyebrow">ACTIVOS</p><h1>Máquinas</h1><p>Inventario de máquinas y datos de operación.</p></div>{isAdmin && <button className="primary-action" onClick={() => openForm()}><Plus size={18} /> Nueva máquina</button>}</div>
     {structureError && <p role="alert">{structureError}</p>}
     <div className="motor-form-grid report-filters"><label>Planta<select value={plantFilter} onChange={e=>{setPlantFilter(e.target.value);setTowerFilter('')}}><option value="">Todas las plantas</option><option value="unassigned">Sin asignar</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label><label>Torre<select value={towerFilter} disabled={!plantFilter || plantFilter==='unassigned'} onChange={e=>setTowerFilter(e.target.value)}><option value="">Todas las torres</option>{towers.filter(t=>String(t.plant_id)===plantFilter).map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label></div>
     <div className="motor-form-grid report-filters"><label>Buscar máquina por nombre<input type="search" value={nameSearch} onChange={event => setNameSearch(event.target.value)} placeholder="Escribe parte del nombre…" /></label></div>
@@ -137,7 +138,7 @@ export default function Machines({ apiUrl, token, isAdmin, onHistory }) {
       <td><button className="secondary-action" onClick={() => onHistory(machine)}>Intervenciones</button></td><td><button className="secondary-action" onClick={() => setPartsMachine(machine)} aria-label={`Ver repuestos de ${machine.asset_code}`}>Ver repuestos</button></td><td><strong>{machine.asset_code}</strong></td><td>{machine.name}</td><td>{machine.plant_name || 'Sin asignar'}</td><td>{machine.tower_name || 'Sin asignar'}</td><td>{[machine.manufacturer, machine.model].filter(Boolean).join(' / ') || '—'}</td><td>{machine.serial_number || '—'}</td><td>{[machine.area, machine.production_line].filter(Boolean).join(' / ') || '—'}</td><td>{machine.location || '—'}</td><td>{machine.criticality || 'Sin definir'}</td><td>{statuses[machine.status] || machine.status}</td>
     </tr>)}</tbody></table>{!loading && !message && !machines.length && <p className="empty-state">No hay máquinas registradas.</p>}</div>
     <p className="admin-message" role="status">{loading ? 'Cargando máquinas...' : message}</p>
-    {showForm && <div className="modal-backdrop"><div className="motor-modal" role="dialog" aria-modal="true" aria-labelledby="machine-form-title">
+    {isAdmin && showForm && <div className="modal-backdrop"><div className="motor-modal" role="dialog" aria-modal="true" aria-labelledby="machine-form-title">
       <div className="modal-header"><h2 id="machine-form-title">{editing ? 'Editar máquina' : 'Nueva máquina'}</h2><button onClick={closeForm} disabled={saving} aria-label="Cerrar"><X /></button></div>
       <form onSubmit={saveMachine}><div className="motor-form-grid">
         <label>Planta<select value={selectedPlant} disabled={!structureReady || saving} onChange={e=>{setSelectedPlant(e.target.value);setSelectedTower('')}}><option value="">Sin asignar</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
