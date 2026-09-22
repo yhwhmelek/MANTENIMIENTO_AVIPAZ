@@ -169,6 +169,10 @@ class CompleteWrite(StrictModel):
         return self
 
 
+class StartWorkWrite(StrictModel):
+    estimated_repair_minutes: int = Field(ge=1, le=525600)
+
+
 class ReceiptWrite(StrictModel):
     notes: str | None = Field(default='Entrega conforme', max_length=1000)
 
@@ -651,13 +655,17 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             raise
 
     @app.post('/solicitudes-mantenimiento/{request_id}/atender')
-    def accept_request(request_id: int, usuario_id: int = Depends(admin_user)):
+    def accept_request(request_id: int, data: StartWorkWrite, usuario_id: int = Depends(admin_user)):
         def operation(cursor):
             row = locked(cursor, request_id)
             if row[2] != 'PENDIENTE':
                 raise HTTPException(409, 'Esta solicitud ya fue atendida')
-            require_planned(json.loads(row[3]))
-            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='EN_PROCESO', AssignedTo=?, AcceptedAt=? WHERE RequestId=?", usuario_id, local_now(), request_id)
+            original = json.loads(row[3])
+            require_planned(original)
+            original['estimated_repair_minutes'] = data.estimated_repair_minutes
+            started_at = local_now()
+            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='EN_PROCESO', AssignedTo=?, AcceptedAt=?, RequestData=? WHERE RequestId=?",
+                           usuario_id, started_at, json.dumps(original, ensure_ascii=False), request_id)
             return {'id': request_id}
         return write(operation)
 
@@ -671,13 +679,20 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             require_planned(original)
             if original['maintenance_type'] == 'MEJORA_TECNICA' and not data.improvement_result:
                 raise HTTPException(422, 'Describe el resultado de la mejora tecnica')
+            recorded_start = row[4] if original.get('estimated_repair_minutes') is not None else data.repair_started_at
+            if original.get('estimated_repair_minutes') is not None and data.repair_started_at != row[4].replace(second=0, microsecond=0):
+                raise HTTPException(422, 'El inicio de reparación debe coincidir con el registrado al comenzar el trabajo')
             if data.repair_started_at < row[4].replace(second=0, microsecond=0):
-                raise HTTPException(422, 'El inicio de reparacion debe ser posterior a la recepcion de la solicitud')
+                raise HTTPException(422, 'El inicio de reparación debe ser posterior a la recepción de la solicitud')
+            if data.repair_finished_at <= recorded_start:
+                raise HTTPException(422, 'El fin de reparación debe ser posterior al inicio registrado')
             if original.get('stopped_at') and data.stopped_at != datetime.fromisoformat(original['stopped_at']):
                 raise HTTPException(422, 'Conserva el inicio de parada registrado por el solicitante')
             if original.get('hour_meter') is not None and (data.hour_meter is None or data.hour_meter < Decimal(original['hour_meter'])):
                 raise HTTPException(422, 'El horometro final debe ser mayor o igual al inicial')
             payload = data.model_dump(mode='json')
+            payload['repair_started_at'] = recorded_start.isoformat()
+            payload['repair_duration_minutes'] = round((data.repair_finished_at-recorded_start).total_seconds()/60, 2)
             payload['parts'] = []
             for item in sorted(data.parts, key=lambda p: p.spare_part_id):
                 part, stock, cutoff = part_stock(cursor, item.spare_part_id)

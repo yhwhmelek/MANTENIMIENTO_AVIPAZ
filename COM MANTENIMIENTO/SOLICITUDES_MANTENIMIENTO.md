@@ -28,13 +28,13 @@ Se guardan datos de base; este cambio no incorpora un tablero que calcule los in
 | Indicador | Datos disponibles |
 | --- | --- |
 | Disponibilidad | Inicio de parada, retorno a servicio; registro separado de horas programadas y realmente operadas por máquina y período. |
-| MTTR | Inicio y fin reales de reparación, condición de falla, causa y espera por repuestos en minutos. |
+| MTTR | Inicio registrado al comenzar la solicitud, estimación inicial, fin real al entregar, duración real calculada, condición de falla, causa y espera por repuestos en minutos. |
 | MTBF | Máquina, marca de falla correctiva, fecha de detección, horómetros y horas realmente operadas por período. |
 | Cumplimiento | Inicio y fin planificados, fin real del trabajo; se conserva separadamente la fecha de recepción. |
 | Paradas | Inicio y fin reales de parada; comparar con el intervalo previsto cuando exista. |
 | Stock | Repuesto previsto, cantidad, saldo y suficiencia al solicitar; cantidad consumida, saldo previo y minutos de espera al ejecutar. El catálogo mantiene los mínimos para el porcentaje de referencias sobre mínimo. |
 
-En **Solicitudes → Datos de operación para indicadores**, un operador o administrador registra períodos finalizados (por ejemplo turnos), sus horas programadas y las realmente operadas dentro del horario programado. No se permiten solapamientos por máquina. No se deben sumar denominadores repetidos por solicitud. Al desarrollar el tablero se debe definir período, población de equipos, tratamiento de paradas superpuestas y fórmula concreta del porcentaje de stock. Ausencia de planificación o de horómetro se almacena como dato no informado, nunca como cero.
+En **Solicitudes → Horas de operación de máquinas (MTBF)**, un operador o administrador registra períodos finalizados (por ejemplo turnos), sus horas programadas y las realmente operadas dentro del horario programado. Antes de iniciar cada trabajo, el administrador indica la duración estimada; el servidor registra el inicio en `AcceptedAt`. Al entregar, se guardan el fin y la duración real en `ExecutionData`. No se permiten solapamientos por máquina. No se deben sumar denominadores repetidos por solicitud. Al desarrollar el tablero se debe definir período, población de equipos, tratamiento de paradas superpuestas y fórmula concreta del porcentaje de stock. Ausencia de planificación o de horómetro se almacena como dato no informado, nunca como cero.
 
 Las fechas operativas se expresan en hora local de Ecuador continental, UTC−5. Los saldos iniciales son al cierre del día: un consumo del mismo día del corte no se contabilizaría, por eso la entrega lo rechaza.
 

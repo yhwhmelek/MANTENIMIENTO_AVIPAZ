@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
-from maintenance_requests import RequestWrite, CompleteWrite, register_maintenance_requests
+from maintenance_requests import RequestWrite, CompleteWrite, StartWorkWrite, register_maintenance_requests
 from request_priority import NIC, priority, backlog_key, ValidationWrite, PlanningWrite
 
 
@@ -86,7 +86,7 @@ class PriorityTests(unittest.TestCase):
         for data in [self.original, self.original|{'priority_validation':{'factors':{'n':1,'i':1,'c':1}}}]:
             self.original=data
             self.cursor.execute.return_value.fetchone.return_value=self.lock()
-            with self.assertRaises(HTTPException) as error:self.endpoint('atender')(1,usuario_id=9)
+            with self.assertRaises(HTTPException) as error:self.endpoint('atender')(1,StartWorkWrite(estimated_repair_minutes=60),usuario_id=9)
             self.assertEqual(error.exception.status_code,409)
         self.cursor.execute.return_value.fetchone.return_value=self.lock('POR_RECIBIR')
         with self.assertRaises(HTTPException):self.endpoint('evaluar')(1,self.validation(),usuario_id=9)
@@ -100,7 +100,7 @@ class PriorityTests(unittest.TestCase):
         self.original['priority_validation']={'factors':{'n':1,'i':1,'c':1},'technical_review':{'feasibility':'NO_PROCEDE'}}
         self.original['planning']={'condition':'LISTA'}
         self.cursor.execute.return_value.fetchone.return_value=self.lock()
-        with self.assertRaises(HTTPException):self.endpoint('atender')(1,usuario_id=9)
+        with self.assertRaises(HTTPException):self.endpoint('atender')(1,StartWorkWrite(estimated_repair_minutes=60),usuario_id=9)
 
     def test_stale_revision_rejected_and_planning_dates_checked(self):
         self.original['priority_revision']=1
@@ -122,6 +122,6 @@ class PriorityTests(unittest.TestCase):
         self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
         self.original['planning']=plan.model_dump(mode='json')
         self.cursor.execute.return_value.fetchone.return_value=self.lock()
-        self.endpoint('atender')(1,usuario_id=9)
+        self.endpoint('atender')(1,StartWorkWrite(estimated_repair_minutes=60),usuario_id=9)
         self.assertIn("Status='EN_PROCESO'",self.cursor.execute.call_args.args[0])
         self.connection.commit.assert_called_once()

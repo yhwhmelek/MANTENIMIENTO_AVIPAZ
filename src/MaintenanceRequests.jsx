@@ -14,6 +14,11 @@ import { compareActivities } from './priorityOrder'
 
 const states = { PENDIENTE:'Pendiente', EN_PROCESO:'En proceso', POR_RECIBIR:'Por recibir', CERRADA:'Cerrada' }
 const time = value => value ? value.replace('T',' ').slice(0,16) : '—'
+const duration = minutes => {
+  if (minutes == null) return 'Sin registro'
+  const total = Math.round(Number(minutes))
+  return `${Math.floor(total/60)} h ${total%60} min`
+}
 const localInput = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` }
 function Field({label,name,type='text',value,onChange,...props}) { return <label>{label}<input name={name} type={type} value={value ?? ''} onChange={e=>onChange(name,e.target.value)} {...props}/></label> }
 function Text({label,name,form,change,maxLength=1000,required=true,placeholder}) { return <label className="full-field">{label}{!required && ' (opcional)'}<textarea required={required} placeholder={placeholder ?? (required ? undefined : 'No aplica si se deja vacío')} rows={3} maxLength={maxLength} value={form[name] || ''} onChange={e=>change(name,e.target.value)}/></label> }
@@ -26,6 +31,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [selected,setSelected] = useState(null), [form,setForm] = useState(null), [mode,setMode] = useState('')
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [showPeriods,setShowPeriods] = useState(false)
+  const [estimatedHours,setEstimatedHours] = useState('')
   const [photo,setPhoto] = useState(null), [imageUrls,setImageUrls] = useState([])
   const [removedPhotoPaths,setRemovedPhotoPaths] = useState([])
   const [uploadStage,setUploadStage] = useState('')
@@ -135,7 +141,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   async function mutate(suffix,payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
-    try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});setSelected(result.id);setForm(null);setPhoto(null);setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
+    try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});setSelected(result.id);setForm(null);setPhoto(null);setEstimatedHours('');setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   async function deleteRequest(){
@@ -152,6 +158,12 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     submitting.current=true;setBusy(true);setFormError('')
     try{const result=await request('/solicitudes-mantenimiento/importar-santafe-haccp',{method:'POST',body:JSON.stringify(santafeHaccp)});setVersion(v=>v+1);setShowBacklog(false);setPlantFilter(String(plants.find(p=>p.name==='Santa Fe')?.plant_id||''));setFormError(`${result.created} solicitudes de Santa Fe incorporadas; ${result.existing} ya existían.`)}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
+  }
+  function startWork(event){
+    event.preventDefault()
+    const minutes=Math.round(Number(estimatedHours)*60)
+    if(!Number.isFinite(minutes)||minutes<1){setFormError('Indica un tiempo estimado mayor que cero.');return}
+    mutate(`/${row.id}/atender`,{estimated_repair_minutes:minutes})
   }
   async function importSantafePhotos(){
     if(submitting.current)return
@@ -201,7 +213,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     <dialog ref={dialog} className="request-workspace" aria-labelledby="requests-title" onCancel={e=>{if(busy)e.preventDefault()}} onClose={onClose}>
       <div className="modal-header"><h2 id="requests-title">Solicitudes de mantenimiento</h2><button aria-label="Cerrar solicitudes" disabled={busy} onClick={onClose}><X/></button></div>
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
-      <button className="secondary-action" disabled={busy||!!form} onClick={()=>setShowPeriods(v=>!v)}>{showPeriods?'Volver a solicitudes':'Datos de operación para indicadores'}</button>
+      <button className="secondary-action" disabled={busy||!!form} onClick={()=>setShowPeriods(v=>!v)}>{showPeriods?'Volver a solicitudes':'Horas de operación de máquinas (MTBF)'}</button>
       {showPeriods ? <OperatingPeriods request={request} machines={machines} canCreate={canCreate&&catalogReady}/> : <>
       <div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}{isAdmin&&<button className="secondary-action" disabled={busy||!catalogReady} onClick={importSantafe}>Cargar 29 mejoras HACCP · Santa Fe</button>}{isAdmin&&<button className="secondary-action" disabled={busy} onClick={importSantafePhotos}>Añadir fotos del Excel HACCP · Santa Fe</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button><label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>{!showBacklog&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}</div>
       {error&&<p role="alert">{error}</p>}{formError&&<p role="alert">{formError}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
@@ -211,6 +223,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       {!form&&!row&&!showBacklog&&<div className="table-scroll"><table className="maintenance-requests-table"><thead><tr><th>Acción</th><th>Solicitud</th><th>Equipo / daño</th><th>Prioridad oficial</th><th>Solicitante</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>{rows.filter(r=>(!filter||r.status===filter)&&(!plantFilter||String(r.request_data.plant_id)===plantFilter)).sort(compareActivities).map(r=><tr key={r.id}><td><button className="secondary-action" disabled={busy} onClick={()=>{setSelected(r.id);setFormError('')}}>Ver solicitud</button>{r.request_data.maintenance_type==='MEJORA_TECNICA'&&<button type='button' className='secondary-action' disabled={busy||!canCreate||!catalogReady||r.status!=='PENDIENTE'} title={!canCreate?'Solo operadores y administradores pueden modificar':r.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>editRequest(r.id)}>Modificar</button>}</td><td>#{r.id}<br/>{time(r.requested_at)}<br/>{r.request_data.maintenance_type==='MEJORA_TECNICA'?'Mejora técnica':r.request_data.maintenance_type}</td><td>{r.request_data.machine_code}<br/>{[r.request_data.plant_name,r.request_data.tower_name].filter(Boolean).join(' / ')}<br/>{r.request_data.description.slice(0,80)}</td><td><PriorityBadge priority={r.priority}/></td><td>{r.request_data.source_requester||r.requester_name}</td><td>{states[r.status]}</td><td>{r.assignee_name||'Sin asignar'}</td></tr>)}</tbody></table>{loaded&&!rows.length&&<p>No hay solicitudes registradas.</p>}</div>}
       {row&&!form&&<section ref={detail} tabIndex={-1} aria-label={`Detalle de solicitud ${row.id}`} className="request-detail"><button type="button" className="secondary-action" disabled={busy} onClick={()=>{setSelected(null);setFormError('')}}>Volver al listado</button>{row.request_data.maintenance_type==='MEJORA_TECNICA'&&<button type='button' className='primary-action' disabled={busy||!canCreate||!catalogReady||row.status!=='PENDIENTE'} title={!canCreate?'Solo operadores y administradores pueden modificar':row.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>editRequest(row.id)}>Modificar solicitud</button>}<h3>Solicitud #{row.id} · {states[row.status]}</h3><p>{row.request_data.machine_name} · {row.request_data.description}</p><p>Tipo: {row.request_data.maintenance_type}. Falla: {row.request_data.failure?'Sí':'No'}.</p><p>Planificado: {time(row.request_data.planning?.starts_at)} a {time(row.request_data.planning?.ends_at)}. Parada: {time(row.request_data.stopped_at)}.</p>
         <p>Solicitante: {row.request_data.source_requester||row.requester_name} · Planta: {row.request_data.plant_name||'No registrada'} · Torre: {row.request_data.tower_name||'No registrada'}</p>
+        {row.accepted_at&&<p>Inicio registrado del trabajo: {time(row.accepted_at)} · Tiempo estimado: {duration(row.request_data.estimated_repair_minutes)}.</p>}
+        {row.execution_data&&<p>Fin real: {time(row.execution_data.repair_finished_at)} · Duración real: {duration(row.execution_data.repair_duration_minutes)}.</p>}
         {!!photoPaths.length&&<div className="full-field"><p>Fotos de la solicitud ({photoPaths.length})</p>{photosLoaded<photoPaths.length&&<p role="status">Cargando fotos… {photosLoaded} de {photoPaths.length}</p>}<div className="request-photo-gallery">{imageUrls.map((url,index)=>url?<a key={index} href={url} target="_blank" rel="noreferrer"><img loading="lazy" src={url} alt={`Foto ${index+1} de la solicitud ${row.id}`}/></a>:null)}</div>{photosLoaded===photoPaths.length&&!imageUrls.some(Boolean)&&<p>Fotos no disponibles.</p>}</div>}
         <PriorityWorkflow key={row.id} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
@@ -221,7 +235,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF {row.request_data.maintenance_type==='MEJORA_TECNICA'?'MT/02-08':'MT/02-05'}</button>
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
           {isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&executionBlock&&<p role="status">No se puede iniciar o entregar todavía: {executionBlock}</p>}
-          {row.status==='PENDIENTE'&&isAdmin&&<button disabled={busy||Boolean(executionBlock)} title={executionBlock||'Iniciar el trabajo; puede realizarse el mismo día'} className="primary-action" onClick={()=>mutate(`/${row.id}/atender`)}>Iniciar trabajo programado</button>}
+          {row.status==='PENDIENTE'&&isAdmin&&<form onSubmit={startWork}><label>Tiempo aproximado de reparación (horas)<input type="number" min="0.02" max="8760" step="0.01" required value={estimatedHours} onChange={event=>setEstimatedHours(event.target.value)}/></label><p>Al iniciar se registrará automáticamente la fecha y hora real del servidor.</p><button disabled={busy||Boolean(executionBlock)} title={executionBlock||'Registrar inicio del trabajo'} className="primary-action">Iniciar trabajo programado</button></form>}
           {row.status==='EN_PROCESO'&&isAdmin&&<button disabled={busy||!catalogReady||!row.priority||!favorable||row.request_data.planning?.condition!=='LISTA'} className="primary-action" onClick={()=>start('complete')}>Registrar trabajo y repuestos</button>}
           {row.status==='POR_RECIBIR'&&(isAdmin||row.requested_by===currentUser.id)&&<button className="primary-action" onClick={()=>start('receive')}>Confirmar recepción del cambio</button>}
         </div></section>}
@@ -258,7 +272,9 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {mode==='complete'&&<>
           {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><Text label="Resultado de mejora" name="improvement_result" maxLength={2000} form={form} change={change}/><Text label="Otros materiales utilizados (fuera de inventario)" name="other_materials" maxLength={2000} required={false} form={form} change={change}/></>}
           <p className="full-field">Se copiaron la descripci?n y el repuesto previsto de la solicitud. Ajusta el trabajo, los repuestos y las cantidades seg?n lo realizado; puedes quitar o a?adir repuestos antes de entregar.</p>
-          {[['repair_started_at','Inicio real de reparación',true],['repair_finished_at','Fin real de reparación',true],['stopped_at','Inicio real de parada',false],['restored_at','Retorno real a servicio',false]].map(([key,label,required])=><Field key={key} label={label} name={key} type="datetime-local" required={required} value={form[key]} onChange={change}/>)}
+          <Field label={row.request_data.estimated_repair_minutes!=null?'Inicio real de reparación (registrado al iniciar)':'Inicio real de reparación'} name="repair_started_at" type="datetime-local" required readOnly={row.request_data.estimated_repair_minutes!=null} value={form.repair_started_at} onChange={change}/>
+          <Field label="Fin real de reparación" name="repair_finished_at" type="datetime-local" required value={form.repair_finished_at} onChange={change}/>
+          {[['stopped_at','Inicio real de parada'],['restored_at','Retorno real a servicio']].map(([key,label])=><Field key={key} label={label} name={key} type="datetime-local" value={form[key]} onChange={change}/>)}
           <Field label="Horómetro final (h)" type="number" min="0" step="0.01" name="hour_meter" value={form.hour_meter} onChange={change}/>
           <Field label="Minutos de espera por repuestos" type="number" min="0" step="1" required name="waiting_parts_minutes" value={form.waiting_parts_minutes} onChange={change}/>
           {[['work_done','Trabajo realizado',2000],['cause','Posibles causas',1000],['recommendations','Recomendaciones de operación',1000],['delivery_conditions','Condiciones de entrega',1000]].map(([name,label,max])=><Text key={name} name={name} label={label} maxLength={max} required={name === 'work_done'} form={form} change={change}/>)}
