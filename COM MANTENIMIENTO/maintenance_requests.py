@@ -51,6 +51,7 @@ class RequestedPart(StrictModel):
 
 
 class RequestWrite(StrictModel):
+    requested_at: datetime | None = None
     image_data: str | None = Field(default=None, max_length=14_000_000)
     plant_id: int | None = Field(default=None, gt=0)
     tower_id: int | None = Field(default=None, gt=0)
@@ -97,9 +98,12 @@ class RequestWrite(StrictModel):
                 raise ValueError('Selecciona una maquina o indica el equipo, sistema o area de la mejora')
         elif self.machine_id is None:
             raise ValueError('Selecciona una maquina para la solicitud de mantenimiento')
-        for value in (self.detected_at, self.stopped_at, self.planned_start, self.planned_end):
+        self.requested_at = self.requested_at or self.detected_at
+        for value in (self.requested_at, self.detected_at, self.stopped_at, self.planned_start, self.planned_end):
             if value and value.tzinfo is not None:
                 raise ValueError('Usa fechas locales de Ecuador sin zona horaria')
+        if self.requested_at > local_now() or self.requested_at < self.detected_at:
+            raise ValueError('La solicitud debe ser posterior o igual a la deteccion y no puede ser futura')
         if self.stopped_at and self.stopped_at > local_now():
             raise ValueError('La parada no puede ser futura')
         if self.equipment_stopped and self.stopped_at is None:
@@ -171,13 +175,23 @@ class CompleteWrite(StrictModel):
 
 class StartWorkWrite(StrictModel):
     estimated_repair_minutes: int = Field(ge=1, le=525600)
+    started_at: datetime = Field(default_factory=local_now)
+
+    @model_validator(mode='after')
+    def validate_start(self):
+        if self.started_at.tzinfo is not None or self.started_at > local_now():
+            raise ValueError('El inicio debe ser una fecha local de Ecuador y no puede ser futuro')
+        return self
 
 
 class ReceiptWrite(StrictModel):
+    received_at: datetime = Field(default_factory=local_now)
     notes: str | None = Field(default='Entrega conforme', max_length=1000)
 
     @model_validator(mode='after')
     def default_receipt_notes(self):
+        if self.received_at.tzinfo is not None or self.received_at > local_now():
+            raise ValueError('La recepcion debe ser una fecha local de Ecuador y no puede ser futura')
         self.notes = self.notes or 'Entrega conforme'
         return self
 
