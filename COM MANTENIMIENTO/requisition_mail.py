@@ -1,4 +1,7 @@
 import os
+import base64
+import binascii
+import mimetypes
 import re
 import smtplib
 import ssl
@@ -8,17 +11,53 @@ from html import escape
 from pathlib import Path
 
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from purchase_requisitions import RequisitionWrite, generate_requisition, machine_locations
 
 
+MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+MAX_TOTAL_ATTACHMENT_BYTES = 15 * 1024 * 1024
+
+
+class MailAttachment(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_base64: str = Field(min_length=1, max_length=4 * ((MAX_ATTACHMENT_BYTES + 2) // 3))
+
+    @field_validator('filename')
+    @classmethod
+    def valid_filename(cls, value):
+        if not value.strip() or value in ('.', '..') or any(ord(c) < 32 or ord(c) == 127 or c in '/\\' for c in value):
+            raise ValueError('Nombre de archivo no valido')
+        return value
+
+    def decoded(self):
+        return base64.b64decode(self.content_base64, validate=True)
+
+    @model_validator(mode='after')
+    def validate_content(self):
+        try:
+            content = self.decoded()
+        except (ValueError, binascii.Error):
+            raise ValueError('El archivo adjunto no contiene datos validos')
+        if not content or len(content) > MAX_ATTACHMENT_BYTES:
+            raise ValueError('Cada archivo debe contener datos y pesar como maximo 5 MB')
+        return self
+
+
 class RequisitionMail(BaseModel):
+    attachments: list[MailAttachment] = Field(default_factory=list, max_length=10)
     requisition: RequisitionWrite
     to: list[str] = Field(min_length=1, max_length=30)
     cc: list[str] = Field(default_factory=list, max_length=30)
     subject: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=10000)
+
+    @model_validator(mode='after')
+    def attachment_total(self):
+        if sum(len(item.decoded()) for item in self.attachments) > MAX_TOTAL_ATTACHMENT_BYTES:
+            raise ValueError('Los archivos adjuntos no pueden superar 15 MB en total')
+        return self
 
     @field_validator('to', 'cc')
     @classmethod
@@ -74,6 +113,11 @@ def send_requisition(data, connect=None):
                                subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                filename=f'CO-01-01_Requisicion_{data.requisition.requested_on.isoformat()}.xlsx')
         recipients = list(dict.fromkeys(data.to + data.cc))
+        for attachment in data.attachments:
+            mime_type = mimetypes.guess_type(attachment.filename)[0] or 'application/octet-stream'
+            maintype, subtype = mime_type.split('/', 1)
+            message.add_attachment(attachment.decoded(), maintype=maintype, subtype=subtype,
+                                   filename=attachment.filename)
         with smtplib.SMTP_SSL(host, port, timeout=30, context=ssl.create_default_context()) as smtp:
             smtp.login(user, password)
             refused = smtp.send_message(message, from_addr=user, to_addrs=recipients)

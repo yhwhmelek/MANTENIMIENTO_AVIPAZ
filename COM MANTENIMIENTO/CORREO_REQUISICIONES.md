@@ -16,3 +16,8 @@ La contraseña se configura solo en el servidor, nunca en React ni en archivos v
 El permiso de envío corresponde a los usuarios activos que pueden generar requisiciones. Los destinatarios se escriben explícitamente, separados por coma o punto y coma; no hay destinatarios predefinidos ni agenda persistente. Se conserva el borrador de direcciones mientras la ventana está montada. No se envían correos automáticamente ni se reintentan fallos. Una respuesta exitosa significa aceptación por SMTP, no confirmación de lectura o entrega final. Un envío parcial indica las direcciones rechazadas. Ante un resultado incierto, verificar recepción antes de repetir.
 
 La configuración y entrega reales no se han probado: las pruebas usan SMTP simulado. No requiere migración SQL.
+
+
+## Archivos y fotos adicionales
+
+En Preparar envio por correo se pueden seleccionar y quitar archivos antes de enviar. Se permiten hasta 10 adjuntos adicionales, con un maximo de 5 MB por archivo y 15 MB en total. El Excel de la requisicion y la firma se incluyen automaticamente. Los archivos se envian en su formato original y no se guardan en el historial de requisiciones. Al cancelar o completar el envio se limpia la seleccion; si falla, se conserva para revisarla. El servidor valida los nombres, el contenido base64 y los limites de tamano.

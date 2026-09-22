@@ -3,6 +3,13 @@ import RequisitionHistory from './RequisitionHistory'
 import signatureImage from './firma_correo.jpg'
 
 const newItem = () => ({ description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
+const fileBase64 = file => new Promise((resolve,reject)=>{
+  const reader=new FileReader()
+  reader.onload=()=>resolve({filename:file.name,content_base64:reader.result.split(',')[1]})
+  reader.onerror=()=>reject(new Error(`No se pudo leer ${file.name}. Selecciona el archivo nuevamente.`))
+  reader.onabort=()=>reject(new Error('Se cancelo la lectura del archivo.'))
+  reader.readAsDataURL(file)
+})
 const today = () => {const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 
 export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
@@ -15,6 +22,16 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const saved=useRef(null)
   const submitting=useRef(false)
   const [mailDraft,setMailDraft]=useState(null)
+  const [attachments,setAttachments]=useState([])
+  useEffect(()=>{if(!mailDraft)setAttachments([])},[mailDraft])
+  function addAttachments(event){
+    const files=[...attachments,...Array.from(event.target.files||[])]
+    event.target.value=''
+    if(files.length>10){setError('Puedes adjuntar hasta 10 archivos.');return}
+    if(files.some(file=>!file.size||file.size>5*1024*1024)){setError('Cada archivo debe contener datos y pesar como maximo 5 MB.');return}
+    if(files.reduce((total,file)=>total+file.size,0)>15*1024*1024){setError('Los adjuntos no pueden superar 15 MB en total.');return}
+    setAttachments(files);setError('')
+  }
   const [mail,setMail]=useState({to:'',cc:'',subject:'Requisición de compra - Mantenimiento',body:'Estimados,\n\nAdjunto la requisición de compra para su revisión y gestión. Agradezco confirmar la recepción e informar la disponibilidad y el plazo estimado de entrega.\n\nSaludos cordiales,'})
   const [recipients,setRecipients]=useState([]),[recipientsError,setRecipientsError]=useState('')
   useEffect(()=>{
@@ -35,11 +52,12 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   }
   async function sendMail(event){
     event.preventDefault();if(submitting.current)return
-    if(!window.confirm('¿Enviar la requisición Excel a los destinatarios y copias indicados?'))return
+    if(!window.confirm(`¿Enviar la requisición Excel${attachments.length?` y ${attachments.length} archivo(s) adjunto(s)`:''} a los destinatarios y copias indicados?`))return
     submitting.current=true;setBusy(true);setError('');setMessage('')
     const addresses=value=>value.split(/[,;\s]+/).map(v=>v.trim()).filter(Boolean)
     try{
-      const response=await fetch(`${apiUrl}/requisiciones-compra/enviar`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requisition:mailDraft,...mail,to:addresses(mail.to),cc:addresses(mail.cc)})})
+      const files=await Promise.all(attachments.map(fileBase64))
+      const response=await fetch(`${apiUrl}/requisiciones-compra/enviar`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({requisition:mailDraft,...mail,to:addresses(mail.to),cc:addresses(mail.cc),attachments:files})})
       const data=await response.json()
       if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Revisa los correos, el asunto y los datos de la requisición.')
       setMessage(data.message);setMailDraft(null)
@@ -130,6 +148,11 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
       <label>Copia (CC)<input value={mail.cc} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,cc:e.target.value}))}/><select aria-label="Añadir contacto a Copia" value="" onChange={e=>addRecipient('cc',e.target.value)}><option value="">Añadir contacto a Copia…</option>{['Contacto empresarial','Proveedor','Usuario'].map(source=><optgroup key={source} label={source}>{recipients.filter(contact=>contact.source===source).map(contact=><option key={`${source}-${contact.email}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</optgroup>)}</select></label>
       {recipientsError&&<p className="full-field" role="status">{recipientsError} Puedes escribir las direcciones manualmente.</p>}
       <p className="full-field">Separa varias direcciones con coma o punto y coma.</p>
+      <div className="full-field">
+        <label>Adjuntar archivos o fotos (opcional)<input type="file" multiple onChange={addAttachments}/></label>
+        <p>Hasta 10 archivos, 5 MB por archivo y 15 MB en total. El Excel de la requisición se incluye automáticamente.</p>
+        {!!attachments.length&&<ul>{attachments.map((file,index)=><li key={`${file.name}-${index}`}>{file.name} · {(file.size/1024/1024).toFixed(2)} MB <button type="button" className="secondary-action" aria-label={`Quitar ${file.name}`} onClick={()=>setAttachments(files=>files.filter((_,i)=>i!==index))}>Quitar</button></li>)}</ul>}
+      </div>
       <label className="full-field">Asunto *<input required maxLength={200} value={mail.subject} onChange={e=>setMail(m=>({...m,subject:e.target.value}))}/></label>
       <label className="full-field">Descripción del correo *<textarea required rows={8} maxLength={10000} value={mail.body} onChange={e=>setMail(m=>({...m,body:e.target.value}))}/></label>
       <div className="full-field"><p>Firma que se incluirá al final del correo:</p><img src={signatureImage} alt="Firma de Cristian Changoluisa, Jefe de Mantenimiento de AVIPAZ" style={{width:800,maxWidth:'100%',height:'auto'}} /></div>

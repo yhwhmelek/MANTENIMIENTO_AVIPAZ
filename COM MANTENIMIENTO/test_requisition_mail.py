@@ -1,4 +1,5 @@
 import unittest
+import base64
 from unittest.mock import MagicMock, patch
 from io import BytesIO
 import zipfile
@@ -10,6 +11,37 @@ from purchase_requisitions import NS
 
 
 class MailTests(unittest.TestCase):
+    def attachment(self, filename='foto.jpg', content=b'foto de prueba'):
+        return dict(filename=filename, content_base64=base64.b64encode(content).decode('ascii'))
+
+    def test_extra_files_are_sent_intact_with_excel(self):
+        files=[self.attachment('foto.jpg', b'\xff\xd8foto'), self.attachment('cotizacion.pdf', b'%PDF-documento')]
+        with patch.dict('os.environ', {'REQUISITION_SMTP_PASSWORD':'test-only'}), patch('requisition_mail.smtplib.SMTP_SSL') as smtp:
+            client=smtp.return_value.__enter__.return_value
+            client.send_message.return_value={}
+            send_requisition(self.data(attachments=files))
+            attachments=list(client.send_message.call_args.args[0].iter_attachments())
+        self.assertEqual(len(attachments), 3)
+        self.assertTrue(attachments[0].get_filename().endswith('.xlsx'))
+        for part, source, mime in zip(attachments[1:], files, ['image/jpeg', 'application/pdf']):
+            self.assertEqual(part.get_filename(), source['filename'])
+            self.assertEqual(part.get_payload(decode=True), base64.b64decode(source['content_base64']))
+            self.assertEqual(part.get_content_type(), mime)
+            self.assertEqual(part.get_content_disposition(), 'attachment')
+
+    def test_invalid_attachments_rejected(self):
+        for attachment in [dict(filename='foto.jpg', content_base64='invalid!'),
+                           self.attachment('../foto.jpg'), self.attachment('foto\r\nBcc: otro'),
+                           self.attachment(content=b'')]:
+            with self.subTest(attachment=attachment), self.assertRaises(ValidationError):
+                self.data(attachments=[attachment])
+        with self.assertRaises(ValidationError):
+            self.data(attachments=[self.attachment()] * 11)
+        with patch('requisition_mail.MAX_ATTACHMENT_BYTES', 4), self.assertRaises(ValidationError):
+            self.data(attachments=[self.attachment(content=b'12345')])
+        with patch('requisition_mail.MAX_TOTAL_ATTACHMENT_BYTES', 5), self.assertRaises(ValidationError):
+            self.data(attachments=[self.attachment(content=b'123')] * 2)
+
     def data(self, **changes):
         return RequisitionMail(**(dict(to=['compras@example.com'], cc=['copia@example.com'], subject='Pedido', body='Revisar adjunto',
             requisition=dict(department='Mantenimiento', requested_on='2026-09-09', urgent=True, requester='Prueba',
