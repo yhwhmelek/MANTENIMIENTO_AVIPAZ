@@ -32,7 +32,7 @@ class RequestTests(unittest.TestCase):
             delivery_conditions='Molino operativo', hour_meter='101', parts=[{'spare_part_id': 8, 'quantity': '1'}]) | changes))
 
     def locked(self, status='EN_PROCESO', requested_by=1, assigned_to=2):
-        return (requested_by, assigned_to, status, json.dumps(self.original), datetime(2026,1,1,9))
+        return (requested_by, assigned_to, status, json.dumps(self.original), datetime(2026,1,1,9), datetime(2026,1,1,8), datetime(2026,1,1,10))
 
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
@@ -286,6 +286,52 @@ class RequestTests(unittest.TestCase):
         self.cursor.execute.return_value.fetchone.side_effect = [('OPERADOR',),('MOL-1','Molino','Produccion'),(12,)]
         self.assertEqual(self.endpoint('')(data,usuario_id=1),{'id':12})
         self.connection.commit.assert_called_once()
+
+    def test_historical_request_preserves_entered_date(self):
+        data = mod.RequestWrite(machine_id=3, description='Historico', maintenance_type='CORRECTIVO',
+                                detected_at='2026-01-01T07:00', requested_at='2026-01-01T08:00')
+        self.cursor.execute.return_value.fetchone.side_effect = [('OPERADOR',), ('MOL-1', 'Molino', 'Produccion'), (12,)]
+        self.endpoint('')(data, usuario_id=1)
+        args = self.cursor.execute.call_args.args
+        self.assertEqual(args[3], datetime(2026, 1, 1, 8))
+        self.assertIn('recorded_at', json.loads(args[4]))
+
+    def test_historical_work_start_preserved(self):
+        self.cursor.execute.return_value.fetchone.return_value = self.locked('PENDIENTE')
+        self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(
+            estimated_repair_minutes=60, started_at='2026-01-01T09:00'), usuario_id=9)
+        self.assertEqual(self.cursor.execute.call_args.args[2], datetime(2026, 1, 1, 9))
+
+    def test_work_cannot_start_before_request(self):
+        self.cursor.execute.return_value.fetchone.return_value = self.locked('PENDIENTE')
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(
+                estimated_repair_minutes=60, started_at='2026-01-01T07:00'), usuario_id=9)
+        self.assertEqual(error.exception.status_code, 422)
+        self.connection.commit.assert_not_called()
+
+    def test_completion_date_is_actual_finish(self):
+        self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
+        self.endpoint('/{request_id}/completar')(5, self.completion(parts=[]), usuario_id=9)
+        self.assertEqual(self.cursor.execute.call_args.args[1], datetime(2026, 1, 1, 10))
+
+    def test_historical_receipt_preserved_and_validated(self):
+        self.cursor.execute.return_value.fetchone.return_value = self.locked('POR_RECIBIR')
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(received_at='2026-01-01T09:59'), usuario_id=1)
+        self.assertEqual(error.exception.status_code, 422)
+        self.connection.commit.assert_not_called()
+        self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(received_at='2026-01-01T10:30'), usuario_id=1)
+        self.assertEqual(self.cursor.execute.call_args.args[1], datetime(2026, 1, 1, 10, 30))
+
+    def test_historical_dates_reject_future_and_zoned_values(self):
+        for value in ((mod.local_now() + timedelta(days=1)).isoformat(), '2026-01-01T09:00Z'):
+            with self.assertRaises(ValidationError):
+                mod.StartWorkWrite(estimated_repair_minutes=60, started_at=value)
+            with self.assertRaises(ValidationError):
+                mod.ReceiptWrite(received_at=value)
+            with self.assertRaises(ValidationError):
+                mod.RequestWrite(machine_id=3, description='Historico', maintenance_type='CORRECTIVO', requested_at=value)
 
     def test_self_accept_and_already_taken_rejected(self):
         for row, user, code in [(self.locked(),3,409)]:

@@ -32,6 +32,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [showPeriods,setShowPeriods] = useState(false)
   const [estimatedHours,setEstimatedHours] = useState('')
+  const [startedAt,setStartedAt] = useState(localInput)
+  useEffect(()=>{setStartedAt(localInput());setEstimatedHours('')},[selected])
   const [photo,setPhoto] = useState(null), [imageUrls,setImageUrls] = useState([])
   const [removedPhotoPaths,setRemovedPhotoPaths] = useState([])
   const [uploadStage,setUploadStage] = useState('')
@@ -119,7 +121,10 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   function change(name,value){setForm(f=>({...f,[name]:value,...(name==='plant_id'?{tower_id:'',machine_id:''}:name==='tower_id'?{machine_id:''}:{}),...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:''}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
   function start(modeName,targetRow=row){
     setMode(modeName);setFormError('');setPhoto(null);setRemovedPhotoPaths([])
-    if(modeName==='new')setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',detected_at:localInput()})
+    if(modeName==='new'){
+      const now=localInput()
+      setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',requested_at:now,detected_at:now})
+    }
     if(modeName==='edit')setForm({...targetRow.request_data,technical_evaluation:targetRow.request_data.technical_evaluation||{}})
     if(modeName==='complete'){
       const original=row.request_data
@@ -131,7 +136,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         parts:planned.map(p=>({spare_part_id:available(p.spare_part_id)?String(p.spare_part_id):'',quantity:String(p.quantity),removed_part:'',position:''})),tools:[]})
       if(planned.some(p=>!available(p.spare_part_id)))setFormError('Hay repuestos previstos que ya no están activos. Selecciona otro repuesto o quita las filas no utilizadas.')
     }
-    if(modeName==='receive')setForm({notes:''})
+    if(modeName==='receive')setForm({notes:'',received_at:localInput()})
   }
   function editRequest(id){
     const target=rows.find(item=>item.id===id)
@@ -163,7 +168,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     event.preventDefault()
     const minutes=Math.round(Number(estimatedHours)*60)
     if(!Number.isFinite(minutes)||minutes<1){setFormError('Indica un tiempo estimado mayor que cero.');return}
-    mutate(`/${row.id}/atender`,{estimated_repair_minutes:minutes})
+    mutate(`/${row.id}/atender`,{estimated_repair_minutes:minutes,started_at:startedAt})
   }
   async function importSantafePhotos(){
     if(submitting.current)return
@@ -235,7 +240,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF {row.request_data.maintenance_type==='MEJORA_TECNICA'?'MT/02-08':'MT/02-05'}</button>
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
           {isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&executionBlock&&<p role="status">No se puede iniciar o entregar todavía: {executionBlock}</p>}
-          {row.status==='PENDIENTE'&&isAdmin&&<form onSubmit={startWork}><label>Tiempo aproximado de reparación (horas)<input type="number" min="0.02" max="8760" step="0.01" required value={estimatedHours} onChange={event=>setEstimatedHours(event.target.value)}/></label><p>Al iniciar se registrará automáticamente la fecha y hora real del servidor.</p><button disabled={busy||Boolean(executionBlock)} title={executionBlock||'Registrar inicio del trabajo'} className="primary-action">Iniciar trabajo programado</button></form>}
+          {row.status==='PENDIENTE'&&isAdmin&&<form onSubmit={startWork}><label>Tiempo aproximado de reparación (horas)<input type="number" min="0.02" max="8760" step="0.01" required value={estimatedHours} onChange={event=>setEstimatedHours(event.target.value)}/></label><label>Fecha y hora real de inicio<input type="datetime-local" required value={startedAt} onChange={event=>setStartedAt(event.target.value)}/></label><p>Para trabajos antiguos, ingresa la fecha en que realmente comenzaron (hora de Ecuador).</p><button disabled={busy||Boolean(executionBlock)} title={executionBlock||'Registrar inicio del trabajo'} className="primary-action">Iniciar trabajo programado</button></form>}
           {row.status==='EN_PROCESO'&&isAdmin&&<button disabled={busy||!catalogReady||!row.priority||!favorable||row.request_data.planning?.condition!=='LISTA'} className="primary-action" onClick={()=>start('complete')}>Registrar trabajo y repuestos</button>}
           {row.status==='POR_RECIBIR'&&(isAdmin||row.requested_by===currentUser.id)&&<button className="primary-action" onClick={()=>start('receive')}>Confirmar recepción del cambio</button>}
         </div></section>}
@@ -259,6 +264,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <Text label={form.maintenance_type==='MEJORA_TECNICA'?'Situación actual / problema identificado':'Descripción del daño / trabajo solicitado'} name="description" form={form} change={change}/>
           {form.maintenance_type==='MEJORA_TECNICA'&&<TechnicalImprovementFields form={form} change={change}/>}
           <ImageAttachment label="Foto de la solicitud" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="JPG, PNG o WEBP. Máximo 10 MB."/>
+          <Field label="Fecha y hora de solicitud" type="datetime-local" name="requested_at" required value={form.requested_at} onChange={change}/>
           <Field label="Fecha y hora de detección del daño / necesidad" type="datetime-local" name="detected_at" required value={form.detected_at} onChange={change}/>
           <div className="full-field"><h4>Preevaluación de prioridad del solicitante</h4><p>Opcional: completa solo los factores que conozcas o deja todos sin valorar. No se requiere diagnóstico técnico. Mantenimiento definirá la prioridad oficial.</p><NICFields required={false} value={form.preevaluation} onChange={value=>change('preevaluation',value)}/></div>
           <label className="checkbox-field"><input type="checkbox" disabled={form.maintenance_type!=='CORRECTIVO'} checked={form.failure} onChange={e=>change('failure',e.target.checked)}/> Es una falla del equipo (para MTBF)</label>
@@ -281,7 +287,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <div className="full-field"><h4>Repuestos realmente utilizados</h4><p>Se descontarán al guardar la entrega. Si no se utilizaron repuestos, deja la lista vacía.</p>{form.parts.map((p,i)=><div className="request-line" key={i}><label>Repuesto<select required value={p.spare_part_id} onChange={e=>updateLine('parts',i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{parts.map(item=><option key={item.spare_part_id} value={item.spare_part_id}>{item.internal_code} · {item.description} ({item.unit_of_measure})</option>)}</select></label><label>Cantidad<input type="number" required min="0.01" step="0.01" value={p.quantity} onChange={e=>updateLine('parts',i,'quantity',e.target.value)}/></label><label>Repuesto anterior<input maxLength={150} value={p.removed_part} onChange={e=>updateLine('parts',i,'removed_part',e.target.value)}/></label><label>Posición<input maxLength={150} value={p.position} onChange={e=>updateLine('parts',i,'position',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('parts',form.parts.filter((_,j)=>i!==j))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.parts.length>=30} onClick={()=>change('parts',[...form.parts,{spare_part_id:'',quantity:'1',removed_part:'',position:''}])}>Añadir repuesto usado</button></div>
           <div className="full-field"><h4>Conciliación de piezas / herramientas</h4>{form.tools.map((t,i)=><div className="request-line" key={i}><label>Descripción<input required maxLength={100} value={t.description} onChange={e=>updateLine('tools',i,'description',e.target.value)}/></label><label>Ingreso<input required type="number" min="0" step="1" value={t.quantity_in} onChange={e=>updateLine('tools',i,'quantity_in',e.target.value)}/></label><label>Salida<input required type="number" min="0" step="1" value={t.quantity_out} onChange={e=>updateLine('tools',i,'quantity_out',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('tools',form.tools.filter((_,j)=>j!==i))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.tools.length>=20} onClick={()=>change('tools',[...form.tools,{description:'',quantity_in:'0',quantity_out:'0'}])}>Añadir pieza / herramienta</button></div>
         </>}
-        {mode==='receive'&&<><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
+        {mode==='receive'&&<><Field label="Fecha y hora de recepcion" name="received_at" type="datetime-local" required value={form.received_at} onChange={change}/><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='edit'?'Guardar datos de la mejora':mode==='complete'?'Entregar trabajo y consumir repuestos':mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}
       </>}
     </dialog>

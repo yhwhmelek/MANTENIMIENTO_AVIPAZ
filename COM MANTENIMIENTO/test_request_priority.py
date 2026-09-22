@@ -23,7 +23,7 @@ class PriorityTests(unittest.TestCase):
         return next(r.endpoint for r in self.app.routes if r.path=='/solicitudes-mantenimiento/{request_id}/'+suffix)
 
     def lock(self,status='PENDIENTE'):
-        return (1,None,status,json.dumps(self.original),datetime(2026,1,1,8))
+        return (1,None,status,json.dumps(self.original),datetime(2026,1,1,8),datetime(2026,1,1,7),None)
 
     def validation(self,**changes):
         return ValidationWrite(**(dict(factors={'n':1,'i':1,'c':4},justification='Consecuencia confirmada',expected_revision=0)|changes))

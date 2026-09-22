@@ -353,7 +353,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             raise HTTPException(503, 'No se pudo guardar la solicitud. Verifica las migraciones 005 y 006 y la conexion.')
 
     def locked(cursor, request_id):
-        row = cursor.execute('SELECT RequestedBy, AssignedTo, Status, RequestData, AcceptedAt FROM dbo.MaintenanceRequests WITH (UPDLOCK, HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
+        row = cursor.execute('SELECT RequestedBy, AssignedTo, Status, RequestData, AcceptedAt, RequestedAt, CompletedAt FROM dbo.MaintenanceRequests WITH (UPDLOCK, HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
         if row is None:
             raise HTTPException(404, 'Solicitud no encontrada')
         return row
@@ -640,6 +640,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 if data.machine_id is not None:
                     raise HTTPException(422, 'Selecciona la torre de la máquina')
             payload = data.model_dump(mode='json', exclude={'image_data'})
+            payload['recorded_at'] = local_now().isoformat()
             if location:
                 payload.update(plant_name=location[0], tower_name=location[1])
             payload.update(machine_code=machine[0] if machine else 'N/A', machine_name=machine[1] if machine else data.target_area, area=machine[2] if machine else data.target_area)
@@ -659,7 +660,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 payload['image_path'] = new_image[0]
             row = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.MaintenanceRequests
                 (MachineId,RequestedBy,RequestedAt,RequestData) VALUES (?,?,?,?);
-                SELECT CAST(SCOPE_IDENTITY() AS int);''', data.machine_id, usuario_id, local_now(), json.dumps(payload, ensure_ascii=False)).fetchone()
+                SELECT CAST(SCOPE_IDENTITY() AS int);''', data.machine_id, usuario_id, data.requested_at, json.dumps(payload, ensure_ascii=False)).fetchone()
             return {'id': row[0]}
         try:
             return write(operation)
@@ -677,7 +678,10 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             original = json.loads(row[3])
             require_planned(original)
             original['estimated_repair_minutes'] = data.estimated_repair_minutes
-            started_at = local_now()
+            started_at = data.started_at
+            if started_at < row[5]:
+                raise HTTPException(422, 'El inicio del trabajo no puede ser anterior a la solicitud')
+            original['start_recorded_at'] = local_now().isoformat()
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='EN_PROCESO', AssignedTo=?, AcceptedAt=?, RequestData=? WHERE RequestId=?",
                            usuario_id, started_at, json.dumps(original, ensure_ascii=False), request_id)
             return {'id': request_id}
@@ -705,6 +709,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if original.get('hour_meter') is not None and (data.hour_meter is None or data.hour_meter < Decimal(original['hour_meter'])):
                 raise HTTPException(422, 'El horometro final debe ser mayor o igual al inicial')
             payload = data.model_dump(mode='json')
+            payload['recorded_at'] = local_now().isoformat()
             payload['repair_started_at'] = recorded_start.isoformat()
             payload['repair_duration_minutes'] = round((data.repair_finished_at-recorded_start).total_seconds()/60, 2)
             payload['parts'] = []
@@ -722,7 +727,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 cursor.execute('''INSERT INTO dbo.MaintenancePartsUsed
                     (MaintenanceEventId,SparePartId,Quantity,UnitOfMeasure,Position,Notes,CreatedBy)
                     VALUES (?,?,?,?,?,?,?)''', event_id, part['spare_part_id'], Decimal(part['quantity']), part['unit_of_measure'], part['position'] or None, f'Solicitud #{request_id}. Retirado: {part["removed_part"]}', usuario_id)
-            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='POR_RECIBIR', CompletedAt=?, ExecutionData=?, MaintenanceEventId=? WHERE RequestId=?", local_now(), json.dumps(payload, ensure_ascii=False), event_id, request_id)
+            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='POR_RECIBIR', CompletedAt=?, ExecutionData=?, MaintenanceEventId=? WHERE RequestId=?", data.repair_finished_at, json.dumps(payload, ensure_ascii=False), event_id, request_id)
             return {'id': request_id, 'maintenance_event_id': event_id}
         return write(operation)
 
@@ -736,6 +741,10 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     raise HTTPException(403, 'Solo el solicitante o un administrador puede confirmar la recepcion')
             if row[2] != 'POR_RECIBIR':
                 raise HTTPException(409, 'La solicitud no esta pendiente de recepcion')
-            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='CERRADA', ReceivedAt=?, ReceiptNotes=?, ReceivedBy=? WHERE RequestId=?", local_now(), data.notes, usuario_id, request_id)
+            if data.received_at < row[6]:
+                raise HTTPException(422, 'La recepcion no puede ser anterior al fin del trabajo')
+            original = json.loads(row[3])
+            original['receipt_recorded_at'] = local_now().isoformat()
+            cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='CERRADA', ReceivedAt=?, ReceiptNotes=?, RequestData=?, ReceivedBy=? WHERE RequestId=?", data.received_at, data.notes, json.dumps(original, ensure_ascii=False), usuario_id, request_id)
             return {'id': request_id}
         return write(operation)
