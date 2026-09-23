@@ -128,7 +128,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     if(modeName==='edit')setForm({...targetRow.request_data,technical_evaluation:targetRow.request_data.technical_evaluation||{}})
     if(modeName==='complete'){
       const original=row.request_data
-      const planned=original.requested_parts?.length?original.requested_parts:original.requested_part_id?[{spare_part_id:original.requested_part_id,quantity:original.requested_quantity}]:[]
+      const planned=original.planning?.requested_parts?.length?original.planning.requested_parts:original.requested_parts?.length?original.requested_parts:original.requested_part_id?[{spare_part_id:original.requested_part_id,quantity:original.requested_quantity}]:[]
       const available=id=>parts.some(part=>String(part.spare_part_id)===String(id))
       setForm({repair_started_at:row.accepted_at.slice(0,16),repair_finished_at:localInput(),
         stopped_at:original.stopped_at?.slice(0,16)||'',restored_at:original.stopped_at?localInput():'',

@@ -5,6 +5,7 @@ from typing import Literal
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from decimal import Decimal
 
 
 class StrictModel(BaseModel):
@@ -38,6 +39,11 @@ class ValidationWrite(StrictModel):
     expected_revision: int = Field(ge=0)
 
 
+class PlannedSparePart(StrictModel):
+    machine_spare_part_id: int = Field(gt=0)
+    quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+
+
 class PlanningWrite(StrictModel):
     responsible: str = Field(min_length=1, max_length=150)
     resources: str = Field(min_length=1, max_length=1000)
@@ -47,6 +53,7 @@ class PlanningWrite(StrictModel):
     ends_at: datetime | None = None
     condition: Literal['LISTA', 'ESPERA_REPUESTOS', 'ESPERA_RECURSOS', 'ESPERA_VENTANA', 'ESPERA_PERMISOS']
     notes: str = Field(default='', max_length=1000)
+    requested_parts: list[PlannedSparePart] = Field(default_factory=list, max_length=30)
     expected_revision: int = Field(ge=0)
 
     @model_validator(mode='after')
@@ -59,6 +66,8 @@ class PlanningWrite(StrictModel):
             raise ValueError('Indica la ventana de fechas para ejecutar la actividad')
         if self.condition != 'LISTA' and not self.notes:
             raise ValueError('Describe la condicion pendiente de programacion')
+        if len({part.machine_spare_part_id for part in self.requested_parts}) != len(self.requested_parts):
+            raise ValueError('Selecciona cada repuesto una sola vez')
         return self
 
 
@@ -141,7 +150,27 @@ def register_priority(app, write, locked, admin_user, now):
         def operation(cursor):
             original = load(cursor, request_id, data.expected_revision)
             require_validated(original)
-            planning = data.model_dump(mode='json', exclude={'expected_revision'}) | stamp(cursor, usuario_id)
+            planning = data.model_dump(mode='json', exclude={'expected_revision', 'requested_parts'})
+            planning['requested_parts'] = []
+            selected_spare_ids = set()
+            for selected in data.requested_parts:
+                part = cursor.execute('''SELECT m.MachineSparePartId, m.MachineId, m.ElementId, m.SparePartId,
+                    s.InternalCode, s.Description, s.UnitOfMeasure,
+                    a.AssetCode, a.Name, e.ElementCode, e.Name
+                    FROM dbo.MachineSpareParts m JOIN dbo.SpareParts s ON s.SparePartId=m.SparePartId
+                    JOIN dbo.Machines a ON a.MachineId=m.MachineId
+                    LEFT JOIN dbo.MachineElements e ON e.ElementId=m.ElementId AND e.MachineId=m.MachineId
+                    WHERE m.MachineSparePartId=? AND m.Active=1 AND s.Active=1''', selected.machine_spare_part_id).fetchone()
+                if not part:
+                    raise HTTPException(422, 'Uno de los repuestos seleccionados ya no está asignado o activo')
+                if part[3] in selected_spare_ids:
+                    raise HTTPException(422, 'Selecciona cada repuesto una sola vez y agrupa su cantidad')
+                selected_spare_ids.add(part[3])
+                planning['requested_parts'].append(dict(machine_spare_part_id=part[0], machine_id=part[1], element_id=part[2],
+                    spare_part_id=part[3], internal_code=part[4], description=part[5], unit_of_measure=part[6],
+                    machine_code=part[7], machine_name=part[8], element_code=part[9], element_name=part[10],
+                    quantity=str(selected.quantity)))
+            planning |= stamp(cursor, usuario_id)
             original.setdefault('planning_history', []).append(planning)
             original['planning'] = planning
             original['priority_revision'] = data.expected_revision + 1
