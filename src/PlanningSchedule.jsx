@@ -38,7 +38,12 @@ export default function PlanningSchedule({request,row,form,onSelect}){
   const entries=[...activities.map(item=>({item,start:new Date(item.request_data.planning.starts_at),end:endOf(item.request_data.planning),selected:false,conflict:conflicts.some(entry=>entry.id===item.id)})),...(form.starts_at&&selectedEnd?[{item:{id:row.id,request_data:{...row.request_data,planning:{...form,responsible:form.responsible||'Selecciona responsable'}}},start:selected,end:selectedEnd,selected:true,conflict:conflicts.length>0}]:[])]
   const segments=entries.flatMap(entry=>days.flatMap((day,dayIndex)=>{const workStart=new Date(day);workStart.setHours(7,30,0,0);const workEnd=new Date(day);workEnd.setHours(18,0,0,0);const start=new Date(Math.max(entry.start,workStart)),end=new Date(Math.min(entry.end,workEnd));if(start>=end)return[];const startMinute=start.getHours()*60+start.getMinutes(),endMinute=end.getHours()*60+end.getMinutes();return[{...entry,dayIndex,startMinute,endMinute}]}))
   const legend=[...new Map(entries.map(entry=>{const plan=entry.item.request_data.planning;return[identity(plan),plan]})).values()].filter(plan=>plan.responsible&&plan.responsible!=='Selecciona responsable')
-  function choose(day,minute){onSelect(`${dayKey(day)}T${clock(minute)}`)}
+  function choose(day,minute){
+    // La fecha elegida pasa a ser la referencia; evita volver a aplicar el
+    // desplazamiento usado para navegar hasta esta semana.
+    setWeekShift(0)
+    onSelect(`${dayKey(day)}T${clock(minute)}`)
+  }
   return <section className="full-field planning-schedule"><div className="request-toolbar"><h4>Cronograma de {row.request_data.plant_name||'la planta'}</h4><button type="button" onClick={()=>setWeekShift(value=>value-1)}>← Semana anterior</button><button type="button" onClick={()=>setWeekShift(0)}>Semana seleccionada</button><button type="button" onClick={()=>setWeekShift(value=>value+1)}>Semana siguiente →</button></div>
     <p>Horario disponible: lunes a viernes, de 07:30 a 18:00. Pulsa una celda para seleccionar directamente el día y la hora.</p>{error&&<p role="alert">{error}</p>}
     {!!legend.length&&<div className="schedule-legend" aria-label="Leyenda de responsables">{legend.map(plan=>{const color=colorFor(plan);return <span className="schedule-legend-item" key={identity(plan)}><i style={{background:color.background,borderColor:color.border}}/><strong>{plan.responsible}</strong><small>{roleName(plan)}</small></span>})}<span className="schedule-legend-item"><i className="conflict-key"/><strong>Cruce</strong><small>Mismo responsable</small></span></div>}
