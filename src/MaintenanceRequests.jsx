@@ -202,7 +202,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   function updateLine(kind,index,key,value){setForm(f=>({...f,[kind]:f[kind].map((line,i)=>i===index?{...line,[key]:value}:line)}))}
   return <>
     <button className={`request-alert-trigger ${assignedWorkCount||managementCount||pendingReceipts.length||error?'needs-attention':''}`} onClick={onOpen}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?`Trabajos asignados: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`:'Consultando solicitudes…'}</span></button>
-    <dialog ref={dialog} className="request-workspace" aria-labelledby="requests-title" onCancel={e=>{if(busy)e.preventDefault()}} onClose={onClose}>
+    <dialog ref={dialog} className="request-workspace" aria-labelledby="requests-title" onCancel={e=>{if(e.target!==e.currentTarget||busy)e.preventDefault()}} onClose={e=>{if(e.target===e.currentTarget)onClose()}}>
       <div className="modal-header"><h2 id="requests-title">Solicitudes de mantenimiento</h2><button aria-label="Cerrar solicitudes" disabled={busy} onClick={onClose}><X/></button></div>
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
       <button className="secondary-action" disabled={busy||!!form} onClick={()=>setShowPeriods(v=>!v)}>{showPeriods?'Volver a solicitudes':'Horas de operación de máquinas (MTBF)'}</button>
