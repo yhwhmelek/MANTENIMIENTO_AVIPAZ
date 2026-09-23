@@ -2,20 +2,28 @@ import {useState} from 'react'
 import {NICFields,PrioritySummary,checks,feasibility,conditions} from './RequestPriority'
 import SparePartPlanningPicker from './SparePartPlanningPicker'
 
+const localInput=()=>{const date=new Date();return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`}
+function savedDuration(plan){
+  if(plan?.estimated_duration_days!=null||plan?.estimated_duration_minutes!=null)return {days:plan.estimated_duration_days||0,minutes:plan.estimated_duration_minutes||0}
+  if(plan?.starts_at&&plan?.ends_at){const total=Math.max(1,Math.round((new Date(plan.ends_at)-new Date(plan.starts_at))/60000));return {days:Math.floor(total/1440),minutes:total%1440}}
+  return {days:0,minutes:60}
+}
+
 export default function PriorityWorkflow({row,isAdmin,request,onSaved}){
   const [mode,setMode]=useState(''),[form,setForm]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const [showParts,setShowParts]=useState(false)
   const r=row.request_data,improvement=r.maintenance_type==='MEJORA_TECNICA'
   function start(kind){
     setError('');setMode(kind)
+    const duration=savedDuration(r.planning)
     setForm(kind==='evaluate'?{factors:{...(r.priority_validation?.factors||r.preevaluation||{})},justification:'',technical_review:improvement?(r.priority_validation?.technical_review||{...Object.fromEntries(Object.keys(checks).map(k=>[k,{answer:'',notes:''}])),feasibility:''}):null,expected_revision:r.priority_revision||0}
-      :{responsible:r.planning?.responsible||row.assignee_name||'',resources:r.planning?.resources||'',permits:r.planning?.permits||'',window:r.planning?.window||'',starts_at:r.planning?.starts_at?.slice(0,16)||'',ends_at:r.planning?.ends_at?.slice(0,16)||'',condition:r.planning?.condition||'ESPERA_RECURSOS',notes:r.planning?.notes||'',requested_parts:r.planning?.requested_parts||[],expected_revision:r.priority_revision||0})
+      :{responsible:r.planning?.responsible||row.assignee_name||'',resources:r.planning?.resources||'',permits:r.planning?.permits||'',window:r.planning?.window||'',starts_at:r.planning?.starts_at?.slice(0,16)||localInput(),estimated_duration_days:duration.days,estimated_duration_minutes:duration.minutes,condition:r.planning?.condition||'ESPERA_RECURSOS',notes:r.planning?.notes||'',requested_parts:r.planning?.requested_parts||[],expected_revision:r.priority_revision||0})
   }
   function change(key,value){setForm(f=>({...f,[key]:value}))}
   async function save(e){
     e.preventDefault();if(busy)return;setBusy(true);setError('')
     try{
-      const payload=mode==='plan'?{...form,starts_at:form.starts_at||null,ends_at:form.ends_at||null,requested_parts:(form.requested_parts||[]).map(part=>({machine_spare_part_id:Number(part.machine_spare_part_id),quantity:String(part.quantity)}))}:form
+      const payload=mode==='plan'?{...form,starts_at:form.starts_at||null,estimated_duration_days:Number(form.estimated_duration_days),estimated_duration_minutes:Number(form.estimated_duration_minutes),requested_parts:(form.requested_parts||[]).map(part=>({machine_spare_part_id:Number(part.machine_spare_part_id),quantity:String(part.quantity)}))}:form
       await request(`/solicitudes-mantenimiento/${row.id}/${mode==='plan'?'programar':'evaluar'}`,{method:'POST',body:JSON.stringify(payload)})
       setMode('');onSaved()
     }catch(err){setError(err.message)}finally{setBusy(false)}
@@ -31,12 +39,14 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved}){
         <label>Observación técnica / justificación *<textarea required maxLength={2000} rows={3} value={form.justification} onChange={e=>change('justification',e.target.value)}/></label>
       </>:<><p>La falta de repuestos, recursos, permisos o ventana de parada no reduce la prioridad.</p><div className="full-field"><h4>Repuestos previstos</h4><button type="button" className="secondary-action" onClick={()=>setShowParts(true)}>Seleccionar repuestos de máquinas</button>{form.requested_parts?.length?<div className="table-scroll"><table><thead><tr><th>Repuesto</th><th>Máquina / elemento</th><th>Cantidad</th><th>Acción</th></tr></thead><tbody>{form.requested_parts.map(part=><tr key={part.machine_spare_part_id}><td>{part.internal_code} · {part.description}</td><td>{part.machine_code}{part.element_name?` / ${part.element_name}`:''}</td><td>{part.quantity} {part.unit_of_measure}</td><td><button type="button" className="secondary-action" onClick={()=>change('requested_parts',form.requested_parts.filter(item=>item.machine_spare_part_id!==part.machine_spare_part_id))}>Quitar</button></td></tr>)}</tbody></table></div>:<p>No se han seleccionado repuestos del catálogo.</p>}</div><div className="motor-form-grid">{[['responsible','Responsable / técnico ejecutor',150],['resources','Otros recursos y personal (indica No aplica si no corresponde)',1000],['permits','Permisos (indica No aplica cuando corresponda)',1000],['window','Ventana de intervención / parada',1000]].map(([key,label,max])=><label key={key}>{label} *<input required maxLength={max} value={form[key]} onChange={e=>change(key,e.target.value)}/></label>)}
         <label>Condición *<select value={form.condition} onChange={e=>change('condition',e.target.value)}>{Object.entries(conditions).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
-        <p className="full-field">Para habilitar «Iniciar trabajo programado», selecciona «Lista para ejecutar» cuando estén resueltos los pendientes y guarda la programación. Inicio y fin pueden ser el mismo día, con la hora de fin posterior al inicio; por ejemplo, hoy de 10:00 a 11:00.</p>
-        {['starts_at','ends_at'].map((key,i)=><label key={key}>{i?'Fin programado':'Inicio programado'}<input type="datetime-local" required={form.condition==='LISTA'||Boolean(form.starts_at||form.ends_at)} value={form[key]} onChange={e=>change(key,e.target.value)}/></label>)}
+        <p className="full-field">La fecha de inicio se completa con el momento actual y puede modificarse. Indica cuánto se estima que durará la actividad; el fin previsto se calcula automáticamente.</p>
+        <label>Inicio programado<input type="datetime-local" required value={form.starts_at} onChange={e=>change('starts_at',e.target.value)}/></label>
+        <label>Duración estimada: días<input type="number" min="0" max="3650" step="1" required value={form.estimated_duration_days} onChange={e=>change('estimated_duration_days',e.target.value)}/></label>
+        <label>Duración estimada: minutos adicionales<input type="number" min="0" max="1439" step="1" required value={form.estimated_duration_minutes} onChange={e=>change('estimated_duration_minutes',e.target.value)}/><span className="field-help">Entre 0 y 1439 minutos, adicionales a los días.</span></label>
         <label>Observaciones / condición pendiente<textarea required={form.condition!=='LISTA'} maxLength={1000} value={form.notes} onChange={e=>change('notes',e.target.value)}/></label></div></>}
       <div className="modal-actions"><button type="button" onClick={()=>setMode('')}>Cancelar</button><button className="primary-action">{busy?'Guardando…':'Guardar'}</button></div>
     </fieldset></form>}
     {!!r.priority_history?.length&&<details><summary>Historial de evaluaciones ({r.priority_history.length})</summary>{r.priority_history.map((v,i)=><p key={i}>{v.at} · {v.name} · N {v.factors.n}, I {v.factors.i}, C {v.factors.c} · {v.justification}</p>)}</details>}
-    {!!r.planning_history?.length&&<details><summary>Historial de programación ({r.planning_history.length})</summary>{r.planning_history.map((p,i)=><div key={i}><p>{p.at} · {p.name} · {p.responsible} · {conditions[p.condition]} · {p.starts_at||'Sin fecha'} — {p.ends_at||'Sin fecha'} · Recursos: {p.resources} · Permisos: {p.permits} · Ventana: {p.window} · {p.notes}</p>{!!p.requested_parts?.length&&<ul>{p.requested_parts.map(part=><li key={part.machine_spare_part_id}>{part.internal_code} · {part.description}: {part.quantity} {part.unit_of_measure}</li>)}</ul>}</div>)}</details>}
+    {!!r.planning_history?.length&&<details><summary>Historial de programación ({r.planning_history.length})</summary>{r.planning_history.map((p,i)=>{const duration=savedDuration(p);return <div key={i}><p>{p.at} · {p.name} · {p.responsible} · {conditions[p.condition]} · Inicio: {p.starts_at||'Sin fecha'} · Duración: {duration.days} día(s) y {duration.minutes} minuto(s) · Recursos: {p.resources} · Permisos: {p.permits} · Ventana: {p.window} · {p.notes}</p>{!!p.requested_parts?.length&&<ul>{p.requested_parts.map(part=><li key={part.machine_spare_part_id}>{part.internal_code} · {part.description}: {part.quantity} {part.unit_of_measure}</li>)}</ul>}</div>})}</details>}
   </section>
 }

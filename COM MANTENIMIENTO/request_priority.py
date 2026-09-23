@@ -1,6 +1,6 @@
 """Reglas NIC del procedimiento de priorizacion, version 00, 16/09/2026."""
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import Depends, HTTPException
@@ -51,6 +51,8 @@ class PlanningWrite(StrictModel):
     window: str = Field(min_length=1, max_length=1000)
     starts_at: datetime | None = None
     ends_at: datetime | None = None
+    estimated_duration_days: int = Field(default=0, ge=0, le=3650)
+    estimated_duration_minutes: int = Field(default=0, ge=0, le=1439)
     condition: Literal['LISTA', 'ESPERA_REPUESTOS', 'ESPERA_RECURSOS', 'ESPERA_VENTANA', 'ESPERA_PERMISOS']
     notes: str = Field(default='', max_length=1000)
     requested_parts: list[PlannedSparePart] = Field(default_factory=list, max_length=30)
@@ -58,12 +60,22 @@ class PlanningWrite(StrictModel):
 
     @model_validator(mode='after')
     def dates(self):
-        if (self.starts_at is None) != (self.ends_at is None):
-            raise ValueError('Completa ambas fechas de programacion')
-        if self.starts_at and (self.starts_at.tzinfo or self.ends_at.tzinfo or self.ends_at <= self.starts_at):
-            raise ValueError('Usa horas locales; el fin debe ser posterior al inicio')
+        if self.starts_at and self.starts_at.tzinfo:
+            raise ValueError('Usa la fecha y hora local de Ecuador')
+        duration = self.estimated_duration_days * 1440 + self.estimated_duration_minutes
+        if self.starts_at and duration:
+            self.ends_at = self.starts_at + timedelta(minutes=duration)
+        elif self.starts_at and self.ends_at:  # Compatibilidad con programaciones anteriores.
+            if self.ends_at.tzinfo or self.ends_at <= self.starts_at:
+                raise ValueError('El fin debe ser posterior al inicio')
+            duration = int((self.ends_at-self.starts_at).total_seconds()/60)
+            self.estimated_duration_days, self.estimated_duration_minutes = divmod(duration, 1440)
+        elif self.starts_at:
+            raise ValueError('Indica el tiempo estimado en dias y minutos')
+        elif self.ends_at or duration:
+            raise ValueError('Indica la fecha de inicio de la actividad')
         if self.condition == 'LISTA' and self.starts_at is None:
-            raise ValueError('Indica la ventana de fechas para ejecutar la actividad')
+            raise ValueError('Indica la fecha de inicio y el tiempo estimado')
         if self.condition != 'LISTA' and not self.notes:
             raise ValueError('Describe la condicion pendiente de programacion')
         if len({part.machine_spare_part_id for part in self.requested_parts}) != len(self.requested_parts):

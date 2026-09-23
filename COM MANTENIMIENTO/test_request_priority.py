@@ -132,10 +132,17 @@ class PriorityTests(unittest.TestCase):
     def test_same_day_planning_allows_start(self):
         from maintenance_requests import local_now
         day=local_now().date().isoformat()
-        plan=self.plan(condition='LISTA',starts_at=day+'T10:00',ends_at=day+'T11:00')
+        plan=self.plan(condition='LISTA',starts_at=day+'T10:00',estimated_duration_days=0,estimated_duration_minutes=60)
+        self.assertEqual(plan.ends_at.isoformat(),day+'T11:00:00')
         self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
         self.original['planning']=plan.model_dump(mode='json')
         self.cursor.execute.return_value.fetchone.return_value=self.lock()
         self.endpoint('atender')(1,StartWorkWrite(estimated_repair_minutes=60),usuario_id=9)
         self.assertIn("Status='EN_PROCESO'",self.cursor.execute.call_args.args[0])
         self.connection.commit.assert_called_once()
+
+    def test_planning_requires_positive_duration_when_start_is_set(self):
+        with self.assertRaises(ValidationError):
+            self.plan(starts_at='2026-01-01T09:00')
+        plan=self.plan(starts_at='2026-01-01T09:00',estimated_duration_days=1,estimated_duration_minutes=30)
+        self.assertEqual(plan.ends_at.isoformat(),'2026-01-02T09:30:00')
