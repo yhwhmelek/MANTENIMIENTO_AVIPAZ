@@ -13,6 +13,7 @@ import SparePartReports from './SparePartReports'
 import MachineElementTypes from './MachineElementTypes'
 import MachineElements from './MachineElements'
 import BusinessContacts from './BusinessContacts'
+import ContractorRegistry from './ContractorRegistry'
 import UserProfile from './UserProfile'
 import { Copy, LogOut, Package, Pencil, Plus, Trash2, Truck, Users, Wrench, X } from 'lucide-react'
 
@@ -427,6 +428,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       </> : <>
         <div className="page-heading"><div><p className="eyebrow">CONFIGURACION</p><h1>Administrar usuarios</h1><p>Gestion de roles de acceso.</p></div><Users size={28} /></div>
         <div className="users-card table-scroll"><table><thead><tr><th>Nombre y apellido</th><th>Correo</th><th>Rol</th><th>Estado</th><th>Creado</th></tr></thead><tbody>{users.map((user) => <tr key={user.id}><td>{editingUser?.id === user.id ? <form onSubmit={updateUserName}><input aria-label="Nombre" required maxLength={100} value={editingUser.nombres} onChange={e => setEditingUser({...editingUser, nombres:e.target.value})}/><input aria-label="Apellido" required maxLength={100} value={editingUser.apellidos} onChange={e => setEditingUser({...editingUser, apellidos:e.target.value})}/><button type="submit">Guardar</button><button type="button" onClick={() => setEditingUser(null)}>Cancelar</button></form> : <><strong>{user.nombre_completo || user.nombre}</strong> <button type="button" aria-label={`Editar nombre de ${user.nombre_completo || user.nombre}`} onClick={() => setEditingUser({id:user.id,nombres:user.nombres || "",apellidos:user.apellidos || ""})}><Pencil size={15}/></button></>}</td><td>{user.correo}</td><td><select value={user.rol} onChange={(e) => updateRole(user.id, e.target.value)}><option value="USUARIO">Usuario</option><option value="MECANICO">Mecánico</option><option value="ELECTRICO">Eléctrico</option><option value="OPERADOR">Operador</option><option value="ADMIN">Administrador</option></select></td><td>{user.activo ? 'Activo' : 'Inactivo'}</td><td>{new Date(user.creado_en).toLocaleDateString()}</td></tr>)}</tbody></table></div>
+        <ContractorRegistry apiUrl={apiUrl} token={token} />
         <BusinessContacts apiUrl={apiUrl} token={token} />
       </>}
       <p className="admin-message" role="status">{loading ? 'Cargando...' : message}</p>

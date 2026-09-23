@@ -20,6 +20,7 @@ from parts_history import records
 from request_priority import NIC, decorate, backlog_key, register_priority, require_planned
 
 MAINTENANCE_ROLES = ('ADMIN', 'OPERADOR', 'MECANICO', 'ELECTRICO')
+REQUEST_CREATOR_ROLES = ('ADMIN', 'USUARIO', 'OPERADOR')
 
 
 def local_now():
@@ -73,7 +74,7 @@ class RequestWrite(StrictModel):
     impact: int | None = Field(default=None, ge=1, le=4)
     risk: int | None = Field(default=None, ge=1, le=4)
     failure: bool = False
-    detected_at: datetime = Field(default_factory=local_now)
+    detected_at: datetime | None = None
     stopped_at: datetime | None = None
     planned_start: datetime | None = None
     planned_end: datetime | None = None
@@ -100,7 +101,10 @@ class RequestWrite(StrictModel):
                 raise ValueError('Selecciona una maquina o indica el equipo, sistema o area de la mejora')
         elif self.machine_id is None:
             raise ValueError('Selecciona una maquina para la solicitud de mantenimiento')
-        self.requested_at = self.requested_at or self.detected_at
+        self.requested_at = self.requested_at or self.detected_at or local_now()
+        # Los correctivos usan la fecha de solicitud como único registro temporal inicial.
+        # Se conserva la clave para poder leer solicitudes creadas por versiones anteriores.
+        self.detected_at = self.requested_at if self.maintenance_type == 'CORRECTIVO' else (self.detected_at or self.requested_at)
         for value in (self.requested_at, self.detected_at, self.stopped_at, self.planned_start, self.planned_end):
             if value and value.tzinfo is not None:
                 raise ValueError('Usa fechas locales de Ecuador sin zona horaria')
@@ -110,7 +114,7 @@ class RequestWrite(StrictModel):
             raise ValueError('La parada no puede ser futura')
         if self.equipment_stopped and self.stopped_at is None:
             raise ValueError('Si el equipo esta parado, registra el inicio real de la parada')
-        if self.detected_at > local_now():
+        if self.detected_at and self.detected_at > local_now():
             raise ValueError('La deteccion del daño no puede ser futura')
         if (self.planned_start is None) != (self.planned_end is None):
             raise ValueError('Completa ambas fechas planificadas')
@@ -176,7 +180,8 @@ class CompleteWrite(StrictModel):
 
 
 class StartWorkWrite(StrictModel):
-    estimated_repair_minutes: int = Field(ge=1, le=525600)
+    # Compatibilidad con clientes anteriores; la estimación oficial viene de la programación.
+    estimated_repair_minutes: int | None = Field(default=None, ge=1, le=525600)
     started_at: datetime = Field(default_factory=local_now)
 
     @model_validator(mode='after')
@@ -196,6 +201,10 @@ class ReceiptWrite(StrictModel):
             raise ValueError('La recepcion debe ser una fecha local de Ecuador y no puede ser futura')
         self.notes = self.notes or 'Entrega conforme'
         return self
+
+
+class ReviewWrite(StrictModel):
+    notes: str = Field(default='Trabajo revisado y aprobado', max_length=1000)
 
 
 class ImportedImprovement(StrictModel):
@@ -623,8 +632,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         new_image = [None]
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
-            if not role or role[0] not in MAINTENANCE_ROLES:
-                raise HTTPException(403, 'Solo el personal de mantenimiento puede generar solicitudes')
+            if not role or role[0] not in REQUEST_CREATOR_ROLES:
+                raise HTTPException(403, 'Solo administradores, usuarios y operadores pueden generar solicitudes')
             machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone() if data.machine_id is not None else None
             if data.machine_id is not None and not machine:
                 raise HTTPException(422, 'Maquina no encontrada')
@@ -679,16 +688,24 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 raise HTTPException(409, 'Esta solicitud ya fue atendida')
             original = json.loads(row[3])
             require_planned(original)
-            assigned_user_id = original.get('planning', {}).get('assigned_user_id')
-            if assigned_user_id != usuario_id:
-                raise HTTPException(403, 'Solo el usuario asignado puede iniciar este trabajo')
-            original['estimated_repair_minutes'] = data.estimated_repair_minutes
+            planning = original.get('planning', {})
+            assigned_user_id = planning.get('assigned_user_id')
+            contractor = planning.get('assignment_type') == 'CONTRACTOR'
+            role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone() if contractor else None
+            if (not contractor and assigned_user_id != usuario_id) or (contractor and (not role or role[0] != 'ADMIN')):
+                raise HTTPException(403, 'Solo el responsable asignado puede iniciar este trabajo')
+            estimated = int(planning.get('estimated_duration_days', 0))*1440 + int(planning.get('estimated_duration_minutes', 0))
+            if estimated < 1 and data.estimated_repair_minutes:
+                estimated = data.estimated_repair_minutes
+            if estimated < 1:
+                raise HTTPException(409, 'El administrador debe registrar el tiempo estimado antes de iniciar')
+            original['estimated_repair_minutes'] = estimated
             started_at = data.started_at
             if started_at < row[5]:
                 raise HTTPException(422, 'El inicio del trabajo no puede ser anterior a la solicitud')
             original['start_recorded_at'] = local_now().isoformat()
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='EN_PROCESO', AssignedTo=?, AcceptedAt=?, RequestData=? WHERE RequestId=?",
-                           usuario_id, started_at, json.dumps(original, ensure_ascii=False), request_id)
+                           assigned_user_id or usuario_id, started_at, json.dumps(original, ensure_ascii=False), request_id)
             return {'id': request_id}
         return write(operation)
 
@@ -698,12 +715,16 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             row = locked(cursor, request_id)
             if row[2] != 'EN_PROCESO':
                 raise HTTPException(409, 'La solicitud ya fue entregada o no esta en proceso')
-            if row[1] != usuario_id:
-                raise HTTPException(403, 'Solo el usuario asignado puede entregar este trabajo')
             original = json.loads(row[3])
+            contractor = original.get('planning', {}).get('assignment_type') == 'CONTRACTOR'
+            role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone() if contractor else None
+            if (not contractor and row[1] != usuario_id) or (contractor and (not role or role[0] != 'ADMIN')):
+                raise HTTPException(403, 'Solo el responsable asignado puede terminar este trabajo')
             require_planned(original)
             if original['maintenance_type'] == 'MEJORA_TECNICA' and not data.improvement_result:
                 raise HTTPException(422, 'Describe el resultado de la mejora tecnica')
+            if original['maintenance_type'] == 'CORRECTIVO' and not data.cause:
+                raise HTTPException(422, 'Describe las posibles causas del mantenimiento correctivo')
             recorded_start = row[4] if original.get('estimated_repair_minutes') is not None else data.repair_started_at
             if original.get('estimated_repair_minutes') is not None and data.repair_started_at != row[4].replace(second=0, microsecond=0):
                 raise HTTPException(422, 'El inicio de reparación debe coincidir con el registrado al comenzar el trabajo')
@@ -719,6 +740,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             payload['recorded_at'] = local_now().isoformat()
             payload['repair_started_at'] = recorded_start.isoformat()
             payload['repair_duration_minutes'] = round((data.repair_finished_at-recorded_start).total_seconds()/60, 2)
+            response_start = row[5] if len(row) > 5 else recorded_start
+            payload['response_time_minutes'] = round((data.repair_finished_at-response_start).total_seconds()/60, 2)
             payload['parts'] = []
             for item in sorted(data.parts, key=lambda p: p.spare_part_id):
                 part, stock, cutoff = part_stock(cursor, item.spare_part_id)
@@ -738,19 +761,40 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             return {'id': request_id, 'maintenance_event_id': event_id}
         return write(operation)
 
+    @app.post('/solicitudes-mantenimiento/{request_id}/revisar')
+    def review_request(request_id: int, data: ReviewWrite, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            row = locked(cursor, request_id)
+            if row[2] != 'POR_RECIBIR':
+                raise HTTPException(409, 'El trabajo no está pendiente de revisión')
+            original = json.loads(row[3])
+            if original.get('admin_review'):
+                raise HTTPException(409, 'El trabajo ya fue revisado')
+            reviewer = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios WHERE Id=?", usuario_id).fetchone()
+            original['admin_review'] = {'by': usuario_id, 'name': reviewer[0] if reviewer else str(usuario_id),
+                                        'at': local_now().isoformat(), 'notes': data.notes or 'Trabajo revisado y aprobado'}
+            cursor.execute('UPDATE dbo.MaintenanceRequests SET RequestData=? WHERE RequestId=?', json.dumps(original, ensure_ascii=False), request_id)
+            return {'id': request_id}
+        return write(operation)
+
     @app.post('/solicitudes-mantenimiento/{request_id}/recibir')
     def receive_request(request_id: int, data: ReceiptWrite, usuario_id: int = Depends(active_user)):
         def operation(cursor):
             row = locked(cursor, request_id)
+            original = json.loads(row[3])
+            new_flow = original.get('planning', {}).get('review_required', False)
             if row[0] != usuario_id:
+                if new_flow:
+                    raise HTTPException(403, 'Solo quien generó la solicitud puede confirmar la recepción')
                 role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
                 if not role or role[0] != 'ADMIN':
-                    raise HTTPException(403, 'Solo el solicitante o un administrador puede confirmar la recepcion')
+                    raise HTTPException(403, 'Solo el solicitante puede confirmar la recepción')
             if row[2] != 'POR_RECIBIR':
                 raise HTTPException(409, 'La solicitud no esta pendiente de recepcion')
             if data.received_at < row[6]:
                 raise HTTPException(422, 'La recepcion no puede ser anterior al fin del trabajo')
-            original = json.loads(row[3])
+            if new_flow and not original.get('admin_review'):
+                raise HTTPException(409, 'El administrador debe revisar el trabajo antes de solicitar la conformidad')
             original['receipt_recorded_at'] = local_now().isoformat()
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='CERRADA', ReceivedAt=?, ReceiptNotes=?, RequestData=?, ReceivedBy=? WHERE RequestId=?", data.received_at, data.notes, json.dumps(original, ensure_ascii=False), usuario_id, request_id)
             return {'id': request_id}

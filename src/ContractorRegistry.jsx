@@ -1,0 +1,17 @@
+import {useEffect,useState} from 'react'
+
+const empty={name:'',specialty:'MECANICO',email:'',phone:'',active:true}
+const labels={MECANICO:'Mecánico',ELECTRICO:'Eléctrico',OTRO:'Otro'}
+
+export default function ContractorRegistry({apiUrl,token}){
+  const [rows,setRows]=useState([]),[form,setForm]=useState(empty),[editing,setEditing]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false)
+  const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'}
+  async function load(){const response=await fetch(`${apiUrl}/contratistas`,{headers});const data=await response.json();if(!response.ok)throw new Error(data.detail||'No se pudieron cargar los contratistas');setRows(data)}
+  useEffect(()=>{load().catch(e=>setError(e.message))},[apiUrl,token])
+  async function save(event){event.preventDefault();setBusy(true);setError('');try{const response=await fetch(`${apiUrl}/contratistas${editing?`/${editing}`:''}`,{method:editing?'PUT':'POST',headers,body:JSON.stringify({...form,email:form.email||null,phone:form.phone||null})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||'No se pudo guardar el contratista');await load();setEditing(null);setForm(empty)}catch(e){setError(e.message)}finally{setBusy(false)}}
+  async function deactivate(row){if(!window.confirm(`¿Desactivar a ${row.name}?`))return;setBusy(true);try{const response=await fetch(`${apiUrl}/contratistas/${row.id}`,{method:'DELETE',headers});if(!response.ok)throw new Error('No se pudo desactivar');await load()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  return <section className="business-contacts"><h2>Contratistas de mantenimiento</h2><p>Registra aquí a las empresas o técnicos externos que pueden recibir actividades.</p>
+    <form onSubmit={save} className="motor-form-grid"><label>Nombre *<input required maxLength={150} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Especialidad *<select value={form.specialty} onChange={e=>setForm({...form,specialty:e.target.value})}>{Object.entries(labels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label><label>Correo<input type="email" maxLength={254} value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label><label>Teléfono<input maxLength={30} value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></label><label className="checkbox-field"><input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/> Activo</label><div><button className="primary-action" disabled={busy}>{editing?'Guardar cambios':'Añadir contratista'}</button>{editing&&<button type="button" onClick={()=>{setEditing(null);setForm(empty)}}>Cancelar</button>}</div></form>
+    {error&&<p role="alert">{error}</p>}<div className="table-scroll"><table><thead><tr><th>Nombre</th><th>Especialidad</th><th>Contacto</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{row.name}</td><td>{labels[row.specialty]}</td><td>{row.email||'—'}<br/>{row.phone||''}</td><td>{row.active?'Activo':'Inactivo'}</td><td><button type="button" onClick={()=>{setEditing(row.id);setForm({...row,email:row.email||'',phone:row.phone||''})}}>Editar</button>{row.active&&<button type="button" className="danger" onClick={()=>deactivate(row)}>Desactivar</button>}</td></tr>)}</tbody></table></div>
+  </section>
+}

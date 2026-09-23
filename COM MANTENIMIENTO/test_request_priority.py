@@ -76,22 +76,31 @@ class PriorityTests(unittest.TestCase):
 
     def test_programming_does_not_reduce_priority(self):
         self.original['priority_validation']={'factors':{'n':4,'i':4,'c':4}}
-        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Técnico','USUARIO'),('Jefe',)]
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('TÃ©cnico','MECANICO'),('Jefe',)]
         self.endpoint('programar')(1,self.plan(),usuario_id=9)
         saved=json.loads(self.cursor.execute.call_args.args[1])
         self.assertEqual(priority(saved['priority_validation']['factors'])['level'],'CRITICO')
         self.assertEqual(saved['planning']['condition'],'ESPERA_REPUESTOS')
-        self.assertEqual((saved['planning']['assigned_user_id'],saved['planning']['responsible']),(9,'Técnico'))
+        self.assertEqual((saved['planning']['assigned_user_id'],saved['planning']['responsible']),(9,'TÃ©cnico'))
 
     def test_programming_saves_parts_assigned_to_a_machine(self):
         self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
         relation=(17,1,10,25,'ROD-01','Rodamiento','UN','M-01','Molino','MOT-01','Motor principal')
-        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Técnico','USUARIO'),relation,('Jefe',)]
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('TÃ©cnico','MECANICO'),relation,('Jefe',)]
         data=self.plan(requested_parts=[{'machine_spare_part_id':17,'quantity':'2'}])
         self.endpoint('programar')(1,data,usuario_id=9)
         saved=json.loads(self.cursor.execute.call_args.args[1])
         part=saved['planning']['requested_parts'][0]
         self.assertEqual((part['spare_part_id'],part['quantity'],part['machine_code']),(25,'2','M-01'))
+
+    def test_programming_accepts_active_contractor(self):
+        self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Servicio externo','ELECTRICO'),('Jefe',)]
+        data=self.plan(assignment_type='CONTRACTOR',assigned_user_id=None,contractor_id=4)
+        self.endpoint('programar')(1,data,usuario_id=9)
+        saved=json.loads(self.cursor.execute.call_args.args[1])['planning']
+        self.assertEqual((saved['contractor_id'],saved['responsible'],saved['responsible_role']),(4,'Servicio externo','CONTRATISTA'))
+        self.assertTrue(saved['review_required'])
 
     def test_programming_rejects_duplicate_assigned_part(self):
         with self.assertRaises(ValidationError):

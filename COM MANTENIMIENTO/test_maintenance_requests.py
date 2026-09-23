@@ -37,7 +37,7 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/evaluar','/programar','/importar-santafe-haccp','/importar-fotos-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/evaluar','/programar','/revisar','/importar-santafe-haccp','/importar-fotos-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
 
     def test_haccp_photos_keep_manual_photo_and_do_not_duplicate(self):
         existing=[(number,json.dumps({'source_key':f'SANTAFE-HACCP-2026-{number:02d}',
@@ -177,6 +177,12 @@ class RequestTests(unittest.TestCase):
                 self.assertEqual(data.preevaluation.n if data.preevaluation else None,3 if pre=={'n':3} else None)
         with self.assertRaises(ValidationError):mod.RequestWrite(**base,preevaluation={'n':5})
 
+    def test_corrective_uses_request_date_and_parts_are_optional(self):
+        data = mod.RequestWrite(machine_id=3, maintenance_type='CORRECTIVO', description='Ajustar banda',
+                                requested_at='2026-01-01T08:00', detected_at='2025-12-31T17:00')
+        self.assertEqual(data.detected_at, data.requested_at)
+        self.assertEqual(data.requested_parts, [])
+
     def test_multiple_planned_parts_do_not_consume_stock(self):
         data=mod.RequestWrite(machine_id=3,maintenance_type='CORRECTIVO',description='Trabajo',requested_parts=[{'spare_part_id':8,'quantity':2},{'spare_part_id':9,'quantity':5}])
         self.cursor.execute.return_value.fetchone.side_effect=[('OPERADOR',),('MOL-1','Molino','Produccion'),(12,)]
@@ -276,16 +282,13 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code,404)
         self.connection.commit.assert_not_called()
 
-    def test_operator_creates_and_user_cannot(self):
+    def test_operator_and_user_can_create(self):
         data = mod.RequestWrite(preevaluation={'n':2,'i':2,'c':2},machine_id=3,description='Cambiar malla',maintenance_type='CORRECTIVO',urgency=3,impact=3,risk=2)
-        self.cursor.execute.return_value.fetchone.side_effect = [('USUARIO',)]
-        with self.assertRaises(HTTPException) as error:
-            self.endpoint('')(data,usuario_id=1)
-        self.assertEqual(error.exception.status_code,403)
-        self.connection.rollback.assert_called_once()
+        self.cursor.execute.return_value.fetchone.side_effect = [('USUARIO',),('MOL-1','Molino','Produccion'),(11,)]
+        self.assertEqual(self.endpoint('')(data,usuario_id=1),{'id':11})
         self.cursor.execute.return_value.fetchone.side_effect = [('OPERADOR',),('MOL-1','Molino','Produccion'),(12,)]
         self.assertEqual(self.endpoint('')(data,usuario_id=1),{'id':12})
-        self.connection.commit.assert_called_once()
+        self.assertEqual(self.connection.commit.call_count,2)
 
     def test_historical_request_preserves_entered_date(self):
         data = mod.RequestWrite(machine_id=3, description='Historico', maintenance_type='CORRECTIVO',
@@ -323,6 +326,15 @@ class RequestTests(unittest.TestCase):
         self.connection.commit.assert_not_called()
         self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(received_at='2026-01-01T10:30'), usuario_id=1)
         self.assertEqual(self.cursor.execute.call_args.args[1], datetime(2026, 1, 1, 10, 30))
+
+    def test_admin_review_is_recorded_before_new_flow_receipt(self):
+        self.original['planning']['review_required'] = True
+        self.cursor.execute.return_value.fetchone.side_effect = [self.locked('POR_RECIBIR'), ('Administrador',)]
+        result = self.endpoint('/{request_id}/revisar')(5, mod.ReviewWrite(notes='Trabajo verificado'), usuario_id=9)
+        self.assertEqual(result, {'id': 5})
+        saved = json.loads(self.cursor.execute.call_args.args[1])
+        self.assertEqual(saved['admin_review']['notes'], 'Trabajo verificado')
+        self.assertEqual(saved['admin_review']['by'], 9)
 
     def test_historical_dates_reject_future_and_zoned_values(self):
         for value in ((mod.local_now() + timedelta(days=1)).isoformat(), '2026-01-01T09:00Z'):
@@ -483,12 +495,12 @@ class RequestTests(unittest.TestCase):
     def test_completion_without_optional_fields_still_consumes_parts(self):
         self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
         with patch.object(mod, 'part_stock', return_value=(('MALLA','Malla','u'), Decimal(2), None)):
-            self.endpoint('/{request_id}/completar')(5, self.completion(cause=None, recommendations='', delivery_conditions=None), usuario_id=2)
+            self.endpoint('/{request_id}/completar')(5, self.completion(cause='Ajuste requerido', recommendations='', delivery_conditions=None), usuario_id=2)
         update = self.cursor.execute.call_args.args
         execution = json.loads(update[2])
         self.assertEqual(execution['repair_started_at'],'2026-01-01T09:00:00')
         self.assertEqual(execution['repair_duration_minutes'],60)
-        self.assertIsNone(execution['cause'])
+        self.assertEqual(execution['cause'], 'Ajuste requerido')
         self.assertIsNone(execution['recommendations'])
         self.assertIsNone(execution['delivery_conditions'])
         self.assertEqual(len(execution['parts']), 1)

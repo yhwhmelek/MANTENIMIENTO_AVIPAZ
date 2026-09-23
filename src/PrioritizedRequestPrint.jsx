@@ -2,6 +2,7 @@ import {createPortal} from 'react-dom'
 import RequestExcelLayout from './RequestExcelLayout'
 import {PrioritySummary,benefits,criteria} from './RequestPriority'
 const time=v=>v?v.replace('T',' ').slice(0,16):'Pendiente'
+const elapsed=value=>value==null?'Pendiente':`${Math.floor(Number(value)/60)} h ${Math.round(Number(value))%60} min`
 
 export default function PrioritizedRequestPrint({row}){
   if(!row)return null
@@ -31,7 +32,7 @@ export default function PrioritizedRequestPrint({row}){
     <h3>{improvement?'ENTREGA DE LA MEJORA':'ENTREGA DEL TRABAJO REALIZADO AL OPERARIO'}</h3><p>RECIBIDO Y ACEPTADO POR: {row.received_at?(row.receiver_name||row.requester_name):'Pendiente'} · FECHA / HORA: {time(row.received_at)}</p>
     {block('RECOMENDACIONES',e.recommendations)}{block('CONDICIONES DE ENTREGA',e.delivery_conditions)}<p>Conformidad: {row.receipt_notes||'Pendiente de aceptación'} · Estado: {row.status}</p>
     <p className="improvement-signatures">FIRMA DE RECEPCIÓN: ____________________ · FIRMA DIRECTOR DE PRODUCCIÓN: ____________________</p>
-    <h3>TIEMPOS REGISTRADOS</h3><p>Detección: {time(r.detected_at)} · Trabajo: {time(e.repair_started_at)} — {time(e.repair_finished_at)}.</p><p>Parada: {time(e.stopped_at||r.stopped_at)} · Retorno: {time(e.restored_at)} · Espera de repuestos: {e.waiting_parts_minutes??'Sin registrar'} min.</p><p>Horómetro: {r.hour_meter??'No registrado'} — {e.hour_meter??'No registrado'}. Falla correctiva: {r.failure?'Sí':'No'}.</p>
+    <h3>TIEMPOS REGISTRADOS</h3><p>{r.maintenance_type==='CORRECTIVO'?'Solicitud':'Detección'}: {time(r.maintenance_type==='CORRECTIVO'?row.requested_at:r.detected_at)} · Trabajo: {time(e.repair_started_at)} — {time(e.repair_finished_at)}.</p><p>Tiempo real de trabajo: {elapsed(e.repair_duration_minutes)} · Tiempo de respuesta desde la solicitud hasta la entrega: {elapsed(e.response_time_minutes)}.</p><p>Parada: {time(e.stopped_at||r.stopped_at)} · Retorno: {time(e.restored_at)} · Espera de repuestos: {e.waiting_parts_minutes??'Sin registrar'} min.</p><p>Horómetro: {r.hour_meter??'No registrado'} — {e.hour_meter??'No registrado'}. Falla correctiva: {r.failure?'Sí':'No'}.</p>
     {!!r.priority_history?.length&&<><h3>TRAZABILIDAD DE VALIDACIÓN</h3>{r.priority_history.map((v,i)=><p key={i}>{v.at} · {v.name} · N {v.factors.n}, I {v.factors.i}, C {v.factors.c} · {v.justification}</p>)}</>}
     </section>
   </article>,document.body)

@@ -2,6 +2,7 @@ import { createPortal } from 'react-dom'
 import template from './maintenance-request-template.json'
 
 const stamp = value => value ? value.replace('T', ' ').slice(0, 16) : 'Pendiente'
+const elapsed = value => value == null ? 'Pendiente' : `${Math.floor(Number(value)/60)} h ${Math.round(Number(value))%60} min`
 const short = (value, limit = 170) => value && value.length > limit ? `${value.slice(0, limit)}… (ver anexo)` : value || ''
 
 export default function MaintenanceRequestPrint({ row }) {
@@ -34,8 +35,9 @@ export default function MaintenanceRequestPrint({ row }) {
       <p>Entrega registrada por {row.executor_name || row.assignee_name || 'Pendiente'}: {stamp(row.completed_at)}. Recepción confirmada por {row.received_at ? (row.receiver_name || row.requester_name) : 'Pendiente'}: {stamp(row.received_at)}.</p>
       <p>Confirmación de recepción: {row.receipt_notes || 'Pendiente'}</p>
       <h2>Datos para indicadores (hora local de Ecuador)</h2>
-      <p>Detección del daño / necesidad: {stamp(r.detected_at)}.</p>
+      <p>{r.maintenance_type==='CORRECTIVO'?'Solicitud':'Detección del daño / necesidad'}: {stamp(r.maintenance_type==='CORRECTIVO'?row.requested_at:r.detected_at)}.</p>
       <p>Planificado: {stamp(r.planned_start)} — {stamp(r.planned_end)}. Reparación: {stamp(e.repair_started_at)} — {stamp(e.repair_finished_at)}.</p>
+      <p>Tiempo real de trabajo: {elapsed(e.repair_duration_minutes)}. Tiempo de respuesta desde la solicitud hasta la entrega: {elapsed(e.response_time_minutes)}.</p>
       <p>Parada: {stamp(e.stopped_at || r.stopped_at)}. Retorno a servicio: {stamp(e.restored_at)}. Espera por repuestos: {e.waiting_parts_minutes ?? 'Sin registrar'} minutos.</p>
       <p>Horómetro inicial: {r.hour_meter ?? 'Sin registrar'}. Final: {e.hour_meter ?? 'Sin registrar'}. Criticidad F × I × U: {r.urgency*r.impact*r.risk}.</p>
       <p>Repuesto previsto: {r.requested_part_code || 'No indicado'}, cantidad: {r.requested_quantity || '—'}. Saldo al solicitar: {r.stock_at_request ?? 'No medido'}.</p>

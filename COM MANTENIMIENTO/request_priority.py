@@ -45,7 +45,9 @@ class PlannedSparePart(StrictModel):
 
 
 class PlanningWrite(StrictModel):
-    assigned_user_id: int = Field(gt=0)
+    assignment_type: Literal['USER', 'CONTRACTOR'] = 'USER'
+    assigned_user_id: int | None = Field(default=None, gt=0)
+    contractor_id: int | None = Field(default=None, gt=0)
     responsible: str = Field(default='', max_length=150)
     resources: str = Field(min_length=1, max_length=1000)
     permits: str = Field(min_length=1, max_length=1000)
@@ -61,6 +63,10 @@ class PlanningWrite(StrictModel):
 
     @model_validator(mode='after')
     def dates(self):
+        if self.assignment_type == 'USER' and (self.assigned_user_id is None or self.contractor_id is not None):
+            raise ValueError('Selecciona un usuario mecánico o eléctrico')
+        if self.assignment_type == 'CONTRACTOR' and (self.contractor_id is None or self.assigned_user_id is not None):
+            raise ValueError('Selecciona un contratista')
         if self.starts_at and self.starts_at.tzinfo:
             raise ValueError('Usa la fecha y hora local de Ecuador')
         duration = self.estimated_duration_days * 1440 + self.estimated_duration_minutes
@@ -164,13 +170,22 @@ def register_priority(app, write, locked, admin_user, now):
             original, request_row = load(cursor, request_id, data.expected_revision)
             require_validated(original)
             planning = data.model_dump(mode='json', exclude={'expected_revision', 'requested_parts'})
-            assigned = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre), Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1", data.assigned_user_id).fetchone()
-            if not assigned:
-                raise HTTPException(422, 'Selecciona un usuario activo para realizar la actividad')
-            if request_row[2] == 'EN_PROCESO' and request_row[1] != data.assigned_user_id:
+            planning['review_required'] = True
+            if data.assignment_type == 'USER':
+                assigned = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre), Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1", data.assigned_user_id).fetchone()
+                if not assigned or assigned[1] not in ('MECANICO', 'ELECTRICO'):
+                    raise HTTPException(422, 'Selecciona un usuario activo con rol Mecánico o Eléctrico')
+                planning['responsible'] = assigned[0]
+                planning['responsible_role'] = assigned[1]
+            else:
+                contractor = cursor.execute('SELECT Name,Specialty FROM dbo.Contractors WHERE ContractorId=? AND Active=1', data.contractor_id).fetchone()
+                if not contractor:
+                    raise HTTPException(422, 'Selecciona un contratista activo')
+                planning['responsible'] = contractor[0]
+                planning['responsible_role'] = 'CONTRATISTA'
+                planning['contractor_specialty'] = contractor[1]
+            if request_row[2] == 'EN_PROCESO':
                 raise HTTPException(409, 'No se puede cambiar el ejecutor después de iniciar el trabajo')
-            planning['responsible'] = assigned[0]
-            planning['responsible_role'] = assigned[1]
             planning['requested_parts'] = []
             selected_spare_ids = set()
             for selected in data.requested_parts:
