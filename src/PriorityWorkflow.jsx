@@ -1,4 +1,4 @@
-import {useState} from 'react'
+import {useEffect,useRef,useState} from 'react'
 import {NICFields,PrioritySummary,checks,feasibility,conditions} from './RequestPriority'
 import SparePartPlanningPicker from './SparePartPlanningPicker'
 
@@ -10,11 +10,12 @@ function savedDuration(plan){
   return {days:0,minutes:60}
 }
 
-export default function PriorityWorkflow({row,isAdmin,request,onSaved}){
+export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMode='',onCancel,compact=false}){
   const [mode,setMode]=useState(''),[form,setForm]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const [showParts,setShowParts]=useState(false)
   const [users,setUsers]=useState([])
   const [contractors,setContractors]=useState([])
+  const opened=useRef(false)
   const r=row.request_data,improvement=r.maintenance_type==='MEJORA_TECNICA'
   async function start(kind){
     setError('')
@@ -34,12 +35,13 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved}){
     try{
       const payload=mode==='plan'?{...form,assigned_user_id:form.assignment_type==='USER'?Number(form.assigned_user_id):null,contractor_id:form.assignment_type==='CONTRACTOR'?Number(form.contractor_id):null,starts_at:form.starts_at||null,estimated_duration_days:Number(form.estimated_duration_days),estimated_duration_minutes:Number(form.estimated_duration_minutes),requested_parts:(form.requested_parts||[]).map(part=>({machine_spare_part_id:Number(part.machine_spare_part_id),quantity:String(part.quantity)}))}:form
       await request(`/solicitudes-mantenimiento/${row.id}/${mode==='plan'?'programar':'evaluar'}`,{method:'POST',body:JSON.stringify(payload)})
-      setMode('');onSaved()
+      setMode('');onSaved();onCancel?.()
     }catch(err){setError(err.message)}finally{setBusy(false)}
   }
-  return <section className="request-detail"><PrioritySummary row={row}/>
+  useEffect(()=>{if(initialMode&&!opened.current){opened.current=true;start(initialMode)}},[initialMode,row.id])
+  return <section className="request-detail">{!compact&&<PrioritySummary row={row}/>}
     {showParts&&<SparePartPlanningPicker request={request} requestMachineId={r.machine_id} initial={form.requested_parts||[]} onChange={parts=>change('requested_parts',parts)} onClose={()=>setShowParts(false)}/>}
-    {isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&!mode&&<div className="request-toolbar"><button type="button" disabled={busy} onClick={()=>start('evaluate')}>{r.priority_validation?'Reevaluar prioridad':'Validar prioridad y evaluar'}</button><button type="button" disabled={busy||!r.priority_validation} onClick={()=>start('plan')}>Programar actividad</button></div>}
+    {!compact&&isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&!mode&&<div className="request-toolbar"><button type="button" disabled={busy} onClick={()=>start('evaluate')}>{r.priority_validation?'Reevaluar prioridad':'Validar prioridad y evaluar'}</button><button type="button" disabled={busy||!r.priority_validation} onClick={()=>start('plan')}>Programar actividad</button></div>}
     {error&&<p role="alert">{error}</p>}
     {mode&&<form onSubmit={save}><fieldset disabled={busy} className="request-fields"><h3>{mode==='evaluate'?'Evaluación oficial de Mantenimiento':'Programación de la actividad'}</h3>
       {mode==='evaluate'?<><p>Confirma o ajusta los factores. Los datos originales del solicitante se conservan.</p><NICFields value={form.factors} onChange={value=>change('factors',value)}/>
@@ -53,7 +55,7 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved}){
         <label>Duración estimada: días<input type="number" min="0" max="3650" step="1" required value={form.estimated_duration_days} onChange={e=>change('estimated_duration_days',e.target.value)}/></label>
         <label>Duración estimada: minutos adicionales<input type="number" min="0" max="1439" step="1" required value={form.estimated_duration_minutes} onChange={e=>change('estimated_duration_minutes',e.target.value)}/><span className="field-help">Entre 0 y 1439 minutos, adicionales a los días.</span></label>
         <label>Observaciones / condición pendiente<textarea required={form.condition!=='LISTA'} maxLength={1000} value={form.notes} onChange={e=>change('notes',e.target.value)}/></label></div></>}
-      <div className="modal-actions"><button type="button" onClick={()=>setMode('')}>Cancelar</button><button className="primary-action">{busy?'Guardando…':'Guardar'}</button></div>
+      <div className="modal-actions"><button type="button" onClick={()=>{setMode('');onCancel?.()}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':'Guardar'}</button></div>
     </fieldset></form>}
     {!!r.priority_history?.length&&<details><summary>Historial de evaluaciones ({r.priority_history.length})</summary>{r.priority_history.map((v,i)=><p key={i}>{v.at} · {v.name} · N {v.factors.n}, I {v.factors.i}, C {v.factors.c} · {v.justification}</p>)}</details>}
     {!!r.planning_history?.length&&<details><summary>Historial de programación ({r.planning_history.length})</summary>{r.planning_history.map((p,i)=>{const duration=savedDuration(p);return <div key={i}><p>{p.at} · {p.name} · {p.responsible} · {conditions[p.condition]} · Inicio: {p.starts_at||'Sin fecha'} · Duración: {duration.days} día(s) y {duration.minutes} minuto(s) · Recursos: {p.resources} · Permisos: {p.permits} · Ventana: {p.window} · {p.notes}</p>{!!p.requested_parts?.length&&<ul>{p.requested_parts.map(part=><li key={part.machine_spare_part_id}>{part.internal_code} · {part.description}: {part.quantity} {part.unit_of_measure}</li>)}</ul>}</div>})}</details>}

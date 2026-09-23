@@ -2,18 +2,27 @@ import {useEffect,useRef,useState} from 'react'
 import {PriorityBadge,levels,conditions} from './RequestPriority'
 import {filterPrioritizedActivities} from './prioritizedActivityFilter'
 import PrioritizedActivitiesPrint from './PrioritizedActivitiesPrint'
+import PriorityWorkflow from './PriorityWorkflow'
 
 const typeLabel={MEJORA_TECNICA:'Mejora técnica',CORRECTIVO:'Correctivo',PREVENTIVO:'Preventivo'}
 
-export default function PrioritizedActivities({rows,plants,towers,plantFilter,setPlantFilter,statusFilter,apiUrl,token,onOpen,onEdit,canEdit,busy}){
+export default function PrioritizedActivities({rows,plants,towers,plantFilter,setPlantFilter,statusFilter,apiUrl,token,onOpen,onEdit,canEdit,isAdmin,onSaved,busy}){
   const [level,setLevel]=useState(''),[type,setType]=useState(''),[towerId,setTowerId]=useState('')
   const [report,setReport]=useState(null),[printBusy,setPrintBusy]=useState(false),[printError,setPrintError]=useState('')
+  const [planningRow,setPlanningRow]=useState(null)
   const printAbort=useRef(null)
   const scope=filterPrioritizedActivities(rows,{plantId:plantFilter,towerId})
   const sorted=filterPrioritizedActivities(rows,{level,type,plantId:plantFilter,towerId})
   const availableTowers=towers.filter(t=>!plantFilter||String(t.plant_id)===String(plantFilter))
 
   useEffect(()=>()=>printAbort.current?.abort(),[])
+
+  async function request(path,options={}){
+    const response=await fetch(`${apiUrl}${path}`,{...options,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}})
+    const data=await response.json().catch(()=>({}))
+    if(!response.ok)throw new Error(Array.isArray(data.detail)?'Revisa los datos ingresados.':data.detail||'No se pudo actualizar la programación.')
+    return data
+  }
 
   useEffect(()=>{
     if(!report)return
@@ -80,7 +89,8 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
     </div>
     {printError&&<p role="status">{printError}</p>}
     <p role="status">{sorted.length} actividades con los filtros seleccionados.</p>
-    <div className="table-scroll"><table className="prioritized-activities-table"><colgroup><col style={{width:'11%'}}/><col style={{width:'13%'}}/><col style={{width:'22%'}}/><col style={{width:'13%'}}/><col style={{width:'11%'}}/><col style={{width:'11%'}}/><col style={{width:'19%'}}/></colgroup><thead><tr><th>Acción</th><th>Orden / solicitud</th><th>Actividad</th><th>Prioridad oficial</th><th>N / I / C validados</th><th>Estado</th><th>Programación</th></tr></thead><tbody>{sorted.map((row,index)=>{const r=row.request_data,v=r.priority_validation?.factors,p=r.planning;return <tr key={row.id}><td><button disabled={busy} onClick={()=>onOpen(row.id)}>Ver actividad</button>{r.maintenance_type==='MEJORA_TECNICA'&&<button className="secondary-action" disabled={busy||!canEdit||row.status!=='PENDIENTE'} title={!canEdit?'Solo el personal de mantenimiento puede modificar':row.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>onEdit(row.id)}>Modificar</button>}</td><td>{index+1}. #{row.id}<br/>{row.requested_at.replace('T',' ').slice(0,16)}</td><td>{typeLabel[r.maintenance_type]||r.maintenance_type}<br/>{r.target_area||r.machine_name}<br/>{[r.plant_name,r.tower_name].filter(Boolean).join(' / ')}<br/>{r.description}</td><td><PriorityBadge priority={row.priority}/>{row.priority?.escalated&&<p>C = 4: mínimo ALTO</p>}</td><td>{v?`${v.n} / ${v.i} / ${v.c}`:'Sin validar'}</td><td>{row.status==='POR_RECIBIR'?'Pendiente de aceptación':row.status==='EN_PROCESO'?'En proceso':'Pendiente'}</td><td>{p?<>{p.responsible}<br/>{conditions[p.condition]}<br/>{p.starts_at?.replace('T',' ')||'Sin fecha'}<br/>{p.notes}</>:'Por programar'}</td></tr>})}</tbody></table></div>
+    {planningRow&&<section className="request-detail" aria-label={`Editar programación de solicitud ${planningRow.id}`}><h3>Editar programación · Solicitud #{planningRow.id}</h3><p>Cambia la fecha de inicio, el tiempo estimado y el responsable antes de iniciar el trabajo.</p><PriorityWorkflow key={planningRow.id} row={planningRow} isAdmin={isAdmin} request={request} initialMode="plan" compact onCancel={()=>setPlanningRow(null)} onSaved={()=>{setPlanningRow(null);onSaved()}}/></section>}
+    <div className="table-scroll"><table className="prioritized-activities-table"><colgroup><col style={{width:'11%'}}/><col style={{width:'13%'}}/><col style={{width:'22%'}}/><col style={{width:'13%'}}/><col style={{width:'11%'}}/><col style={{width:'11%'}}/><col style={{width:'19%'}}/></colgroup><thead><tr><th>Acción</th><th>Orden / solicitud</th><th>Actividad</th><th>Prioridad oficial</th><th>N / I / C validados</th><th>Estado</th><th>Programación</th></tr></thead><tbody>{sorted.map((row,index)=>{const r=row.request_data,v=r.priority_validation?.factors,p=r.planning;return <tr key={row.id}><td><button disabled={busy} onClick={()=>onOpen(row.id)}>Ver actividad</button>{isAdmin&&<button type="button" className="secondary-action" disabled={busy||row.status!=='PENDIENTE'||!r.priority_validation} title={row.status!=='PENDIENTE'?'La programación se bloquea después de iniciar':!r.priority_validation?'Primero valida la prioridad':'Editar fecha, duración y responsable'} onClick={()=>setPlanningRow(row)}>{p?'Editar programación':'Programar'}</button>}{r.maintenance_type==='MEJORA_TECNICA'&&<button className="secondary-action" disabled={busy||!canEdit||row.status!=='PENDIENTE'} title={!canEdit?'Solo el personal de mantenimiento puede modificar':row.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>onEdit(row.id)}>Modificar</button>}</td><td>{index+1}. #{row.id}<br/>{row.requested_at.replace('T',' ').slice(0,16)}</td><td>{typeLabel[r.maintenance_type]||r.maintenance_type}<br/>{r.target_area||r.machine_name}<br/>{[r.plant_name,r.tower_name].filter(Boolean).join(' / ')}<br/>{r.description}</td><td><PriorityBadge priority={row.priority}/>{row.priority?.escalated&&<p>C = 4: mínimo ALTO</p>}</td><td>{v?`${v.n} / ${v.i} / ${v.c}`:'Sin validar'}</td><td>{row.status==='POR_RECIBIR'?'Pendiente de aceptación':row.status==='EN_PROCESO'?'En proceso':'Pendiente'}</td><td>{p?<>{p.responsible}<br/>{conditions[p.condition]}<br/>{p.starts_at?.replace('T',' ')||'Sin fecha'}<br/>{p.notes}</>:'Por programar'}</td></tr>})}</tbody></table></div>
     {!sorted.length&&<p>No hay actividades con estos filtros.</p>}
     <PrioritizedActivitiesPrint report={report}/>
   </section>
