@@ -333,3 +333,8 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .schedule-event.proposed{z-index:3;border-color:#15803d;background:#dcfce7;color:#14532d}
 .schedule-event.conflict{border-color:#b91c1c;background:#fee2e2;color:#7f1d1d}
 .schedule-event strong,.schedule-event span,.schedule-event small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.schedule-legend{display:flex;flex-wrap:wrap;gap:.5rem;margin:.7rem 0;padding:.65rem;border:1px solid #d8dee8;border-radius:8px;background:#f8fafc}
+.schedule-legend-item{display:grid;grid-template-columns:18px auto;column-gap:.4rem;align-items:center;padding:.3rem .5rem;border-radius:6px;background:#fff;box-shadow:0 1px 2px #64748b22;font-size:.78rem}
+.schedule-legend-item i{grid-row:1 / span 2;width:18px;height:18px;border:2px solid;border-radius:4px}
+.schedule-legend-item small{color:#64748b}
+.schedule-legend-item .conflict-key{background:#fee2e2;border:3px solid #dc2626}
