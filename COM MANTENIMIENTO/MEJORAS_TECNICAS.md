@@ -2,19 +2,7 @@
 
 ## Solicitudes HACCP de Santa Fe (15/09/2026)
 
-Las 29 hojas del libro entregado se extrajeron a `src/santafe-haccp-2026.json`.
-Con la aplicación y la API actualizadas, un administrador abre **Solicitudes** y
-pulsa **Cargar 29 mejoras HACCP · Santa Fe**. La carga crea solicitudes pendientes
-en la planta Santa Fe sin asignarles torre ni máquina; puede repetirse sin duplicar
-registros. El filtro **Planta** permite verlas por separado. Cada solicitud muestra
-**Completar / corregir datos** mientras esté pendiente para llenar beneficios,
-observaciones y otros datos que faltaban en el libro.
-
-La carga requiere la migración 010 y que exista la planta `Santa Fe` (migración
-007). Conserva el nombre original `Equipo HACCP` y la fecha y hora de cada hoja;
-la cuenta administradora que ejecuta la carga queda registrada como usuario del
-sistema. No se inventan torre, máquina, prioridad, ejecución ni firmas.
-
+Las 29 solicitudes y sus fotos ya fueron incorporadas a la planta Santa Fe. La aplicación ya no expone funciones de importación para evitar que esta carga inicial se repita. Los registros existentes conservan su solicitante, fecha, datos técnicos y fotos.
 Mientras la mejora siga pendiente, un administrador u operador puede pulsar
 **Modificar** en la lista de actividades, en el listado general o en la parte
 superior del detalle para editar la
@@ -25,14 +13,6 @@ fotos de máquinas, elementos, placas de motor y repuestos en `IMAGE_DIR`; si no
 se configura, usa `uploads/solicitudes` junto al backend. Las imágenes ya
 registradas en las rutas antiguas siguen disponibles para consulta. Conviene
 incluir la carpeta nueva y las anteriores en los respaldos del servidor.
-
-El paquete `data/santafe_haccp_photos.zip` conserva las fotos originales de las
-29 hojas, sin el logotipo repetido. Tras actualizar la API y publicar la app,
-un administrador pulsa **Añadir fotos del Excel HACCP · Santa Fe** una vez.
-Se asocian 37 fotos (36 archivos distintos) por `source_key`; algunas hojas
-tienen dos o tres imágenes. La operación se puede repetir sin duplicados y
-conserva las fotos agregadas manualmente. Las rutas se guardan en `RequestData`
-y los archivos en `IMAGE_DIR`, sin una nueva migración SQL.
 
 Actualización 16/09/2026: ver `PRIORIZACION_NIC.md`. El solicitante registra
 beneficios y preevaluación NIC; la verificación técnica pertenece a Mantenimiento.

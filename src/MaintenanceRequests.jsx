@@ -5,7 +5,6 @@ import PrioritizedRequestPrint from './PrioritizedRequestPrint'
 import TechnicalImprovementFields, {evaluationFields} from './TechnicalImprovementFields'
 import ImageAttachment from './ImageAttachment'
 import { imageToDataUrl } from './imageUpload'
-import santafeHaccp from './santafe-haccp-2026.json'
 import { useEffect, useRef, useState } from 'react'
 import { Bell, X } from 'lucide-react'
 import OperatingPeriods from './OperatingPeriods'
@@ -162,19 +161,6 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       window.dispatchEvent(new Event('stock-updated'));window.dispatchEvent(new Event('maintenance-flow-deleted'))
     }catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
-  async function importSantafe(){
-    if(submitting.current)return
-    submitting.current=true;setBusy(true);setFormError('')
-    try{const result=await request('/solicitudes-mantenimiento/importar-santafe-haccp',{method:'POST',body:JSON.stringify(santafeHaccp)});setVersion(v=>v+1);setShowBacklog(false);setPlantFilter(String(plants.find(p=>p.name==='Santa Fe')?.plant_id||''));setFormError(`${result.created} solicitudes de Santa Fe incorporadas; ${result.existing} ya existían.`)}
-    catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
-  }
-  function startWork(){mutate(`/${row.id}/atender`,{})}
-  async function importSantafePhotos(){
-    if(submitting.current)return
-    submitting.current=true;setBusy(true);setFormError('')
-    try{const result=await request('/solicitudes-mantenimiento/importar-fotos-santafe-haccp',{method:'POST'});setVersion(v=>v+1);setFormError(`${result.photos_added} fotos añadidas a ${result.requests_updated} solicitudes de Santa Fe.`)}
-    catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
-  }
   async function saveImprovement(payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
@@ -221,7 +207,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
       <button className="secondary-action" disabled={busy||!!form} onClick={()=>setShowPeriods(v=>!v)}>{showPeriods?'Volver a solicitudes':'Horas de operación de máquinas (MTBF)'}</button>
       {showPeriods ? <OperatingPeriods request={request} machines={machines} canCreate={canCreate&&catalogReady}/> : <>
-      <div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}{isAdmin&&<button className="secondary-action" disabled={busy||!catalogReady} onClick={importSantafe}>Cargar 29 mejoras HACCP · Santa Fe</button>}{isAdmin&&<button className="secondary-action" disabled={busy} onClick={importSantafePhotos}>Añadir fotos del Excel HACCP · Santa Fe</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button><label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>{!showBacklog&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}</div>
+      <div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button><label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>{!showBacklog&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}</div>
       {error&&<p role="alert">{error}</p>}{formError&&<p role="alert">{formError}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
       {!form&&!row&&!showPeriods&&!!assignedWork.length&&<section className="request-detail"><h3>Mis trabajos pendientes ({assignedWork.length})</h3>{assignedWork.map(work=><div className="request-line" key={work.id}><span><strong>Solicitud #{work.id}</strong> · {work.request_data.target_area||work.request_data.machine_name}<br/>{work.status==='PENDIENTE'?'Programada por iniciar':'En proceso'} · {work.request_data.description}</span><button type="button" className="primary-action" onClick={()=>{setSelected(work.id);setFormError('')}}>Abrir trabajo</button></div>)}</section>}
       {!form&&!row&&!showPeriods&&!!pendingReceipts.length&&<section className="request-detail"><h3>Trabajos pendientes de mi conformidad ({pendingReceipts.length})</h3>{pendingReceipts.map(work=><div className="request-line" key={work.id}><span><strong>Solicitud #{work.id}</strong> · {work.request_data.description}</span><button type="button" className="primary-action" onClick={()=>{setSelected(work.id);setFormError('')}}>Revisar entrega</button></div>)}</section>}

@@ -3,7 +3,6 @@ import json
 import base64
 import binascii
 import re
-import zipfile
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -205,18 +204,6 @@ class ReceiptWrite(StrictModel):
 
 class ReviewWrite(StrictModel):
     notes: str = Field(default='Trabajo revisado y aprobado', max_length=1000)
-
-
-class ImportedImprovement(StrictModel):
-    source_key: str = Field(pattern=r'^SANTAFE-HACCP-2026-\d{2}$')
-    source_sheet: str
-    source_requester: str
-    requested_at: datetime
-    requesting_area: str = Field(min_length=1, max_length=150)
-    target_area: str = Field(min_length=1, max_length=200)
-    description: str = Field(min_length=1, max_length=1000)
-    improvement_proposal: str = Field(min_length=1, max_length=2000)
-    technical_evaluation: TechnicalEvaluation
 
 
 class ImprovementUpdate(StrictModel):
@@ -447,85 +434,6 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         return sorted((row for row in list_requests(usuario_id) if row['status'] != 'CERRADA'), key=backlog_key)
 
     register_priority(app, write, locked, admin_user, local_now)
-
-    @app.post('/solicitudes-mantenimiento/importar-santafe-haccp')
-    def import_santafe_haccp(items: list[ImportedImprovement], usuario_id: int = Depends(admin_user)):
-        if len(items) != 29 or len({item.source_key for item in items}) != 29:
-            raise HTTPException(422, 'Se esperan las 29 hojas únicas del archivo HACCP')
-        def operation(cursor):
-            plant = cursor.execute("SELECT PlantId, Name FROM dbo.Plants WITH (HOLDLOCK) WHERE Name=N'Santa Fe'").fetchone()
-            if not plant:
-                raise HTTPException(422, 'Primero registra la planta Santa Fe')
-            existing = cursor.execute("SELECT RequestData FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestData LIKE '%SANTAFE-HACCP-2026-%'").fetchall()
-            keys = {json.loads(row[0]).get('source_key') for row in existing}
-            created = 0
-            for item in items:
-                if item.source_key in keys:
-                    continue
-                data = item.model_dump(mode='json')
-                data.update(plant_id=plant[0], plant_name=plant[1], tower_id=None, tower_name=None,
-                            machine_id=None, machine_code='N/A', machine_name=item.target_area,
-                            area=item.target_area, maintenance_type='MEJORA_TECNICA',
-                            detected_at=item.requested_at.isoformat(), failure=False,
-                            equipment_stopped=False, benefits=[], benefit_notes='',
-                            requested_parts=[], preevaluation=None)
-                cursor.execute('INSERT INTO dbo.MaintenanceRequests (MachineId,RequestedBy,RequestedAt,RequestData) VALUES (NULL,?,?,?)',
-                               usuario_id, item.requested_at, json.dumps(data, ensure_ascii=False))
-                created += 1
-            return {'created': created, 'existing': len(items)-created}
-        return write(operation)
-
-    @app.post('/solicitudes-mantenimiento/importar-fotos-santafe-haccp')
-    def import_santafe_photos(usuario_id: int = Depends(admin_user)):
-        archive_path = Path(__file__).parent / 'data' / 'santafe_haccp_photos.zip'
-        if not archive_path.is_file():
-            raise HTTPException(503, 'No se encontró el paquete de fotos HACCP en el servidor')
-        created_paths = []
-        def operation(cursor):
-            existing = cursor.execute("SELECT RequestId, RequestData FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestData LIKE '%SANTAFE-HACCP-2026-%'").fetchall()
-            requests = {}
-            for request_id, request_json in existing:
-                payload = json.loads(request_json)
-                if payload.get('source_key'):
-                    requests[payload['source_key']] = (request_id, payload)
-            with zipfile.ZipFile(archive_path) as archive:
-                manifest = json.loads(archive.read('manifest.json'))
-                if len(manifest) != 29 or set(manifest) != set(requests):
-                    raise HTTPException(409, 'Las 29 solicitudes HACCP deben existir antes de cargar sus fotos')
-                updated = 0
-                for source_key, entries in manifest.items():
-                    request_id, payload = requests[source_key]
-                    paths = request_photo_paths(payload)
-                    imported = set(payload.get('source_photo_keys') or [])
-                    added = 0
-                    for name in entries:
-                        if name in imported:
-                            continue
-                        if not re.fullmatch(r'photos/image\d+\.(png|jpe?g|webp)', name):
-                            raise HTTPException(422, 'El paquete contiene una ruta de foto inválida')
-                        raw = archive.read(name)
-                        if len(raw) > 10 * 1024 * 1024:
-                            raise HTTPException(413, 'Una foto supera 10 MB')
-                        kind = 'jpeg' if name.lower().endswith(('.jpeg','.jpg')) else name.rsplit('.',1)[-1]
-                        path = save_request_image(f'data:image/{kind};base64,'+base64.b64encode(raw).decode('ascii'))
-                        created_paths.append(path)
-                        paths.append(path)
-                        imported.add(name)
-                        added += 1
-                    if added:
-                        payload['image_paths'] = paths
-                        payload['image_path'] = paths[0]
-                        payload['source_photo_keys'] = sorted(imported)
-                        cursor.execute('UPDATE dbo.MaintenanceRequests SET RequestData=? WHERE RequestId=?',
-                                       json.dumps(payload, ensure_ascii=False), request_id)
-                        updated += 1
-                return {'photos_added': len(created_paths), 'requests_updated': updated}
-        try:
-            return write(operation)
-        except Exception:
-            for path in created_paths:
-                Path(path).unlink(missing_ok=True)
-            raise
 
     @app.put('/solicitudes-mantenimiento/{request_id}/mejora')
     def update_improvement(request_id: int, data: ImprovementUpdate, usuario_id: int = Depends(active_user)):
