@@ -1,4 +1,5 @@
 import {useEffect,useRef,useState} from 'react'
+import {createPortal} from 'react-dom'
 import {PriorityBadge,levels,conditions} from './RequestPriority'
 import {filterPrioritizedActivities} from './prioritizedActivityFilter'
 import PrioritizedActivitiesPrint from './PrioritizedActivitiesPrint'
@@ -11,11 +12,18 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
   const [report,setReport]=useState(null),[printBusy,setPrintBusy]=useState(false),[printError,setPrintError]=useState('')
   const [planningRow,setPlanningRow]=useState(null)
   const printAbort=useRef(null)
+  const planningDialog=useRef(null)
   const scope=filterPrioritizedActivities(rows,{plantId:plantFilter,towerId})
   const sorted=filterPrioritizedActivities(rows,{level,type,plantId:plantFilter,towerId})
   const availableTowers=towers.filter(t=>!plantFilter||String(t.plant_id)===String(plantFilter))
 
   useEffect(()=>()=>printAbort.current?.abort(),[])
+  useEffect(()=>{
+    const dialog=planningDialog.current
+    if(!dialog)return
+    if(planningRow&&!dialog.open)dialog.showModal()
+    if(!planningRow&&dialog.open)dialog.close()
+  },[planningRow])
 
   async function request(path,options={}){
     const response=await fetch(`${apiUrl}${path}`,{...options,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}})
@@ -89,9 +97,9 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
     </div>
     {printError&&<p role="status">{printError}</p>}
     <p role="status">{sorted.length} actividades con los filtros seleccionados.</p>
-    {planningRow&&<section className="request-detail" aria-label={`Editar programación de solicitud ${planningRow.id}`}><h3>Editar programación · Solicitud #{planningRow.id}</h3><p>Cambia la fecha de inicio, el tiempo estimado y el responsable antes de iniciar el trabajo.</p><PriorityWorkflow key={planningRow.id} row={planningRow} isAdmin={isAdmin} request={request} initialMode="plan" compact onCancel={()=>setPlanningRow(null)} onSaved={()=>{setPlanningRow(null);onSaved()}}/></section>}
     <div className="table-scroll"><table className="prioritized-activities-table"><colgroup><col style={{width:'11%'}}/><col style={{width:'13%'}}/><col style={{width:'22%'}}/><col style={{width:'13%'}}/><col style={{width:'11%'}}/><col style={{width:'11%'}}/><col style={{width:'19%'}}/></colgroup><thead><tr><th>Acción</th><th>Orden / solicitud</th><th>Actividad</th><th>Prioridad oficial</th><th>N / I / C validados</th><th>Estado</th><th>Programación</th></tr></thead><tbody>{sorted.map((row,index)=>{const r=row.request_data,v=r.priority_validation?.factors,p=r.planning;return <tr key={row.id}><td><button disabled={busy} onClick={()=>onOpen(row.id)}>Ver actividad</button>{isAdmin&&<button type="button" className="secondary-action" disabled={busy||row.status!=='PENDIENTE'||!r.priority_validation} title={row.status!=='PENDIENTE'?'La programación se bloquea después de iniciar':!r.priority_validation?'Primero valida la prioridad':'Editar fecha, duración y responsable'} onClick={()=>setPlanningRow(row)}>{p?'Editar programación':'Programar'}</button>}{r.maintenance_type==='MEJORA_TECNICA'&&<button className="secondary-action" disabled={busy||!canEdit||row.status!=='PENDIENTE'} title={!canEdit?'Solo el personal de mantenimiento puede modificar':row.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>onEdit(row.id)}>Modificar</button>}</td><td>{index+1}. #{row.id}<br/>{row.requested_at.replace('T',' ').slice(0,16)}</td><td>{typeLabel[r.maintenance_type]||r.maintenance_type}<br/>{r.target_area||r.machine_name}<br/>{[r.plant_name,r.tower_name].filter(Boolean).join(' / ')}<br/>{r.description}</td><td><PriorityBadge priority={row.priority}/>{row.priority?.escalated&&<p>C = 4: mínimo ALTO</p>}</td><td>{v?`${v.n} / ${v.i} / ${v.c}`:'Sin validar'}</td><td>{row.status==='POR_RECIBIR'?'Pendiente de aceptación':row.status==='EN_PROCESO'?'En proceso':'Pendiente'}</td><td>{p?<>{p.responsible}<br/>{conditions[p.condition]}<br/>{p.starts_at?.replace('T',' ')||'Sin fecha'}<br/>{p.notes}</>:'Por programar'}</td></tr>})}</tbody></table></div>
     {!sorted.length&&<p>No hay actividades con estos filtros.</p>}
     <PrioritizedActivitiesPrint report={report}/>
+    {createPortal(<dialog ref={planningDialog} className="request-workspace" aria-labelledby="planning-dialog-title" onCancel={event=>{event.preventDefault();setPlanningRow(null)}} onClose={()=>setPlanningRow(null)}>{planningRow&&<><div className="modal-header"><h2 id="planning-dialog-title">{planningRow.request_data.planning?'Editar programación':'Programar actividad'} · Solicitud #{planningRow.id}</h2><button type="button" aria-label="Cerrar programación" onClick={()=>setPlanningRow(null)}>Cerrar</button></div><p>Cambia la fecha de inicio, el tiempo estimado y el responsable antes de iniciar el trabajo.</p><PriorityWorkflow key={planningRow.id} row={planningRow} isAdmin={isAdmin} request={request} initialMode="plan" compact onCancel={()=>setPlanningRow(null)} onSaved={()=>{setPlanningRow(null);onSaved()}}/></>}</dialog>,document.body)}
   </section>
 }
