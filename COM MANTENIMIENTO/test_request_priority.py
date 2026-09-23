@@ -32,6 +32,12 @@ class PriorityTests(unittest.TestCase):
         return PlanningWrite(**(dict(assigned_user_id=9,responsible='Tecnico',resources='Rodamiento y personal',permits='No aplica',window='Parada de linea',
             condition='ESPERA_REPUESTOS',notes='Compra pendiente',expected_revision=0)|changes))
 
+    def test_optional_planning_text_defaults_to_na(self):
+        omitted=PlanningWrite(assigned_user_id=9,condition='ESPERA_RECURSOS',expected_revision=0)
+        blank=self.plan(resources=' ',permits='',window='   ',notes='')
+        for planning in (omitted,blank):
+            self.assertEqual((planning.resources,planning.permits,planning.window,planning.notes),('N/A','N/A','N/A','N/A'))
+
     def test_all_64_combinations_match_matrix_maps(self):
         cases=json.loads(Path(__file__).with_name('priority_matrix_reference.json').read_text(encoding='utf-8'))['cases']
         self.assertEqual(len(cases),64)

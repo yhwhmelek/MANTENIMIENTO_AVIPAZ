@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from decimal import Decimal
 
 
@@ -49,17 +49,22 @@ class PlanningWrite(StrictModel):
     assigned_user_id: int | None = Field(default=None, gt=0)
     contractor_id: int | None = Field(default=None, gt=0)
     responsible: str = Field(default='', max_length=150)
-    resources: str = Field(min_length=1, max_length=1000)
-    permits: str = Field(min_length=1, max_length=1000)
-    window: str = Field(min_length=1, max_length=1000)
+    resources: str = Field(default='N/A', min_length=1, max_length=1000)
+    permits: str = Field(default='N/A', min_length=1, max_length=1000)
+    window: str = Field(default='N/A', min_length=1, max_length=1000)
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     estimated_duration_days: int = Field(default=0, ge=0, le=3650)
     estimated_duration_minutes: int = Field(default=0, ge=0, le=1439)
     condition: Literal['LISTA', 'ESPERA_REPUESTOS', 'ESPERA_RECURSOS', 'ESPERA_VENTANA', 'ESPERA_PERMISOS']
-    notes: str = Field(default='', max_length=1000)
+    notes: str = Field(default='N/A', max_length=1000)
     requested_parts: list[PlannedSparePart] = Field(default_factory=list, max_length=30)
     expected_revision: int = Field(ge=0)
+
+    @field_validator('resources', 'permits', 'window', 'notes', mode='before')
+    @classmethod
+    def optional_text(cls, value):
+        return value if isinstance(value, str) and value.strip() else 'N/A'
 
     @model_validator(mode='after')
     def dates(self):
@@ -83,8 +88,6 @@ class PlanningWrite(StrictModel):
             raise ValueError('Indica la fecha de inicio de la actividad')
         if self.condition == 'LISTA' and self.starts_at is None:
             raise ValueError('Indica la fecha de inicio y el tiempo estimado')
-        if self.condition != 'LISTA' and not self.notes:
-            raise ValueError('Describe la condicion pendiente de programacion')
         if len({part.machine_spare_part_id for part in self.requested_parts}) != len(self.requested_parts):
             raise ValueError('Selecciona cada repuesto una sola vez')
         return self
