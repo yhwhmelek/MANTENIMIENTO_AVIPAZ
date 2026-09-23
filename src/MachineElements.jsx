@@ -16,6 +16,8 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
   const [specElement, setSpecElement] = useState(null)
   const [items, setItems] = useState([])
   const [machines, setMachines] = useState([])
+  const [plants, setPlants] = useState([])
+  const [towers, setTowers] = useState([])
   const [types, setTypes] = useState([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -26,6 +28,8 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
   const [machineId, setMachineId] = useState('')
   const [parentId, setParentId] = useState('')
   const [filter, setFilter] = useState('')
+  const [plantFilter, setPlantFilter] = useState('')
+  const [towerFilter, setTowerFilter] = useState('')
   const [nameSearch, setNameSearch] = useState('')
   const [photo, setPhoto] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -33,12 +37,12 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
-    Promise.all(['elementos-maquinas', 'maquinas', 'tipos-elementos'].map(async (path) => {
+    Promise.all(['elementos-maquinas', 'maquinas', 'tipos-elementos', 'plantas', 'torres'].map(async (path) => {
       const response = await fetch(`${apiUrl}/${path}`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
       const data = await response.json()
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'No se pudieron cargar los datos.')
       return data
-    })).then(([elements, machines, types]) => { setItems(elements); setMachines(machines); setTypes(types) })
+    })).then(([elements, machines, types, plants, towers]) => { setItems(elements); setMachines(machines); setTypes(types); setPlants(plants); setTowers(towers) })
       .catch((error) => { if (error.name !== 'AbortError') setMessage(error.message) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
@@ -91,7 +95,8 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Revisa los datos ingresados.')
       setItems((items) => editing ? items.map((item) => item.element_id === data.element_id ? data : item) : [data, ...items])
-      setFilter(String(data.machine_id)); setShowForm(false); setPhoto(null); setMessage(`Elemento ${data.name} guardado correctamente.`)
+      const savedMachine=machines.find(machine=>machine.machine_id===data.machine_id)
+      setPlantFilter(savedMachine?.plant_id?String(savedMachine.plant_id):'SIN_ASIGNAR'); setTowerFilter(savedMachine?.tower_id?String(savedMachine.tower_id):''); setFilter(String(data.machine_id)); setShowForm(false); setPhoto(null); setMessage(`Elemento ${data.name} guardado correctamente.`)
     } catch (error) { setError(error.message) } finally { setBusy(false) }
   }
 
@@ -107,20 +112,22 @@ export default function MachineElements({ apiUrl, token, isAdmin }) {
 
   const dataType = (item) => types.find((type) => type.element_type_id === item.element_type_id)?.specification_type || 'NONE'
   const query = normalizeName(nameSearch)
-  const visible = items.filter((item) => normalizeName(item.name).includes(query) && (!filter || item.machine_id === Number(filter)))
+  const filteredMachines=machines.filter(machine=>(!plantFilter||(plantFilter==='SIN_ASIGNAR'?machine.plant_id==null:String(machine.plant_id)===plantFilter))&&(!towerFilter||String(machine.tower_id)===towerFilter))
+  const visibleMachineIds=new Set(filteredMachines.map(machine=>machine.machine_id))
+  const visible = items.filter((item) => normalizeName(item.name).includes(query) && visibleMachineIds.has(item.machine_id) && (!filter || item.machine_id === Number(filter)))
   return <>
     {partsElement && <MachineSpareParts key={partsElement.element_id} apiUrl={apiUrl} token={token} machine={machines.find(machine => machine.machine_id === partsElement.machine_id)} element={partsElement} isAdmin={isAdmin} onClose={() => setPartsElement(null)} />}
     {reducerElement && <GearReducerSpecifications key={reducerElement.element_id} apiUrl={apiUrl} token={token} element={reducerElement} isAdmin={isAdmin} onClose={() => setReducerElement(null)} />}
     {specElement && <MotorSpecifications key={specElement.element_id} apiUrl={apiUrl} token={token} element={specElement} isAdmin={isAdmin} onClose={() => setSpecElement(null)} />}
     <div className="page-heading"><div><p className="eyebrow">ACTIVOS</p><h1>Elementos de máquinas</h1><p>Componentes, subconjuntos y su ubicación dentro de cada máquina.</p></div>{isAdmin && <button className="primary-action" disabled={loading || busy || !machines.length || !types.some((type) => type.active)} onClick={() => openForm()}><Plus size={18} /> Nuevo elemento</button>}</div>
-    <div className="motor-form-grid"><label>Filtrar por máquina<select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="">Todas las máquinas</option>{machines.map((item) => <option key={item.machine_id} value={item.machine_id}>{machineLabel(item.machine_id)}</option>)}</select></label><label>Buscar elemento por nombre<input type="search" value={nameSearch} onChange={event => setNameSearch(event.target.value)} placeholder="Escribe parte del nombre…" /></label></div>
+    <div className="motor-form-grid report-filters"><label>Planta<select value={plantFilter} onChange={event=>{setPlantFilter(event.target.value);setTowerFilter('');setFilter('')}}><option value="">Todas las plantas</option><option value="SIN_ASIGNAR">Sin asignar</option>{plants.map(plant=><option key={plant.plant_id} value={plant.plant_id}>{plant.name}</option>)}</select></label><label>Torre<select value={towerFilter} disabled={!plantFilter||plantFilter==='SIN_ASIGNAR'} onChange={event=>{setTowerFilter(event.target.value);setFilter('')}}><option value="">Todas las torres</option>{towers.filter(tower=>String(tower.plant_id)===plantFilter).map(tower=><option key={tower.tower_id} value={tower.tower_id}>{tower.name}</option>)}</select></label><label>Máquina<select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="">Todas las máquinas</option>{filteredMachines.map((item) => <option key={item.machine_id} value={item.machine_id}>{machineLabel(item.machine_id)}</option>)}</select></label><label>Buscar elemento por nombre<input type="search" value={nameSearch} onChange={event => setNameSearch(event.target.value)} placeholder="Escribe parte del nombre…" /></label></div>
     {!loading && (!machines.length || !types.some((type) => type.active)) && <p className="field-help">Para agregar elementos, registra una máquina y un tipo de elemento activo.</p>}
-    <div className="users-card table-scroll"><table><thead><tr><th>Repuestos</th><th>Data del elemento</th>{isAdmin && <th>Acciones</th>}<th>Máquina</th><th>Código / Nombre</th><th>Tipo</th><th>Elemento padre</th><th>Posición</th><th>Cantidad</th><th>Criticidad</th><th>Estado</th><th>Activo</th><th>Foto</th></tr></thead><tbody>{visible.map((item) => <tr key={item.element_id}>
+    <div className="users-card table-scroll"><table><thead><tr><th>Repuestos</th><th>Data del elemento</th>{isAdmin && <th>Acciones</th>}<th>Planta</th><th>Torre</th><th>Máquina</th><th>Código / Nombre</th><th>Tipo</th><th>Elemento padre</th><th>Posición</th><th>Cantidad</th><th>Criticidad</th><th>Estado</th><th>Activo</th><th>Foto</th></tr></thead><tbody>{visible.map((item) => {const machine=machines.find(entry=>entry.machine_id===item.machine_id);return <tr key={item.element_id}>
       <td><button className="secondary-action" disabled={!machines.some(machine => machine.machine_id === item.machine_id)} onClick={() => setPartsElement(item)}>Ver repuestos</button></td>
       <td>{dataType(item) === 'MOTOR' ? <button className="secondary-action" aria-label={`Abrir data de motor de ${item.name}`} onClick={() => setSpecElement(item)}>Data de motor</button> : dataType(item) === 'REDUCTOR' ? <button className="secondary-action" aria-label={`Abrir data de reductor de ${item.name}`} onClick={() => setReducerElement(item)}>Data de reductor</button> : <span className="field-help">Sin data asignada</span>}</td>
       {isAdmin && <td className="row-actions"><button title="Editar" aria-label={`Editar ${item.name}`} disabled={busy} onClick={() => openForm(item)}><Pencil size={16} /></button><button title="Eliminar" aria-label={`Eliminar ${item.name}`} className="danger" disabled={busy} onClick={() => remove(item)}><Trash2 size={16} /></button></td>}
-      <td>{machineLabel(item.machine_id)}</td><td><strong>{item.element_code ? `${item.element_code} · ` : ''}{item.name}</strong></td><td>{types.find((type) => type.element_type_id === item.element_type_id)?.name || item.element_type_id}</td><td>{items.find((parent) => parent.element_id === item.parent_element_id)?.name || '—'}</td><td>{item.position || '—'}</td><td>{item.quantity}</td><td>{item.criticality || 'Sin definir'}</td><td>{statuses[item.status]}</td><td>{item.active ? 'Sí' : 'No'}</td><td>{item.image_path ? <ElementImage apiUrl={apiUrl} token={token} item={item} /> : 'Sin foto'}</td>
-    </tr>)}</tbody></table>{!loading && !visible.length && <p className="empty-state">No hay elementos para mostrar.</p>}</div>
+      <td>{machine?.plant_name||'Sin asignar'}</td><td>{machine?.tower_name||'Sin asignar'}</td><td>{machineLabel(item.machine_id)}</td><td><strong>{item.element_code ? `${item.element_code} · ` : ''}{item.name}</strong></td><td>{types.find((type) => type.element_type_id === item.element_type_id)?.name || item.element_type_id}</td><td>{items.find((parent) => parent.element_id === item.parent_element_id)?.name || '—'}</td><td>{item.position || '—'}</td><td>{item.quantity}</td><td>{item.criticality || 'Sin definir'}</td><td>{statuses[item.status]}</td><td>{item.active ? 'Sí' : 'No'}</td><td>{item.image_path ? <ElementImage apiUrl={apiUrl} token={token} item={item} /> : 'Sin foto'}</td>
+    </tr>})}</tbody></table>{!loading && !visible.length && <p className="empty-state">No hay elementos para mostrar.</p>}</div>
     <p className="admin-message" role="status">{loading ? 'Cargando...' : message}</p>
     {showForm && isAdmin && <div className="modal-backdrop"><div className="motor-modal" role="dialog" aria-modal="true" aria-labelledby="element-title">
       <div className="modal-header"><h2 id="element-title">{editing ? 'Editar elemento' : 'Nuevo elemento'}</h2><button aria-label="Cerrar" disabled={busy} onClick={closeForm}><X /></button></div>
