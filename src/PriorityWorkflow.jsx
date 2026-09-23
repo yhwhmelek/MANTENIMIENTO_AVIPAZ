@@ -36,7 +36,7 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
     try{
       const payload=mode==='plan'?{...form,assigned_user_id:form.assignment_type==='USER'?Number(form.assigned_user_id):null,contractor_id:form.assignment_type==='CONTRACTOR'?Number(form.contractor_id):null,starts_at:form.starts_at||null,estimated_duration_days:Number(form.estimated_duration_days),estimated_duration_minutes:Number(form.estimated_duration_minutes),requested_parts:(form.requested_parts||[]).map(part=>({machine_spare_part_id:Number(part.machine_spare_part_id),quantity:String(part.quantity)}))}:form
       await request(`/solicitudes-mantenimiento/${row.id}/${mode==='plan'?'programar':'evaluar'}`,{method:'POST',body:JSON.stringify(payload)})
-      setMode('');onSaved();onCancel?.()
+      setMode('');onSaved?.()
     }catch(err){setError(err.message)}finally{setBusy(false)}
   }
   useEffect(()=>{if(initialMode&&!opened.current){opened.current=true;start(initialMode)}},[initialMode,row.id])
