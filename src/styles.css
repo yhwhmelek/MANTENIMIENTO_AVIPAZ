@@ -338,3 +338,6 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .schedule-legend-item i{grid-row:1 / span 2;width:18px;height:18px;border:2px solid;border-radius:4px}
 .schedule-legend-item small{color:#64748b}
 .schedule-legend-item .conflict-key{background:#fee2e2;border:3px solid #dc2626}
+.schedule-color-help{margin:.7rem 0 .25rem;color:#64748b;font-size:.82rem}
+.schedule-legend-item.editable{grid-template-columns:18px auto 34px}
+.schedule-legend-item.editable input[type='color']{grid-column:3;grid-row:1 / span 2;width:32px;height:32px;padding:2px;border:1px solid #cbd5e1;border-radius:5px;background:#fff;cursor:pointer}
