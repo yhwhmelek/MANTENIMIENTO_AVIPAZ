@@ -93,7 +93,7 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
   }
 
   return <section><h3>Lista única de actividades priorizadas</h3>
-    <p>Orden: primero las solicitudes sin validar, de la más antigua a la más reciente. Después, prioridad final de mayor a menor; en cada nivel, mayor C, I y N, y luego la solicitud más antigua.</p>
+    <p>Orden: primero las actividades por programar y después las programadas. Dentro de cada grupo se conserva el orden de prioridad: solicitudes sin validar primero y luego prioridad final de mayor a menor.</p>
     <p>Ante peligro inminente o exigencia legal, controla la condición de inmediato según los procedimientos de seguridad aplicables, sin esperar la programación.</p>
     <div className="request-toolbar">{Object.entries(levels).map(([key,label])=><span key={key} className={`priority-badge priority-${key}`}>{label}: {scope.filter(r=>r.priority?.level===key).length}</span>)}<span>Sin validar: {scope.filter(r=>!r.priority).length}</span></div>
     <div className="request-toolbar">

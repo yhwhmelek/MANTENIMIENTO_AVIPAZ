@@ -10,7 +10,7 @@ export default function PrioritizedActivitiesPrint({report}){
   const {rows,photos,filters,createdAt}=report
   return createPortal(<article className="priority-report-print">
     <header className="priority-report-header"><img src="/maintenance-request-logo.png" alt="AVIPAZ"/><div><h1>Resumen de actividades priorizadas</h1><p>Generado: {createdAt} · {rows.length} actividades</p><p>Filtros: {filters}</p></div></header>
-    <p className="priority-report-order">Orden: solicitudes sin validar primero; después prioridad final de mayor a menor y, dentro del mismo nivel, mayor C, I y N.</p>
+    <p className="priority-report-order">Orden: actividades por programar primero y programadas después; dentro de cada grupo, solicitudes sin validar y luego prioridad final de mayor a menor.</p>
     <div className="priority-report-counts">{Object.entries(levels).map(([key,label])=><span key={key}>{label}: {rows.filter(row=>row.priority?.level===key).length}</span>)}<span>Sin validar: {rows.filter(row=>!row.priority).length}</span></div>
     {rows.map((row,index)=>{
       const data=row.request_data,validation=data.priority_validation?.factors,plan=data.planning
