@@ -21,7 +21,7 @@ class RequestTests(unittest.TestCase):
         self.active = lambda: 1
         self.admin = lambda: 9
         mod.register_maintenance_requests(self.app, lambda: self.connection, self.active, self.admin)
-        self.original = {'machine_id': 3, 'maintenance_type': 'CORRECTIVO', 'hour_meter': '100', 'priority_validation':{'factors':{'n':2,'i':2,'c':2}}, 'planning':{'condition':'LISTA'}}
+        self.original = {'machine_id': 3, 'maintenance_type': 'CORRECTIVO', 'hour_meter': '100', 'priority_validation':{'factors':{'n':2,'i':2,'c':2}}, 'planning':{'condition':'LISTA','assigned_user_id':2,'responsible':'Técnico'}}
 
     def endpoint(self, suffix, method='POST'):
         return next(r.endpoint for r in self.app.routes if r.path == '/solicitudes-mantenimiento'+suffix and method in r.methods)
@@ -37,7 +37,7 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/atender','/completar','/evaluar','/programar','/importar-santafe-haccp','/importar-fotos-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/evaluar','/programar','/importar-santafe-haccp','/importar-fotos-santafe-haccp')) else self.active,[d.call for d in route.dependant.dependencies])
 
     def test_haccp_photos_keep_manual_photo_and_do_not_duplicate(self):
         existing=[(number,json.dumps({'source_key':f'SANTAFE-HACCP-2026-{number:02d}',
@@ -215,10 +215,10 @@ class RequestTests(unittest.TestCase):
         self.assertFalse(payload['failure'])
 
     def test_complete_improvement_preserves_type_and_material_consumption(self):
-        self.original=self.improvement().model_dump(mode='json') | {'priority_validation':{'factors':{'n':2,'i':2,'c':2},'technical_review':{'feasibility':'PROCEDE'}},'planning':{'condition':'LISTA'}}
+        self.original=self.improvement().model_dump(mode='json') | {'priority_validation':{'factors':{'n':2,'i':2,'c':2},'technical_review':{'feasibility':'PROCEDE'}},'planning':{'condition':'LISTA','assigned_user_id':2}}
         self.cursor.execute.return_value.fetchone.side_effect=[self.locked(),(33,)]
         with patch.object(mod,'part_stock',return_value=(('MAT-1','Material','UN'),Decimal(5),None)):
-            self.endpoint('/{request_id}/completar')(5,self.completion(improvement_result='Acceso seguro',other_materials='Acero recuperado'),usuario_id=9)
+            self.endpoint('/{request_id}/completar')(5,self.completion(improvement_result='Acceso seguro',other_materials='Acero recuperado'),usuario_id=2)
         calls=self.cursor.execute.call_args_list
         event=next(c.args for c in calls if 'INSERT INTO dbo.MaintenanceEvents' in c.args[0])
         self.assertIsNone(event[1])
@@ -227,10 +227,10 @@ class RequestTests(unittest.TestCase):
         self.connection.commit.assert_called_once()
 
     def test_complete_improvement_requires_result(self):
-        self.original=self.improvement().model_dump(mode='json') | {'priority_validation':{'factors':{'n':2,'i':2,'c':2},'technical_review':{'feasibility':'PROCEDE'}},'planning':{'condition':'LISTA'}}
+        self.original=self.improvement().model_dump(mode='json') | {'priority_validation':{'factors':{'n':2,'i':2,'c':2},'technical_review':{'feasibility':'PROCEDE'}},'planning':{'condition':'LISTA','assigned_user_id':2}}
         self.cursor.execute.return_value.fetchone.return_value=self.locked()
         with self.assertRaises(HTTPException) as error:
-            self.endpoint('/{request_id}/completar')(5,self.completion(),usuario_id=9)
+            self.endpoint('/{request_id}/completar')(5,self.completion(),usuario_id=2)
         self.assertEqual(error.exception.status_code,422)
         self.connection.commit.assert_not_called()
 
@@ -299,20 +299,20 @@ class RequestTests(unittest.TestCase):
     def test_historical_work_start_preserved(self):
         self.cursor.execute.return_value.fetchone.return_value = self.locked('PENDIENTE')
         self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(
-            estimated_repair_minutes=60, started_at='2026-01-01T09:00'), usuario_id=9)
+            estimated_repair_minutes=60, started_at='2026-01-01T09:00'), usuario_id=2)
         self.assertEqual(self.cursor.execute.call_args.args[2], datetime(2026, 1, 1, 9))
 
     def test_work_cannot_start_before_request(self):
         self.cursor.execute.return_value.fetchone.return_value = self.locked('PENDIENTE')
         with self.assertRaises(HTTPException) as error:
             self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(
-                estimated_repair_minutes=60, started_at='2026-01-01T07:00'), usuario_id=9)
+                estimated_repair_minutes=60, started_at='2026-01-01T07:00'), usuario_id=2)
         self.assertEqual(error.exception.status_code, 422)
         self.connection.commit.assert_not_called()
 
     def test_completion_date_is_actual_finish(self):
         self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
-        self.endpoint('/{request_id}/completar')(5, self.completion(parts=[]), usuario_id=9)
+        self.endpoint('/{request_id}/completar')(5, self.completion(parts=[]), usuario_id=2)
         self.assertEqual(self.cursor.execute.call_args.args[1], datetime(2026, 1, 1, 10))
 
     def test_historical_receipt_preserved_and_validated(self):
@@ -350,7 +350,15 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(saved['estimated_repair_minutes'],120)
         self.connection.commit.assert_called_once()
 
+    def test_only_planned_user_can_start_work(self):
+        self.cursor.execute.return_value.fetchone.return_value = self.locked('PENDIENTE',assigned_to=None)
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/atender')(5,mod.StartWorkWrite(estimated_repair_minutes=120),usuario_id=3)
+        self.assertEqual(error.exception.status_code,403)
+        self.connection.commit.assert_not_called()
+
     def test_admin_can_accept_own_request(self):
+        self.original['planning']['assigned_user_id']=9
         self.cursor.execute.return_value.fetchone.return_value=self.locked('PENDIENTE',requested_by=9,assigned_to=None)
         self.endpoint('/{request_id}/atender')(5,mod.StartWorkWrite(estimated_repair_minutes=90),usuario_id=9)
         self.assertEqual(self.cursor.execute.call_args.args[1],9)
@@ -361,18 +369,18 @@ class RequestTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 mod.StartWorkWrite(estimated_repair_minutes=value)
 
-    def test_admin_can_complete_another_assignees_request(self):
-        self.cursor.execute.return_value.fetchone.side_effect=[self.locked(),(33,)]
-        self.endpoint('/{request_id}/completar')(5,self.completion(parts=[]),usuario_id=9)
-        event=next(c.args for c in self.cursor.execute.call_args_list if 'INSERT INTO dbo.MaintenanceEvents' in c.args[0])
-        self.assertEqual(event[-1],9)
-        self.connection.commit.assert_called_once()
+    def test_non_assigned_user_cannot_complete_work(self):
+        self.cursor.execute.return_value.fetchone.return_value=self.locked()
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/completar')(5,self.completion(parts=[]),usuario_id=9)
+        self.assertEqual(error.exception.status_code,403)
+        self.connection.commit.assert_not_called()
 
     def test_completion_cannot_change_recorded_start(self):
         self.original['estimated_repair_minutes'] = 60
         self.cursor.execute.return_value.fetchone.return_value = self.locked()
         with self.assertRaises(HTTPException) as error:
-            self.endpoint('/{request_id}/completar')(5,self.completion(repair_started_at='2026-01-01T09:15',parts=[]),usuario_id=9)
+            self.endpoint('/{request_id}/completar')(5,self.completion(repair_started_at='2026-01-01T09:15',parts=[]),usuario_id=2)
         self.assertEqual(error.exception.status_code,422)
         self.connection.commit.assert_not_called()
 
@@ -380,7 +388,7 @@ class RequestTests(unittest.TestCase):
         self.original['estimated_repair_minutes'] = 60
         locked = (1,2,'EN_PROCESO',json.dumps(self.original),datetime(2026,1,1,9,0,30))
         self.cursor.execute.return_value.fetchone.side_effect = [locked,(33,)]
-        self.endpoint('/{request_id}/completar')(5,self.completion(parts=[]),usuario_id=9)
+        self.endpoint('/{request_id}/completar')(5,self.completion(parts=[]),usuario_id=2)
         execution = json.loads(self.cursor.execute.call_args.args[2])
         self.assertEqual(execution['repair_started_at'],'2026-01-01T09:00:30')
         self.assertEqual(execution['repair_duration_minutes'],59.5)

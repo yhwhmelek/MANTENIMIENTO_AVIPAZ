@@ -670,13 +670,16 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             raise
 
     @app.post('/solicitudes-mantenimiento/{request_id}/atender')
-    def accept_request(request_id: int, data: StartWorkWrite, usuario_id: int = Depends(admin_user)):
+    def accept_request(request_id: int, data: StartWorkWrite, usuario_id: int = Depends(active_user)):
         def operation(cursor):
             row = locked(cursor, request_id)
             if row[2] != 'PENDIENTE':
                 raise HTTPException(409, 'Esta solicitud ya fue atendida')
             original = json.loads(row[3])
             require_planned(original)
+            assigned_user_id = original.get('planning', {}).get('assigned_user_id')
+            if assigned_user_id != usuario_id:
+                raise HTTPException(403, 'Solo el usuario asignado puede iniciar este trabajo')
             original['estimated_repair_minutes'] = data.estimated_repair_minutes
             started_at = data.started_at
             if started_at < row[5]:
@@ -688,11 +691,13 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         return write(operation)
 
     @app.post('/solicitudes-mantenimiento/{request_id}/completar')
-    def complete_request(request_id: int, data: CompleteWrite, usuario_id: int = Depends(admin_user)):
+    def complete_request(request_id: int, data: CompleteWrite, usuario_id: int = Depends(active_user)):
         def operation(cursor):
             row = locked(cursor, request_id)
             if row[2] != 'EN_PROCESO':
                 raise HTTPException(409, 'La solicitud ya fue entregada o no esta en proceso')
+            if row[1] != usuario_id:
+                raise HTTPException(403, 'Solo el usuario asignado puede entregar este trabajo')
             original = json.loads(row[3])
             require_planned(original)
             if original['maintenance_type'] == 'MEJORA_TECNICA' and not data.improvement_result:

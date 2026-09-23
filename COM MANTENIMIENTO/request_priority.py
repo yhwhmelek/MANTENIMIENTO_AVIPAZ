@@ -45,7 +45,8 @@ class PlannedSparePart(StrictModel):
 
 
 class PlanningWrite(StrictModel):
-    responsible: str = Field(min_length=1, max_length=150)
+    assigned_user_id: int = Field(gt=0)
+    responsible: str = Field(default='', max_length=150)
     resources: str = Field(min_length=1, max_length=1000)
     permits: str = Field(min_length=1, max_length=1000)
     window: str = Field(min_length=1, max_length=1000)
@@ -135,7 +136,7 @@ def register_priority(app, write, locked, admin_user, now):
         data = json.loads(row[3])
         if data.get('priority_revision', 0) != revision:
             raise HTTPException(409, 'Otro administrador actualizo la actividad. Recarga antes de guardar')
-        return data
+        return data, row
 
     def stamp(cursor, user):
         person = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios WHERE Id=?", user).fetchone()
@@ -144,7 +145,7 @@ def register_priority(app, write, locked, admin_user, now):
     @app.post('/solicitudes-mantenimiento/{request_id}/evaluar')
     def evaluate(request_id: int, data: ValidationWrite, usuario_id: int = Depends(admin_user)):
         def operation(cursor):
-            original = load(cursor, request_id, data.expected_revision)
+            original, _ = load(cursor, request_id, data.expected_revision)
             if original['maintenance_type'] == 'MEJORA_TECNICA' and data.technical_review is None:
                 raise HTTPException(422, 'Completa la verificacion y viabilidad tecnica de la mejora')
             if original['maintenance_type'] != 'MEJORA_TECNICA' and data.technical_review is not None:
@@ -160,9 +161,16 @@ def register_priority(app, write, locked, admin_user, now):
     @app.post('/solicitudes-mantenimiento/{request_id}/programar')
     def plan(request_id: int, data: PlanningWrite, usuario_id: int = Depends(admin_user)):
         def operation(cursor):
-            original = load(cursor, request_id, data.expected_revision)
+            original, request_row = load(cursor, request_id, data.expected_revision)
             require_validated(original)
             planning = data.model_dump(mode='json', exclude={'expected_revision', 'requested_parts'})
+            assigned = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre), Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1", data.assigned_user_id).fetchone()
+            if not assigned:
+                raise HTTPException(422, 'Selecciona un usuario activo para realizar la actividad')
+            if request_row[2] == 'EN_PROCESO' and request_row[1] != data.assigned_user_id:
+                raise HTTPException(409, 'No se puede cambiar el ejecutor después de iniciar el trabajo')
+            planning['responsible'] = assigned[0]
+            planning['responsible_role'] = assigned[1]
             planning['requested_parts'] = []
             selected_spare_ids = set()
             for selected in data.requested_parts:

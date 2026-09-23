@@ -29,7 +29,7 @@ class PriorityTests(unittest.TestCase):
         return ValidationWrite(**(dict(factors={'n':1,'i':1,'c':4},justification='Consecuencia confirmada',expected_revision=0)|changes))
 
     def plan(self,**changes):
-        return PlanningWrite(**(dict(responsible='Tecnico',resources='Rodamiento y personal',permits='No aplica',window='Parada de linea',
+        return PlanningWrite(**(dict(assigned_user_id=9,responsible='Tecnico',resources='Rodamiento y personal',permits='No aplica',window='Parada de linea',
             condition='ESPERA_REPUESTOS',notes='Compra pendiente',expected_revision=0)|changes))
 
     def test_all_64_combinations_match_matrix_maps(self):
@@ -76,16 +76,17 @@ class PriorityTests(unittest.TestCase):
 
     def test_programming_does_not_reduce_priority(self):
         self.original['priority_validation']={'factors':{'n':4,'i':4,'c':4}}
-        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Jefe',)]
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Técnico','USUARIO'),('Jefe',)]
         self.endpoint('programar')(1,self.plan(),usuario_id=9)
         saved=json.loads(self.cursor.execute.call_args.args[1])
         self.assertEqual(priority(saved['priority_validation']['factors'])['level'],'CRITICO')
         self.assertEqual(saved['planning']['condition'],'ESPERA_REPUESTOS')
+        self.assertEqual((saved['planning']['assigned_user_id'],saved['planning']['responsible']),(9,'Técnico'))
 
     def test_programming_saves_parts_assigned_to_a_machine(self):
         self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
         relation=(17,1,10,25,'ROD-01','Rodamiento','UN','M-01','Molino','MOT-01','Motor principal')
-        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),relation,('Jefe',)]
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Técnico','USUARIO'),relation,('Jefe',)]
         data=self.plan(requested_parts=[{'machine_spare_part_id':17,'quantity':'2'}])
         self.endpoint('programar')(1,data,usuario_id=9)
         saved=json.loads(self.cursor.execute.call_args.args[1])
