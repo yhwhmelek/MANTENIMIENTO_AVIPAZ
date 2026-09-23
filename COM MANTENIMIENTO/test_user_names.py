@@ -3,11 +3,18 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 import main
 
 
 class UserNamesTests(unittest.TestCase):
+    def test_admin_can_assign_technical_roles(self):
+        self.assertEqual(main.CambioRolRequest(rol='MECANICO').rol, 'MECANICO')
+        self.assertEqual(main.CambioRolRequest(rol='ELECTRICO').rol, 'ELECTRICO')
+        with self.assertRaises(ValidationError):
+            main.CambioRolRequest(rol='SUPERVISOR')
+
     def test_existing_account_falls_back_to_login(self):
         user = SimpleNamespace(Id=1, Nombre='operador1', Nombres=None, Apellidos=None,
                                Correo='operador@example.com', Rol='OPERADOR')

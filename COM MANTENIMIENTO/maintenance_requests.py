@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator
 from parts_history import records
 from request_priority import NIC, decorate, backlog_key, register_priority, require_planned
 
+MAINTENANCE_ROLES = ('ADMIN', 'OPERADOR', 'MECANICO', 'ELECTRICO')
+
 
 def local_now():
     return datetime.now(timezone(timedelta(hours=-5))).replace(tzinfo=None, microsecond=0)
@@ -403,8 +405,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
     def create_period(data: OperatingPeriodWrite, usuario_id: int = Depends(active_user)):
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
-            if not role or role[0] not in ('ADMIN','OPERADOR'):
-                raise HTTPException(403, 'Solo operadores y administradores pueden registrar periodos')
+            if not role or role[0] not in MAINTENANCE_ROLES:
+                raise HTTPException(403, 'Solo el personal de mantenimiento puede registrar periodos')
             if not cursor.execute('SELECT MachineId FROM dbo.Machines WITH (UPDLOCK,HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone():
                 raise HTTPException(422, 'Maquina no encontrada')
             if cursor.execute('SELECT OperatingPeriodId FROM dbo.MachineOperatingPeriods WITH (UPDLOCK,HOLDLOCK) WHERE MachineId=? AND StartsAt<? AND EndsAt>?', data.machine_id, data.ends_at, data.starts_at).fetchone():
@@ -522,8 +524,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         removed_images = []
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
-            if not role or role[0] not in ('ADMIN', 'OPERADOR'):
-                raise HTTPException(403, 'Solo operadores y administradores pueden modificar solicitudes')
+            if not role or role[0] not in MAINTENANCE_ROLES:
+                raise HTTPException(403, 'Solo el personal de mantenimiento puede modificar solicitudes')
             row = locked(cursor, request_id)
             payload = json.loads(row[3])
             if row[2] != 'PENDIENTE' or payload.get('maintenance_type') != 'MEJORA_TECNICA':
@@ -621,8 +623,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         new_image = [None]
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
-            if not role or role[0] not in ('ADMIN', 'OPERADOR'):
-                raise HTTPException(403, 'Solo operadores y administradores pueden generar solicitudes')
+            if not role or role[0] not in MAINTENANCE_ROLES:
+                raise HTTPException(403, 'Solo el personal de mantenimiento puede generar solicitudes')
             machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone() if data.machine_id is not None else None
             if data.machine_id is not None and not machine:
                 raise HTTPException(422, 'Maquina no encontrada')

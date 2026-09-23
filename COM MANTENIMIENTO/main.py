@@ -100,7 +100,7 @@ class UsuarioAdministracionResponse(UsuarioResponse):
 
 
 class CambioRolRequest(BaseModel):
-    rol: Literal["ADMIN", "USUARIO", "OPERADOR"]
+    rol: Literal["ADMIN", "USUARIO", "OPERADOR", "MECANICO", "ELECTRICO"]
 
 
 class CambioNombreRequest(BaseModel):
