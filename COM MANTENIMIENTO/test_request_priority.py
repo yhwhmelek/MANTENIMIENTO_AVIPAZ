@@ -102,6 +102,17 @@ class PriorityTests(unittest.TestCase):
         self.assertEqual((saved['contractor_id'],saved['responsible'],saved['responsible_role']),(4,'Servicio externo','CONTRATISTA'))
         self.assertTrue(saved['review_required'])
 
+    def test_programming_rejects_responsible_overlap_in_same_plant(self):
+        self.original.update(plant_id=1,priority_validation={'factors':{'n':2,'i':2,'c':2}})
+        conflict={'plant_id':1,'planning':{'assignment_type':'USER','assigned_user_id':9,
+            'starts_at':'2026-01-01T08:30:00','ends_at':'2026-01-01T10:00:00'}}
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Técnico','MECANICO')]
+        self.cursor.execute.return_value.fetchall.return_value=[(8,json.dumps(conflict))]
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('programar')(1,self.plan(condition='LISTA',notes='',starts_at='2026-01-01T09:00',estimated_duration_minutes=60),usuario_id=9)
+        self.assertEqual(error.exception.status_code,409)
+        self.assertIn('#8',error.exception.detail)
+
     def test_programming_rejects_duplicate_assigned_part(self):
         with self.assertRaises(ValidationError):
             self.plan(requested_parts=[{'machine_spare_part_id':17,'quantity':'1'},{'machine_spare_part_id':17,'quantity':'2'}])

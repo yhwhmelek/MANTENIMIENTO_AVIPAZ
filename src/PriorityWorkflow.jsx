@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react'
 import {NICFields,PrioritySummary,checks,feasibility,conditions} from './RequestPriority'
 import SparePartPlanningPicker from './SparePartPlanningPicker'
+import PlanningSchedule from './PlanningSchedule'
 
 const localInput=()=>{const date=new Date();return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`}
 const roleLabel=role=>({ADMIN:'Administrador',USUARIO:'Usuario',OPERADOR:'Operador',MECANICO:'Mecánico',ELECTRICO:'Eléctrico'}[role]||role)
@@ -54,6 +55,7 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
         <label>Inicio programado<input type="datetime-local" required value={form.starts_at} onChange={e=>change('starts_at',e.target.value)}/></label>
         <label>Duración estimada: días<input type="number" min="0" max="3650" step="1" required value={form.estimated_duration_days} onChange={e=>change('estimated_duration_days',e.target.value)}/></label>
         <label>Duración estimada: minutos adicionales<input type="number" min="0" max="1439" step="1" required value={form.estimated_duration_minutes} onChange={e=>change('estimated_duration_minutes',e.target.value)}/><span className="field-help">Entre 0 y 1439 minutos, adicionales a los días.</span></label>
+        <PlanningSchedule request={request} row={row} form={form} onSelect={value=>change('starts_at',value)}/>
         <label>Observaciones / condición pendiente<textarea required={form.condition!=='LISTA'} maxLength={1000} value={form.notes} onChange={e=>change('notes',e.target.value)}/></label></div></>}
       <div className="modal-actions"><button type="button" onClick={()=>{setMode('');onCancel?.()}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':'Guardar'}</button></div>
     </fieldset></form>}

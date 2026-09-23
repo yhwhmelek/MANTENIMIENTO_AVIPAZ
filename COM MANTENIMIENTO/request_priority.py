@@ -186,6 +186,23 @@ def register_priority(app, write, locked, admin_user, now):
                 planning['contractor_specialty'] = contractor[1]
             if request_row[2] == 'EN_PROCESO':
                 raise HTTPException(409, 'No se puede cambiar el ejecutor después de iniciar el trabajo')
+            if planning.get('starts_at') and planning.get('ends_at'):
+                scheduled = cursor.execute("SELECT RequestId,RequestData FROM dbo.MaintenanceRequests WITH (HOLDLOCK) WHERE RequestId<>? AND Status IN ('PENDIENTE','EN_PROCESO')", request_id).fetchall()
+                for other_id, raw in scheduled:
+                    other = json.loads(raw)
+                    other_plan = other.get('planning') or {}
+                    if str(other.get('plant_id')) != str(original.get('plant_id')):
+                        continue
+                    same_responsible = (
+                        planning['assignment_type'] == (other_plan.get('assignment_type') or 'USER') and
+                        ((planning['assignment_type'] == 'USER' and planning.get('assigned_user_id') == other_plan.get('assigned_user_id')) or
+                         (planning['assignment_type'] == 'CONTRACTOR' and planning.get('contractor_id') == other_plan.get('contractor_id')))
+                    )
+                    if not same_responsible or not other_plan.get('starts_at') or not other_plan.get('ends_at'):
+                        continue
+                    other_start, other_end = datetime.fromisoformat(other_plan['starts_at']), datetime.fromisoformat(other_plan['ends_at'])
+                    if data.starts_at < other_end and data.ends_at > other_start:
+                        raise HTTPException(409, f'El responsable ya tiene la solicitud #{other_id} en ese horario dentro de la planta')
             planning['requested_parts'] = []
             selected_spare_ids = set()
             for selected in data.requested_parts:

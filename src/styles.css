@@ -310,3 +310,12 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
   body.maintenance-request-printing.spare-report-open > .request-print { display: block !important; }
   body.maintenance-request-printing > .spare-report-print { display: none !important; }
 }
+.planning-schedule{margin-top:1rem}
+.planning-week{display:grid;grid-template-columns:repeat(7,minmax(130px,1fr));gap:.5rem;overflow-x:auto;padding-bottom:.5rem}
+.planning-day{min-height:150px;border:1px solid #d7dee7;border-radius:8px;background:#f8fafc;padding:.4rem}
+.planning-day.selected{border:2px solid #2563eb;background:#eff6ff}
+.planning-day-heading{width:100%;display:flex;justify-content:space-between;gap:.4rem;margin-bottom:.4rem;background:transparent;color:inherit;border:0;border-bottom:1px solid #d7dee7;border-radius:0;padding:.35rem}
+.planning-slot{display:flex;flex-direction:column;gap:.15rem;margin:.35rem 0;padding:.4rem;border-left:4px solid #2563eb;border-radius:4px;background:#fff;font-size:.78rem}
+.planning-slot.conflict{border-color:#b91c1c;background:#fee2e2}
+.planning-empty{display:block;padding:.5rem;color:#64748b;font-size:.8rem;text-align:center}
+@media (max-width:900px){.planning-week{grid-template-columns:repeat(7,minmax(170px,1fr))}}
