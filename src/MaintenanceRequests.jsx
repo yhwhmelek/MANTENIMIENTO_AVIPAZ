@@ -147,15 +147,16 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',requested_at:now,detected_at:''})
     }
     if(modeName==='edit')setForm({...targetRow.request_data,technical_evaluation:targetRow.request_data.technical_evaluation||{}})
+    if(modeName==='admin_flow')setForm({requested_at:row.requested_at?.slice(0,16)||'',started_at:row.accepted_at?.slice(0,16)||'',completed_at:row.completed_at?.slice(0,16)||'',received_at:row.received_at?.slice(0,16)||''})
     if(modeName==='complete'){
       const original=row.request_data
       const planned=original.planning?.requested_parts?.length?original.planning.requested_parts:original.requested_parts?.length?original.requested_parts:original.requested_part_id?[{spare_part_id:original.requested_part_id,quantity:original.requested_quantity}]:[]
       const available=id=>parts.some(part=>String(part.spare_part_id)===String(id))
       setForm({repair_started_at:row.accepted_at.slice(0,16),repair_finished_at:localInput(),
         stopped_at:original.stopped_at?.slice(0,16)||'',restored_at:original.stopped_at?localInput():'',
-        hour_meter:original.hour_meter??'',waiting_parts_minutes:'0',work_done:(original.maintenance_type==='MEJORA_TECNICA'?original.improvement_proposal:original.description)||'',
-        parts:planned.map(p=>({spare_part_id:available(p.spare_part_id)?String(p.spare_part_id):'',quantity:String(p.quantity),removed_part:'',position:''})),tools:[]})
-      if(planned.some(p=>!available(p.spare_part_id)))setFormError('Hay repuestos previstos que ya no están activos. Selecciona otro repuesto o quita las filas no utilizadas.')
+        hour_meter:original.hour_meter??'',waiting_parts_minutes:'0',work_done:isTechnician?'':(original.maintenance_type==='MEJORA_TECNICA'?original.improvement_proposal:original.description)||'',
+        parts:isTechnician?[]:planned.map(p=>({spare_part_id:available(p.spare_part_id)?String(p.spare_part_id):'',quantity:String(p.quantity),removed_part:'',position:''})),tools:[]})
+      if(!isTechnician&&planned.some(p=>!available(p.spare_part_id)))setFormError('Hay repuestos previstos que ya no están activos. Selecciona otro repuesto o quita las filas no utilizadas.')
     }
     if(modeName==='receive')setForm({notes:'',received_at:localInput()})
   }
@@ -189,6 +190,12 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     try{const result=await request(`/solicitudes-mantenimiento/${selected}/mejora`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setPhoto(null);setRemovedPhotoPaths([]);setMode('');setVersion(v=>v+1);if(result.files_not_deleted)setFormError(`La solicitud se actualizó, pero ${result.files_not_deleted} archivo(s) no se pudieron borrar del servidor.`)}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
+  async function saveAdminFlow(payload){
+    if(submitting.current)return
+    submitting.current=true;setBusy(true);setFormError('')
+    try{await request(`/solicitudes-mantenimiento/${selected}/flujo`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setMode('');setVersion(value=>value+1)}
+    catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
+  }
   async function save(event){
     event.preventDefault();const payload={...form}
     if(submitting.current)return
@@ -212,8 +219,10 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       if(isAdmin)payload.remove_image_paths=removedPhotoPaths
       return saveImprovement(Object.fromEntries(['plant_id','tower_id','machine_id','detected_at','preevaluation','requesting_area','target_area','description','improvement_proposal','technical_evaluation','benefits','benefit_notes','image_data','remove_image_paths'].filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]])))
     }
+    if(mode==='admin_flow')return saveAdminFlow({requested_at:payload.requested_at,started_at:payload.started_at||null,completed_at:payload.completed_at||null,received_at:payload.received_at||null})
     if(mode==='complete'){
       payload.repair_finished_at=localInput()
+      if(isTechnician){payload.work_done=payload.work_done?.trim()||'Trabajo finalizado sin novedades';payload.cause=row.request_data.maintenance_type==='CORRECTIVO'?payload.work_done:null;payload.improvement_result=row.request_data.maintenance_type==='MEJORA_TECNICA'?payload.work_done:'';payload.recommendations=null;payload.delivery_conditions=null;payload.parts=[];payload.tools=[]}
       for(const key of ['stopped_at','restored_at','hour_meter'])payload[key]=payload[key]||null
       payload.waiting_parts_minutes=Number(payload.waiting_parts_minutes)
       payload.parts=payload.parts.map(p=>({...p,spare_part_id:Number(p.spare_part_id)}))
@@ -251,6 +260,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {!!workPhotoPaths.length&&<div className="full-field"><p>Foto del trabajo realizado</p>{workPhotosLoaded<workPhotoPaths.length&&<p role="status">Cargando evidencia…</p>}<div className="request-photo-gallery">{workImageUrls.map((url,index)=>url?<a key={index} href={url} target="_blank" rel="noreferrer"><img loading="lazy" src={url} alt={`Evidencia ${index+1} del trabajo ${row.id}`}/></a>:null)}</div></div>}
         {row.received_at&&<p>Recibido por {row.receiver_name || row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF {row.request_data.maintenance_type==='MEJORA_TECNICA'?'MT/02-08':'MT/02-05'}</button>
+          {isAdmin&&<button type="button" className="secondary-action" disabled={busy} onClick={()=>start('admin_flow')}>Corregir fechas del flujo</button>}
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
           {canExecute(row)&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&executionBlock&&<p role="status">No se puede iniciar o terminar todavía: {executionBlock}</p>}
           {row.status==='PENDIENTE'&&canExecute(row)&&<button type="button" onClick={startWork} disabled={busy||Boolean(executionBlock)} title={executionBlock||'Registrar inicio real'} className="primary-action">Iniciar trabajo</button>}
@@ -258,7 +268,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           {row.status==='POR_RECIBIR'&&isAdmin&&!row.request_data.admin_review&&<button type="button" className="primary-action" onClick={()=>mutate(`/${row.id}/revisar`,{notes:'Trabajo revisado y aprobado'})}>Revisar y aprobar trabajo</button>}
           {row.status==='POR_RECIBIR'&&row.request_data.admin_review&&row.requested_by===currentUser.id&&<button className="primary-action" onClick={()=>start('receive')}>Recibir trabajo conforme</button>}
         </div></section>}
-      {form&&<form onSubmit={save}><h3>{mode==='new'?'Generar solicitud':mode==='edit'?'Completar mejora técnica':mode==='complete'?'Registrar trabajo realizado':'Confirmar recepción'}</h3><p>Fechas y horas locales de Ecuador (UTC−5).</p><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
+      {form&&<form onSubmit={save}><h3>{mode==='new'?'Generar solicitud':mode==='edit'?'Completar mejora técnica':mode==='admin_flow'?'Corregir fechas del flujo':mode==='complete'?'Registrar trabajo realizado':'Confirmar recepción'}</h3><p>Fechas y horas locales de Ecuador (UTC−5).</p><fieldset disabled={busy} className="request-fields"><div className="motor-form-grid">
+        {mode==='admin_flow'&&<><p className="full-field">Modifica las fechas registradas conservando el orden real del flujo. Los indicadores de duración se recalcularán automáticamente.</p><Field label="Fecha y hora de solicitud" type="datetime-local" name="requested_at" required value={form.requested_at} onChange={change}/><Field label="Inicio real del trabajo" type="datetime-local" name="started_at" required={row.status!=='PENDIENTE'} value={form.started_at} onChange={change}/><Field label="Finalización real" type="datetime-local" name="completed_at" required={['POR_RECIBIR','CERRADA'].includes(row.status)} value={form.completed_at} onChange={change}/><Field label="Recepción conforme" type="datetime-local" name="received_at" required={row.status==='CERRADA'} value={form.received_at} onChange={change}/></>}
         {mode==='edit'&&<><p className="full-field">Solicitud original: {form.source_requester||row.requester_name} · hoja {form.source_sheet||'sin referencia'}. Completa los datos que faltan y corrige los transcritos.{row.request_data.priority_validation&&' Si cambias la solicitud, revisa también la evaluación oficial de prioridad.'}</p>
           <label>Planta<select required value={form.plant_id||''} onChange={e=>change('plant_id',e.target.value)}><option value="">Selecciona una planta</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
           <label>Torre (opcional)<select disabled={!form.plant_id} value={form.tower_id||''} onChange={e=>change('tower_id',e.target.value)}><option value="">Sin torre / área general</option>{towers.filter(t=>String(t.plant_id)===String(form.plant_id)).map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>
@@ -289,7 +300,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
 
           <div className="full-field"><h4>Repuestos previstos (opcional)</h4><p>La solicitud puede guardarse sin repuestos cuando el trabajo sea un ajuste. Si hacen falta, puedes indicar varios; el stock se descuenta al entregar según lo realmente utilizado.</p>{(form.requested_parts||[]).map((p,i)=><div className="request-line" key={i}><label>Repuesto<select required value={p.spare_part_id} onChange={e=>updateLine('requested_parts',i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{parts.map(part=><option key={part.spare_part_id} value={part.spare_part_id}>{part.internal_code} · {part.description}</option>)}</select></label><label>Cantidad prevista<input required type="number" min="0.01" max="99999999.99" step="0.01" value={p.quantity} onChange={e=>updateLine('requested_parts',i,'quantity',e.target.value)}/></label><button type="button" onClick={()=>change('requested_parts',form.requested_parts.filter((_,j)=>i!==j))}>Quitar</button></div>)}<button type="button" disabled={(form.requested_parts||[]).length>=30} onClick={()=>change('requested_parts',[...(form.requested_parts||[]),{spare_part_id:'',quantity:'1'}])}>Añadir repuesto previsto</button></div>
         </>}
-        {mode==='complete'&&<>
+        {mode==='complete'&&isTechnician&&<><p className="full-field">El inicio ya fue registrado al comenzar el trabajo. Al entregar se guardará automáticamente la hora de finalización.</p><Text label="Novedad o trabajo realizado" name="work_done" maxLength={2000} required={false} form={form} change={change} placeholder="Si se deja vacío, se registrará Trabajo finalizado sin novedades"/><ImageAttachment label="Foto del trabajo realizado (opcional)" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="La imagen se comprimirá y guardará como evidencia. JPG, PNG o WEBP; máximo 10 MB."/></>}
+        {mode==='complete'&&!isTechnician&&<>
           {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><Text label="Resultado de mejora" name="improvement_result" maxLength={2000} form={form} change={change}/><Text label="Otros materiales utilizados (fuera de inventario)" name="other_materials" maxLength={2000} required={false} form={form} change={change}/></>}
           <p className="full-field">Se copiaron la descripci?n y el repuesto previsto de la solicitud. Ajusta el trabajo, los repuestos y las cantidades seg?n lo realizado; puedes quitar o a?adir repuestos antes de entregar.</p>
           <p className="full-field">Inicio real: {time(form.repair_started_at)}. Al guardar se registrará el momento de finalización.</p>
@@ -302,7 +314,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <ImageAttachment label="Foto del trabajo realizado (opcional)" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="La imagen se comprimirá y guardará como evidencia de la finalización. JPG, PNG o WEBP; máximo 10 MB."/>
         </>}
         {mode==='receive'&&<><Field label="Fecha y hora de recepcion" name="received_at" type="datetime-local" required value={form.received_at} onChange={change}/><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
-      </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='edit'?'Guardar datos de la mejora':mode==='complete'?'Entregar trabajo y consumir repuestos':mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}
+      </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='edit'?'Guardar datos de la mejora':mode==='admin_flow'?'Guardar fechas corregidas':mode==='complete'?(isTechnician?'Entregar trabajo':'Entregar trabajo y consumir repuestos'):mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}
       </>}
     </dialog>
     <PrioritizedRequestPrint row={printRow}/>

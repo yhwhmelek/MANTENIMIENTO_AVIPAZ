@@ -37,7 +37,7 @@ class RequestTests(unittest.TestCase):
     def test_all_endpoints_require_authentication(self):
         for route in self.app.routes:
             if hasattr(route,'dependant'):
-                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/evaluar','/programar','/revisar')) else self.active,[d.call for d in route.dependant.dependencies])
+                self.assertIn(self.admin if 'DELETE' in route.methods or route.path.endswith(('/evaluar','/programar','/revisar','/flujo')) else self.active,[d.call for d in route.dependant.dependencies])
 
     def test_improvement_can_target_plant_without_tower(self):
         data = mod.RequestWrite(plant_id=1, maintenance_type='MEJORA_TECNICA', description='Adecuar área',
@@ -303,10 +303,25 @@ class RequestTests(unittest.TestCase):
         data=self.completion(parts=[],image_data='data:image/png;base64,evidence')
         with patch.object(mod,'save_request_image',return_value='server/work-evidence.png'):
             self.endpoint('/{request_id}/completar')(5,data,usuario_id=2)
-        update=next(call.args for call in self.cursor.execute.call_args_list if 'ExecutionData' in call.args[0])
+        update=next(call.args for call in self.cursor.execute.call_args_list if call.args[0].lstrip().startswith('UPDATE') and 'ExecutionData' in call.args[0])
         saved=json.loads(update[2])
         self.assertEqual(saved['image_paths'],['server/work-evidence.png'])
         self.assertNotIn('image_data',saved)
+
+    def test_admin_can_correct_flow_dates_and_metrics(self):
+        execution={'repair_started_at':'2026-01-01T09:00:00','repair_finished_at':'2026-01-01T10:00:00','parts':[]}
+        locked=(*self.locked('CERRADA'),json.dumps(execution))
+        self.cursor.execute.return_value.fetchone.return_value=locked
+        data=mod.AdminFlowUpdate(requested_at='2026-01-01T08:00',started_at='2026-01-01T08:30',completed_at='2026-01-01T09:45',received_at='2026-01-01T10:00')
+        self.endpoint('/{request_id}/flujo','PUT')(5,data,usuario_id=9)
+        update=self.cursor.execute.call_args.args
+        saved=json.loads(update[6])
+        self.assertEqual(saved['repair_duration_minutes'],75)
+        self.assertEqual(saved['response_time_minutes'],105)
+
+    def test_admin_flow_dates_must_be_chronological(self):
+        with self.assertRaises(ValidationError):
+            mod.AdminFlowUpdate(requested_at='2026-01-01T09:00',started_at='2026-01-01T08:00')
 
     def test_historical_receipt_preserved_and_validated(self):
         self.cursor.execute.return_value.fetchone.return_value = self.locked('POR_RECIBIR')

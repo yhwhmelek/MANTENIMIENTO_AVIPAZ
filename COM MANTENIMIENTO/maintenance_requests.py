@@ -207,6 +207,24 @@ class ReviewWrite(StrictModel):
     notes: str = Field(default='Trabajo revisado y aprobado', max_length=1000)
 
 
+class AdminFlowUpdate(StrictModel):
+    requested_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    received_at: datetime | None = None
+
+    @model_validator(mode='after')
+    def chronological_dates(self):
+        values = [self.requested_at, self.started_at, self.completed_at, self.received_at]
+        for value in values:
+            if value and (value.tzinfo is not None or value > local_now()):
+                raise ValueError('Las fechas del flujo deben usar hora local de Ecuador y no pueden ser futuras')
+        present = [value for value in values if value is not None]
+        if present != sorted(present):
+            raise ValueError('Conserva el orden: solicitud, inicio, finalización y recepción')
+        return self
+
+
 class ImprovementUpdate(StrictModel):
     image_data: str | None = Field(default=None, max_length=14_000_000)
     remove_image_paths: list[str] = Field(default_factory=list, max_length=100)
@@ -352,7 +370,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             raise HTTPException(503, 'No se pudo guardar la solicitud. Verifica las migraciones 005 y 006 y la conexion.')
 
     def locked(cursor, request_id):
-        row = cursor.execute('SELECT RequestedBy, AssignedTo, Status, RequestData, AcceptedAt, RequestedAt, CompletedAt FROM dbo.MaintenanceRequests WITH (UPDLOCK, HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
+        row = cursor.execute('SELECT RequestedBy, AssignedTo, Status, RequestData, AcceptedAt, RequestedAt, CompletedAt, ExecutionData FROM dbo.MaintenanceRequests WITH (UPDLOCK, HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
         if row is None:
             raise HTTPException(404, 'Solicitud no encontrada')
         return row
@@ -710,6 +728,34 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                                         'at': local_now().isoformat(), 'notes': data.notes or 'Trabajo revisado y aprobado'}
             cursor.execute('UPDATE dbo.MaintenanceRequests SET RequestData=? WHERE RequestId=?', json.dumps(original, ensure_ascii=False), request_id)
             return {'id': request_id}
+        return write(operation)
+
+    @app.put('/solicitudes-mantenimiento/{request_id}/flujo')
+    def update_flow_dates(request_id: int, data: AdminFlowUpdate, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            row = locked(cursor, request_id)
+            status, original = row[2], json.loads(row[3])
+            if status in ('EN_PROCESO','POR_RECIBIR','CERRADA') and data.started_at is None:
+                raise HTTPException(422, 'El estado actual requiere una fecha de inicio')
+            if status in ('POR_RECIBIR','CERRADA') and data.completed_at is None:
+                raise HTTPException(422, 'El estado actual requiere una fecha de finalización')
+            if status == 'CERRADA' and data.received_at is None:
+                raise HTTPException(422, 'Una solicitud cerrada requiere una fecha de recepción')
+            original['requested_at'] = data.requested_at.isoformat()
+            if original.get('maintenance_type') == 'CORRECTIVO':
+                original['detected_at'] = data.requested_at.isoformat()
+            if data.started_at:
+                original['start_recorded_at'] = data.started_at.isoformat()
+            execution = json.loads(row[7]) if len(row) > 7 and row[7] else None
+            if execution and data.started_at and data.completed_at:
+                execution['repair_started_at'] = data.started_at.isoformat()
+                execution['repair_finished_at'] = data.completed_at.isoformat()
+                execution['repair_duration_minutes'] = round((data.completed_at-data.started_at).total_seconds()/60,2)
+                execution['response_time_minutes'] = round((data.completed_at-data.requested_at).total_seconds()/60,2)
+            cursor.execute('''UPDATE dbo.MaintenanceRequests SET RequestedAt=?, AcceptedAt=?, CompletedAt=?, ReceivedAt=?,
+                RequestData=?, ExecutionData=? WHERE RequestId=?''', data.requested_at, data.started_at, data.completed_at,
+                data.received_at, json.dumps(original,ensure_ascii=False), json.dumps(execution,ensure_ascii=False) if execution else None, request_id)
+            return {'id':request_id}
         return write(operation)
 
     @app.post('/solicitudes-mantenimiento/{request_id}/recibir')
