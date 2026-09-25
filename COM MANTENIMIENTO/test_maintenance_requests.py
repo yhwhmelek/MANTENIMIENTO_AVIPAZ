@@ -511,6 +511,14 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(len(execution['parts']), 1)
         self.connection.commit.assert_called_once()
 
+    def test_corrective_completion_allows_optional_cause_and_recommendations(self):
+        self.cursor.execute.return_value.fetchone.side_effect=[self.locked(),(33,)]
+        self.endpoint('/{request_id}/completar')(5,self.completion(parts=[],cause=None,recommendations=None,delivery_conditions=None),usuario_id=2)
+        execution=json.loads(self.cursor.execute.call_args.args[2])
+        self.assertIsNone(execution['cause'])
+        self.assertIsNone(execution['recommendations'])
+        self.assertIsNone(execution['delivery_conditions'])
+
     def test_period_overlap_and_capacity(self):
         with self.assertRaises(ValidationError):
             mod.OperatingPeriodWrite(machine_id=3,starts_at='2026-01-01T08:00',ends_at='2026-01-01T16:00',scheduled_hours=9,operating_hours=8,notes='Turno')

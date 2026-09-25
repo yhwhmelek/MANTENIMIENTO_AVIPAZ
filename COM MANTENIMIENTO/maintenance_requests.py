@@ -668,8 +668,6 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             require_planned(original)
             if original['maintenance_type'] == 'MEJORA_TECNICA' and not data.improvement_result:
                 raise HTTPException(422, 'Describe el resultado de la mejora tecnica')
-            if original['maintenance_type'] == 'CORRECTIVO' and not data.cause:
-                raise HTTPException(422, 'Describe las posibles causas del mantenimiento correctivo')
             recorded_start = row[4] if original.get('estimated_repair_minutes') is not None else data.repair_started_at
             if original.get('estimated_repair_minutes') is not None and data.repair_started_at != row[4].replace(second=0, microsecond=0):
                 raise HTTPException(422, 'El inicio de reparación debe coincidir con el registrado al comenzar el trabajo')
