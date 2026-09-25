@@ -140,6 +140,7 @@ class ToolReconciliation(StrictModel):
 
 
 class CompleteWrite(StrictModel):
+    image_data: str | None = Field(default=None, max_length=14_000_000)
     improvement_result: str = Field(default='', max_length=2000)
     other_materials: str = Field(default='', max_length=2000)
     repair_started_at: datetime
@@ -535,6 +536,23 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             raise HTTPException(404, 'No se encontró la foto')
         return FileResponse(path)
 
+    @app.get('/solicitudes-mantenimiento/{request_id}/trabajo-imagenes/{index}', response_class=FileResponse)
+    def completed_work_image_at(request_id: int, index: int, usuario_id: int = Depends(active_user)):
+        try:
+            with closing(connect()) as connection:
+                row = connection.cursor().execute('SELECT ExecutionData FROM dbo.MaintenanceRequests WHERE RequestId=?', request_id).fetchone()
+        except (pyodbc.Error, RuntimeError):
+            raise HTTPException(503, 'No se pudieron consultar las fotos del trabajo')
+        if not row:
+            raise HTTPException(404, 'Solicitud no encontrada')
+        paths = list((json.loads(row[0]) if row[0] else {}).get('image_paths') or [])
+        if index < 0 or index >= len(paths):
+            raise HTTPException(404, 'Foto del trabajo no encontrada')
+        path = stored_image(paths[index])
+        if not path:
+            raise HTTPException(404, 'No se encontró la foto del trabajo')
+        return FileResponse(path)
+
     @app.post('/solicitudes-mantenimiento', status_code=201)
     def create_request(data: RequestWrite, usuario_id: int = Depends(active_user)):
         new_image = [None]
@@ -619,6 +637,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
 
     @app.post('/solicitudes-mantenimiento/{request_id}/completar')
     def complete_request(request_id: int, data: CompleteWrite, usuario_id: int = Depends(active_user)):
+        new_image = [None]
         def operation(cursor):
             row = locked(cursor, request_id)
             if row[2] != 'EN_PROCESO':
@@ -644,7 +663,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 raise HTTPException(422, 'Conserva el inicio de parada registrado por el solicitante')
             if original.get('hour_meter') is not None and (data.hour_meter is None or data.hour_meter < Decimal(original['hour_meter'])):
                 raise HTTPException(422, 'El horometro final debe ser mayor o igual al inicial')
-            payload = data.model_dump(mode='json')
+            payload = data.model_dump(mode='json', exclude={'image_data'})
             payload['recorded_at'] = local_now().isoformat()
             payload['repair_started_at'] = recorded_start.isoformat()
             payload['repair_duration_minutes'] = round((data.repair_finished_at-recorded_start).total_seconds()/60, 2)
@@ -658,6 +677,9 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 if stock < item.quantity:
                     raise HTTPException(409, f'Stock insuficiente para {part[0]}: disponible {stock}')
                 payload['parts'].append({**item.model_dump(mode='json'), 'internal_code': part[0], 'description': part[1], 'unit_of_measure': part[2], 'stock_before': str(stock)})
+            if data.image_data:
+                new_image[0] = save_request_image(data.image_data)
+                payload['image_paths'] = [new_image[0]]
             event_id = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.MaintenanceEvents
                 (MachineId,PerformedOn,MaintenanceType,Description,CreatedBy) VALUES (?,?,?,?,?);
                 SELECT CAST(SCOPE_IDENTITY() AS int);''', original['machine_id'], data.repair_finished_at.date(), original['maintenance_type'], f'Solicitud #{request_id}: {data.work_done}'[:500], usuario_id).fetchone()[0]
@@ -667,7 +689,12 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     VALUES (?,?,?,?,?,?,?)''', event_id, part['spare_part_id'], Decimal(part['quantity']), part['unit_of_measure'], part['position'] or None, f'Solicitud #{request_id}. Retirado: {part["removed_part"]}', usuario_id)
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='POR_RECIBIR', CompletedAt=?, ExecutionData=?, MaintenanceEventId=? WHERE RequestId=?", data.repair_finished_at, json.dumps(payload, ensure_ascii=False), event_id, request_id)
             return {'id': request_id, 'maintenance_event_id': event_id}
-        return write(operation)
+        try:
+            return write(operation)
+        except Exception:
+            if new_image[0]:
+                Path(new_image[0]).unlink(missing_ok=True)
+            raise
 
     @app.post('/solicitudes-mantenimiento/{request_id}/revisar')
     def review_request(request_id: int, data: ReviewWrite, usuario_id: int = Depends(admin_user)):

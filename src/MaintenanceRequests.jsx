@@ -34,6 +34,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [workspace,setWorkspace] = useState('activities')
   const [photo,setPhoto] = useState(null), [imageUrls,setImageUrls] = useState([])
+  const [workImageUrls,setWorkImageUrls] = useState([]), [workPhotosLoaded,setWorkPhotosLoaded] = useState(0)
   const [removedPhotoPaths,setRemovedPhotoPaths] = useState([])
   const [uploadStage,setUploadStage] = useState('')
   const [photosLoaded,setPhotosLoaded] = useState(0)
@@ -89,6 +90,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   useEffect(()=>{const refresh=()=>setVersion(v=>v+1);window.addEventListener('maintenance-flow-deleted',refresh);return()=>window.removeEventListener('maintenance-flow-deleted',refresh)},[])
   const row=rows.find(r=>r.id===selected)
   const photoPaths=row?.request_data.image_paths?.length?row.request_data.image_paths:row?.request_data.image_path?[row.request_data.image_path]:[]
+  const workPhotoPaths=row?.execution_data?.image_paths||[]
   useEffect(()=>{
     if(!open||!photoPaths.length){setImageUrls([]);setPhotosLoaded(0);return}
     const controller=new AbortController()
@@ -113,6 +115,21 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     Array.from({length:Math.min(4,urls.length)},()=>worker())
     return()=>{controller.abort();urls.filter(Boolean).forEach(url=>URL.revokeObjectURL(url))}
   },[open,row?.id,photoPaths.join('|'),apiUrl,token])
+  useEffect(()=>{
+    if(!open||!workPhotoPaths.length){setWorkImageUrls([]);setWorkPhotosLoaded(0);return}
+    const controller=new AbortController(),urls=Array(workPhotoPaths.length).fill(null)
+    let next=0,completed=0
+    setWorkImageUrls([...urls]);setWorkPhotosLoaded(0)
+    async function worker(){
+      while(next<urls.length&&!controller.signal.aborted){
+        const index=next++
+        try{const response=await fetch(`${apiUrl}/solicitudes-mantenimiento/${row.id}/trabajo-imagenes/${index}`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal});if(!response.ok)throw new Error('Foto no disponible');urls[index]=URL.createObjectURL(await response.blob());if(!controller.signal.aborted)setWorkImageUrls([...urls])}catch(error){if(error.name==='AbortError')break}
+        completed++;setWorkPhotosLoaded(completed)
+      }
+    }
+    Array.from({length:Math.min(4,urls.length)},()=>worker())
+    return()=>{controller.abort();urls.filter(Boolean).forEach(url=>URL.revokeObjectURL(url))}
+  },[open,row?.id,workPhotoPaths.join('|'),apiUrl,token])
   const favorable=row?.request_data.maintenance_type!=='MEJORA_TECNICA'||['PROCEDE','CON_MODIFICACIONES'].includes(row?.request_data.priority_validation?.technical_review?.feasibility)
   const executionBlock=!row?null:!row.priority?'Falta guardar la evaluación oficial de Mantenimiento. Abre «Validar prioridad y evaluar».':!favorable?'La mejora necesita viabilidad «Procede» o «Procede con modificaciones». Revisa la evaluación técnica.':!row.request_data.planning?'Falta guardar la programación. Abre «Programar actividad».':row.request_data.planning.condition!=='LISTA'?'La programación está en espera. Abre «Programar actividad», revisa los pendientes, selecciona «Lista para ejecutar» y guarda.':null
   const showingDetail=Boolean(row && !form)
@@ -176,7 +193,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     event.preventDefault();const payload={...form}
     if(submitting.current)return
     if(mode==='receive' && !window.confirm('Al aceptar, confirmas que recibiste el trabajo y estás conforme con la entrega. Si no ingresaste observaciones, se registrará «Entrega conforme». ¿Deseas aceptar?'))return
-    if((mode==='new'||mode==='edit')&&photo){
+    if((mode==='new'||mode==='edit'||mode==='complete')&&photo){
       if(!['image/jpeg','image/png','image/webp'].includes(photo.type)||photo.size>10*1024*1024){setFormError('La foto debe ser JPG, PNG o WEBP y no superar 10 MB');return}
       try{setBusy(true);setUploadStage('Comprimiendo foto…');payload.image_data=await imageToDataUrl(photo)}
       catch(err){setFormError(err.message);return}
@@ -231,6 +248,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}
         {!row.request_data.requested_parts?.length&&row.request_data.requested_part_id&&<p>Repuesto previsto: {row.request_data.requested_part_code} · {row.request_data.requested_quantity}. Stock al solicitar: {row.request_data.stock_at_request} ({row.request_data.stock_sufficient?'suficiente':'insuficiente'}).</p>}
         {row.execution_data&&<><h4>Trabajo entregado</h4><p>Realizado por: {row.executor_name || row.assignee_name}</p><p>{row.execution_data.work_done}</p><p>Causa: {row.execution_data.cause || 'No aplica'}</p><p>Recomendaciones: {row.execution_data.recommendations || 'No aplica'}</p><p>Condiciones: {row.execution_data.delivery_conditions || 'No aplica'}</p><p>Reparación: {time(row.execution_data.repair_started_at)} — {time(row.execution_data.repair_finished_at)}. Retorno: {time(row.execution_data.restored_at)}.</p><ul>{row.execution_data.parts.map(p=><li key={p.spare_part_id}>{p.internal_code} · {p.quantity} {p.unit_of_measure} consumidos</li>)}</ul></>}
+        {!!workPhotoPaths.length&&<div className="full-field"><p>Foto del trabajo realizado</p>{workPhotosLoaded<workPhotoPaths.length&&<p role="status">Cargando evidencia…</p>}<div className="request-photo-gallery">{workImageUrls.map((url,index)=>url?<a key={index} href={url} target="_blank" rel="noreferrer"><img loading="lazy" src={url} alt={`Evidencia ${index+1} del trabajo ${row.id}`}/></a>:null)}</div></div>}
         {row.received_at&&<p>Recibido por {row.receiver_name || row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF {row.request_data.maintenance_type==='MEJORA_TECNICA'?'MT/02-08':'MT/02-05'}</button>
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
@@ -281,6 +299,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           {[['work_done','Trabajo realizado',2000],['cause','Posibles causas',1000],['recommendations','Recomendaciones de operación',1000],['delivery_conditions','Condiciones de entrega',1000]].map(([name,label,max])=><Text key={name} name={name} label={label} maxLength={max} required={name==='work_done'||(name==='cause'&&row.request_data.maintenance_type==='CORRECTIVO')} form={form} change={change}/>)}
           <div className="full-field"><h4>Repuestos realmente utilizados</h4><p>Se descontarán al guardar la entrega. Si no se utilizaron repuestos, deja la lista vacía.</p>{form.parts.map((p,i)=><div className="request-line" key={i}><label>Repuesto<select required value={p.spare_part_id} onChange={e=>updateLine('parts',i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{parts.map(item=><option key={item.spare_part_id} value={item.spare_part_id}>{item.internal_code} · {item.description} ({item.unit_of_measure})</option>)}</select></label><label>Cantidad<input type="number" required min="0.01" step="0.01" value={p.quantity} onChange={e=>updateLine('parts',i,'quantity',e.target.value)}/></label><label>Repuesto anterior<input maxLength={150} value={p.removed_part} onChange={e=>updateLine('parts',i,'removed_part',e.target.value)}/></label><label>Posición<input maxLength={150} value={p.position} onChange={e=>updateLine('parts',i,'position',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('parts',form.parts.filter((_,j)=>i!==j))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.parts.length>=30} onClick={()=>change('parts',[...form.parts,{spare_part_id:'',quantity:'1',removed_part:'',position:''}])}>Añadir repuesto usado</button></div>
           <div className="full-field"><h4>Conciliación de piezas / herramientas</h4>{form.tools.map((t,i)=><div className="request-line" key={i}><label>Descripción<input required maxLength={100} value={t.description} onChange={e=>updateLine('tools',i,'description',e.target.value)}/></label><label>Ingreso<input required type="number" min="0" step="1" value={t.quantity_in} onChange={e=>updateLine('tools',i,'quantity_in',e.target.value)}/></label><label>Salida<input required type="number" min="0" step="1" value={t.quantity_out} onChange={e=>updateLine('tools',i,'quantity_out',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('tools',form.tools.filter((_,j)=>j!==i))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.tools.length>=20} onClick={()=>change('tools',[...form.tools,{description:'',quantity_in:'0',quantity_out:'0'}])}>Añadir pieza / herramienta</button></div>
+          <ImageAttachment label="Foto del trabajo realizado (opcional)" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="La imagen se comprimirá y guardará como evidencia de la finalización. JPG, PNG o WEBP; máximo 10 MB."/>
         </>}
         {mode==='receive'&&<><Field label="Fecha y hora de recepcion" name="received_at" type="datetime-local" required value={form.received_at} onChange={change}/><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='edit'?'Guardar datos de la mejora':mode==='complete'?'Entregar trabajo y consumir repuestos':mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}

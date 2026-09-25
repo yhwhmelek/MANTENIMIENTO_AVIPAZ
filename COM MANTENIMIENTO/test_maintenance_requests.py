@@ -298,6 +298,16 @@ class RequestTests(unittest.TestCase):
         self.endpoint('/{request_id}/completar')(5, self.completion(parts=[]), usuario_id=2)
         self.assertEqual(self.cursor.execute.call_args.args[1], datetime(2026, 1, 1, 10))
 
+    def test_optional_completion_photo_is_stored_in_execution_data(self):
+        self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
+        data=self.completion(parts=[],image_data='data:image/png;base64,evidence')
+        with patch.object(mod,'save_request_image',return_value='server/work-evidence.png'):
+            self.endpoint('/{request_id}/completar')(5,data,usuario_id=2)
+        update=next(call.args for call in self.cursor.execute.call_args_list if 'ExecutionData' in call.args[0])
+        saved=json.loads(update[2])
+        self.assertEqual(saved['image_paths'],['server/work-evidence.png'])
+        self.assertNotIn('image_data',saved)
+
     def test_historical_receipt_preserved_and_validated(self):
         self.cursor.execute.return_value.fetchone.return_value = self.locked('POR_RECIBIR')
         with self.assertRaises(HTTPException) as error:
