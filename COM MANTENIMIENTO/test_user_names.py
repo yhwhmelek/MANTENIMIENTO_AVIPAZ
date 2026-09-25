@@ -55,6 +55,19 @@ class UserNamesTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
         connection.commit.assert_not_called()
 
+    def test_admin_deletes_user_without_history(self):
+        connection=MagicMock()
+        connection.cursor.return_value.execute.return_value.fetchone.return_value=(4,)
+        with patch.object(main,'obtener_conexion',return_value=connection):
+            self.assertEqual(main.eliminar_usuario(4,9),{'id':4})
+        self.assertIn('DELETE FROM dbo.Usuarios',connection.cursor.return_value.execute.call_args.args[0])
+        connection.commit.assert_called_once()
+
+    def test_admin_cannot_delete_own_account(self):
+        with self.assertRaises(HTTPException) as raised:
+            main.eliminar_usuario(9,9)
+        self.assertEqual(raised.exception.status_code,409)
+
     def test_password_requires_current_password(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value

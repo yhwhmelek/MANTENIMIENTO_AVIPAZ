@@ -828,6 +828,27 @@ def cambiar_nombre(usuario_id: int, datos: CambioNombreRequest,
     return respuesta_usuario(usuario)
 
 
+@app.delete("/usuarios/{usuario_id}")
+def eliminar_usuario(usuario_id: int, usuario_actual_id: int = Depends(obtener_admin_actual)):
+    if usuario_id == usuario_actual_id:
+        raise HTTPException(status_code=409, detail="No puedes eliminar tu propia cuenta mientras tienes la sesión iniciada")
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            usuario = cursor.execute("SELECT Id FROM dbo.Usuarios WHERE Id=?", usuario_id).fetchone()
+            if usuario is None:
+                raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            cursor.execute("DELETE FROM dbo.Usuarios WHERE Id=?", usuario_id)
+            conexion.commit()
+    except HTTPException:
+        raise
+    except pyodbc.IntegrityError:
+        raise HTTPException(status_code=409, detail="No se puede eliminar porque el usuario tiene solicitudes, mantenimientos o movimientos asociados. Consérvalo inactivo para mantener el historial")
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo eliminar el usuario")
+    return {"id": usuario_id}
+
+
 class MachineElementTypeWrite(BaseModel):
     specification_type: Literal['NONE', 'MOTOR', 'REDUCTOR'] = 'NONE'
     name: str = Field(min_length=1, max_length=100)
