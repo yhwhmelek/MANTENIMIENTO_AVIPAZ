@@ -130,8 +130,7 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .inventory-alerts .stock-alert-trigger { position: static; max-width: 100%; text-align: left; }
 .request-alert-trigger { position: fixed; left: 18px; bottom: 18px; z-index: 25; display: flex; align-items: center; gap: 8px; padding: 13px 18px; border: 1px solid #cad1cd; border-radius: 8px; background: #fff; color: #214c3f; box-shadow: 0 4px 18px #0002; cursor: pointer; font-weight: 700; }
 .request-alert-trigger.needs-attention { background: #fff3cd; color: #784900; border-color: #c88b21; }
-.request-workspace { width: min(1250px, calc(100% - 28px)); max-height: calc(100vh - 28px); overflow: auto; padding: 26px; border: 0; border-radius: 12px; color: #263d34; }
-.request-workspace::backdrop { background: rgba(10,27,21,.62); }
+.request-workspace { min-width: 0; color: #263d34; }
 .request-workspace .maintenance-requests-table,
 .request-workspace .prioritized-activities-table { table-layout: fixed; }
 .request-workspace .maintenance-requests-table th,

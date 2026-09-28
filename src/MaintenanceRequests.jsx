@@ -6,7 +6,7 @@ import TechnicalImprovementFields, {evaluationFields} from './TechnicalImproveme
 import ImageAttachment from './ImageAttachment'
 import { imageToDataUrl } from './imageUpload'
 import { useEffect, useRef, useState } from 'react'
-import { Bell, X } from 'lucide-react'
+import { Bell } from 'lucide-react'
 import OperatingPeriods from './OperatingPeriods'
 import MaintenanceScheduleReport from './MaintenanceScheduleReport'
 import { requestValidationError } from './requestValidationError'
@@ -25,7 +25,7 @@ const localInput = () => { const d = new Date(); return `${d.getFullYear()}-${St
 function Field({label,name,type='text',value,onChange,...props}) { return <label>{label}<input name={name} type={type} value={value ?? ''} onChange={e=>onChange(name,e.target.value)} {...props}/></label> }
 function Text({label,name,form,change,maxLength=1000,required=true,placeholder}) { return <label className="full-field">{label}{!required && ' (opcional)'}<textarea required={required} placeholder={placeholder ?? (required ? undefined : 'No aplica si se deja vacío')} rows={3} maxLength={maxLength} value={form[name] || ''} onChange={e=>change(name,e.target.value)}/></label> }
 
-export default function MaintenanceRequests({ apiUrl, token, currentUser, open, onOpen, onClose }) {
+export default function MaintenanceRequests({ apiUrl, token, currentUser, open, onOpen }) {
   const [rows,setRows] = useState([]), [machines,setMachines] = useState([]), [parts,setParts] = useState([])
   const [plants,setPlants] = useState([]), [towers,setTowers] = useState([])
   const [error,setError] = useState(''), [formError,setFormError] = useState(''), [busy,setBusy] = useState(false)
@@ -38,7 +38,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [removedPhotoPaths,setRemovedPhotoPaths] = useState([])
   const [uploadStage,setUploadStage] = useState('')
   const [photosLoaded,setPhotosLoaded] = useState(0)
-  const dialog=useRef(null), submitting=useRef(false)
+  const submitting=useRef(false)
   const detail=useRef(null)
   const isAdmin=currentUser.rol==='ADMIN'
   const isTechnician=['MECANICO','ELECTRICO'].includes(currentUser.rol)
@@ -66,9 +66,6 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     refresh(); const timer=setInterval(refresh,30000);window.addEventListener('focus',refresh)
     return()=>{controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh)}
   },[apiUrl,token,version,open])
-  useEffect(()=>{
-    if(open)dialog.current?.showModal();else dialog.current?.close()
-  },[open])
   useEffect(()=>{
     if(!open)return
     const controller=new AbortController();setCatalogReady(false)
@@ -136,7 +133,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   useEffect(()=>{
     if(open && showingDetail){
       detail.current?.focus({preventScroll:true})
-      if(dialog.current)dialog.current.scrollTop=0
+      detail.current?.scrollIntoView({block:'start'})
     }
   },[open,showingDetail,row?.id])
   function change(name,value){setForm(f=>({...f,[name]:value,...(name==='plant_id'?{tower_id:'',machine_id:''}:name==='tower_id'?{machine_id:''}:{}),...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:'',detected_at:value==='CORRECTIVO'?'':(f.detected_at||localInput())}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
@@ -233,8 +230,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   function updateLine(kind,index,key,value){setForm(f=>({...f,[kind]:f[kind].map((line,i)=>i===index?{...line,[key]:value}:line)}))}
   return <>
     <button className={`request-alert-trigger ${assignedWorkCount||(!isTechnician&&(managementCount||pendingReceipts.length))||error?'needs-attention':''}`} onClick={onOpen}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?(isTechnician?`Mis trabajos asignados: ${assignedWorkCount}`:`Trabajos asignados: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`):'Consultando solicitudes…'}</span></button>
-    <dialog ref={dialog} className="request-workspace" aria-labelledby="requests-title" onCancel={e=>{if(e.target!==e.currentTarget||busy)e.preventDefault()}} onClose={e=>{if(e.target===e.currentTarget)onClose()}}>
-      <div className="modal-header"><h2 id="requests-title">Solicitudes de mantenimiento</h2><button aria-label="Cerrar solicitudes" disabled={busy} onClick={onClose}><X/></button></div>
+    <section hidden={!open} className="request-workspace" aria-labelledby="requests-title">
+      <div className="page-heading"><h1 id="requests-title">Solicitudes de mantenimiento</h1></div>
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
       {!form&&!row&&<nav className="spare-parts-nav requests-nav" aria-label="Secciones de solicitudes"><button type="button" aria-current={workspace==='pending'?'page':undefined} onClick={()=>setWorkspace('pending')}>{isTechnician?'Mis trabajos pendientes':'Pendientes y solicitudes'}</button><button type="button" aria-current={workspace==='activities'?'page':undefined} onClick={()=>setWorkspace('activities')}>Lista de actividades</button>{!isTechnician&&<><button type="button" aria-current={workspace==='schedule'?'page':undefined} onClick={()=>setWorkspace('schedule')}>Cronograma PDF</button><button type="button" aria-current={workspace==='periods'?'page':undefined} onClick={()=>setWorkspace('periods')}>Horas de máquinas</button></>}</nav>}
       {!form&&!row&&!isTechnician&&workspace==='periods'?<OperatingPeriods request={request} machines={machines} canCreate={canCreate&&catalogReady}/>:<>
@@ -316,7 +313,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {mode==='receive'&&<><Field label="Fecha y hora de recepcion" name="received_at" type="datetime-local" required value={form.received_at} onChange={change}/><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='edit'?'Guardar datos de la mejora':mode==='admin_flow'?'Guardar fechas corregidas':mode==='complete'?(isTechnician?'Entregar trabajo':'Entregar trabajo y consumir repuestos'):mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}
       </>}
-    </dialog>
+    </section>
     <PrioritizedRequestPrint row={printRow}/>
   </>
 }
