@@ -131,6 +131,11 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-alert-trigger { position: fixed; left: 18px; bottom: 18px; z-index: 25; display: flex; align-items: center; gap: 8px; padding: 13px 18px; border: 1px solid #cad1cd; border-radius: 8px; background: #fff; color: #214c3f; box-shadow: 0 4px 18px #0002; cursor: pointer; font-weight: 700; }
 .request-alert-trigger.needs-attention { background: #fff3cd; color: #784900; border-color: #c88b21; }
 .request-workspace { min-width: 0; color: #263d34; }
+.spare-part-combobox { min-width: 0; }
+.spare-part-combobox > input { width: 100%; }
+.spare-part-options { max-height: 240px; overflow-y: auto; margin: 4px 0 0; padding: 4px; list-style: none; border: 1px solid #cad1cd; border-radius: 8px; background: #fff; }
+.spare-part-options li { padding: 10px 12px; cursor: pointer; overflow-wrap: anywhere; border-radius: 4px; }
+.spare-part-options li:hover, .spare-part-options li[aria-selected="true"] { background: #e9f3ed; color: #214c3f; }
 .request-workspace .maintenance-requests-table,
 .request-workspace .prioritized-activities-table { table-layout: fixed; }
 .request-workspace .maintenance-requests-table th,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import SparePartCombobox from './SparePartCombobox'
 
 export default function MachineSpareParts({ apiUrl, token, machine, element = null, isAdmin, onClose }) {
   const [items, setItems] = useState([])
@@ -10,7 +11,6 @@ export default function MachineSpareParts({ apiUrl, token, machine, element = nu
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [form, setForm] = useState(null)
-  const [search, setSearch] = useState('')
   const path = `/maquinas/${machine.machine_id}/repuestos`
 
   async function request(route, options = {}) {
@@ -34,7 +34,7 @@ export default function MachineSpareParts({ apiUrl, token, machine, element = nu
   }, [apiUrl, token, machine.machine_id])
 
   function openForm(item = null) {
-    setError(''); setMessage(''); setSearch('')
+    setError(''); setMessage('')
     setForm(item || { element_id: element?.element_id ?? '', spare_part_id: '', position: '', quantity_required: '1', is_critical: false, notes: '' })
   }
   function change(name, value) { setForm(current => ({ ...current, [name]: value })) }
@@ -42,6 +42,7 @@ export default function MachineSpareParts({ apiUrl, token, machine, element = nu
   async function save(event) {
     event.preventDefault()
     if (busy || !isAdmin) return
+    if (!form.spare_part_id) { setError('Selecciona un repuesto de las opciones antes de guardar.'); return }
     setBusy(true); setError(''); setMessage('')
     try {
       const id = form.machine_spare_part_id
@@ -75,8 +76,7 @@ export default function MachineSpareParts({ apiUrl, token, machine, element = nu
     if (!groups.has(key)) groups.set(key, { title: item.element_id == null ? 'Generales de la máquina' : `${item.element_code || ''} · ${item.element_name}`, rows: [] })
     groups.get(key).rows.push(item)
   }
-  const matches = parts.filter(part => (part.active || part.spare_part_id === Number(form?.spare_part_id)) &&
-    (part.spare_part_id === Number(form?.spare_part_id) || `${part.internal_code} ${part.description}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())))
+
 
   return <div className="modal-backdrop"><div className="motor-modal" role="dialog" aria-modal="true" aria-labelledby="machine-parts-title">
     <div className="modal-header"><div><h2 id="machine-parts-title">Repuestos · {machine.asset_code}</h2><p>{machine.name}{element ? ` / ${element.name}` : ''}</p></div><button aria-label="Cerrar repuestos" disabled={busy} onClick={onClose}><X /></button></div>
@@ -87,8 +87,7 @@ export default function MachineSpareParts({ apiUrl, token, machine, element = nu
         <h3>{form.machine_spare_part_id ? 'Editar asignación' : 'Asignar repuesto'}</h3>
         <fieldset disabled={busy} className="spare-assignment-fields"><div className="motor-form-grid">
           <label className="full-field">Asignar a<select value={form.element_id ?? ''} onChange={event => change('element_id', event.target.value)} disabled={Boolean(element)}><option value="">General de la máquina</option>{elements.map(item => <option key={item.element_id} value={item.element_id}>{item.element_code} · {item.name}</option>)}</select></label>
-          <label className="full-field">Buscar repuesto<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Código o descripción" /></label>
-          <label className="full-field">Repuesto *<select required value={form.spare_part_id} onChange={event => change('spare_part_id', event.target.value)}><option value="">Selecciona un repuesto</option>{matches.map(part => <option key={part.spare_part_id} value={part.spare_part_id}>{part.internal_code} · {part.description}{!part.active ? ' (inactivo; selecciona otro)' : ''}</option>)}</select>{!matches.length && <span>No hay repuestos que coincidan.</span>}</label>
+          <SparePartCombobox parts={parts} value={form.spare_part_id} onChange={value => change('spare_part_id', value)} />
           <label>Posición<input maxLength={150} value={form.position ?? ''} onChange={event => change('position', event.target.value)} placeholder="Rodamiento lado DE" /></label>
           <label>Cantidad requerida *<input required type="number" min="0.01" max="99999999.99" step="0.01" value={form.quantity_required} onChange={event => change('quantity_required', event.target.value)} /></label>
           <label className="checkbox-field"><input type="checkbox" checked={Boolean(form.is_critical)} onChange={event => change('is_critical', event.target.checked)} /> Repuesto crítico</label>
