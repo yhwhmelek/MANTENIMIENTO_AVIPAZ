@@ -182,6 +182,8 @@ def register_priority(app, write, locked, admin_user, now):
         def operation(cursor):
             original, request_row = load(cursor, request_id, data.expected_revision)
             require_validated(original)
+            if original.get('preventive') and data.starts_at and data.starts_at.date().isoformat() != original.get('planning', {}).get('starts_at', '')[:10]:
+                raise HTTPException(422, 'Cambia el día desde Preventivos → Reprogramar para conservar el registro semanal')
             planning = data.model_dump(mode='json', exclude={'expected_revision', 'requested_parts'})
             planning['review_required'] = True
             if data.assignment_type == 'USER':

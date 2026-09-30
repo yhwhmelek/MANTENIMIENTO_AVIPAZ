@@ -1,3 +1,4 @@
+import PreventiveChecklist from './PreventiveChecklist'
 import {NICFields,benefits,PriorityBadge} from './RequestPriority'
 import PriorityWorkflow from './PriorityWorkflow'
 import PrioritizedActivities from './PrioritizedActivities'
@@ -87,6 +88,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     return()=>{cancelled=true;window.removeEventListener('afterprint',reset);document.body.classList.remove('maintenance-request-printing')}
   },[printRow])
   useEffect(()=>{const refresh=()=>setVersion(v=>v+1);window.addEventListener('maintenance-flow-deleted',refresh);return()=>window.removeEventListener('maintenance-flow-deleted',refresh)},[])
+  useEffect(()=>{const open=e=>{setSelected(Number(e.detail));setForm(null);setMode('');setFormError('');setVersion(v=>v+1)};window.addEventListener('maintenance-open-request',open);return()=>window.removeEventListener('maintenance-open-request',open)},[])
   const row=rows.find(r=>r.id===selected)
   const photoPaths=row?.request_data.image_paths?.length?row.request_data.image_paths:row?.request_data.image_path?[row.request_data.image_path]:[]
   const workPhotoPaths=row?.execution_data?.image_paths||[]
@@ -172,7 +174,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   }
   function startWork(){
     if(!row||row.status!=='PENDIENTE'||!canExecute(row)||executionBlock)return
-    mutate(`/${row.id}/atender`,{started_at:localInput()})
+    mutate(`/${row.id}/atender`,row.request_data.preventive?{}:{started_at:localInput()})
   }
   async function deleteRequest(){
     if(currentUser.rol!=='ADMIN'||submitting.current||!window.confirm(`?Eliminar definitivamente la solicitud #${selected}, su intervenci?n, todos sus consumos y confirmaciones? Se recalcular? el stock. Esta acci?n no se puede deshacer.`))return
@@ -252,6 +254,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {row.accepted_at&&<p>Inicio registrado del trabajo: {time(row.accepted_at)} · Tiempo estimado: {duration(row.request_data.estimated_repair_minutes)}.</p>}
         {row.execution_data&&<p>Fin real: {time(row.execution_data.repair_finished_at)} · Tiempo real de trabajo: {duration(row.execution_data.repair_duration_minutes)} · Tiempo de respuesta: {duration(row.execution_data.response_time_minutes)}.</p>}
         {!!photoPaths.length&&<div className="full-field"><p>Fotos de la solicitud ({photoPaths.length})</p>{photosLoaded<photoPaths.length&&<p role="status">Cargando fotos… {photosLoaded} de {photoPaths.length}</p>}<div className="request-photo-gallery">{imageUrls.map((url,index)=>url?<a key={index} href={url} target="_blank" rel="noreferrer"><img loading="lazy" src={url} alt={`Foto ${index+1} de la solicitud ${row.id}`}/></a>:null)}</div>{photosLoaded===photoPaths.length&&!imageUrls.some(Boolean)&&<p>Fotos no disponibles.</p>}</div>}
+        {row.request_data.preventive&&<PreventiveChecklist key={row.id} row={row} currentUser={currentUser} request={request} onSaved={()=>setVersion(v=>v+1)}/>}
         {!isOperator&&<PriorityWorkflow key={row.id} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>}
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
         {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}

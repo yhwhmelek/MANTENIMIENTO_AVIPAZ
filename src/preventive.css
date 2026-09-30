@@ -1,0 +1,32 @@
+.preventive-module { padding-bottom: 24px; }
+.preventive-module .request-toolbar { margin: 18px 0; flex-wrap: wrap; }
+.preventive-summary { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; background: #e8f3ee; border-radius: 10px; }
+.preventive-summary span { min-width: 160px; }
+.preventive-week-table { min-width: 1500px; font-size: 13px; }
+.preventive-week-table td { vertical-align: top; }
+.preventive-week-table button { margin: 3px; }
+.preventive-day-selected { background: #e3f2eb; min-width: 82px; }
+.preventive-moved .preventive-day-selected { background: #fff0d9; }
+.preventive-point { padding: 14px; margin: 12px 0; border: 1px solid #cdded6; border-radius: 10px; background: #f7faf8; }
+.preventive-frequency { display: flex; gap: 12px; margin: 14px 0; }
+.preventive-error { color: #942b25; background: #fff1ef; padding: 12px; }
+.preventive-editor { max-width: 1050px; }
+.preventive-module .motor-modal { max-height: 90vh; overflow-y: auto; }
+.preventive-module fieldset { border: 0; padding: 0; }
+.preventive-report-heading h2 { margin-bottom: 8px; }
+.preventive-print-document { display: none; }
+@media print {
+ body.preventive-printing > * { display: none !important; }
+ body.preventive-printing > .preventive-print-document { display: block !important; color: #111; background: white; font-family: Arial, sans-serif; }
+ .preventive-print-document .table-scroll { overflow: visible; }
+ .preventive-print-document table { width: 100%; min-width: 0; border-collapse: collapse; font-size: 8px; }
+ .preventive-print-document td, .preventive-print-document th { padding: 4px; border: 1px solid #aaa; min-width: 0; overflow-wrap: anywhere; }
+ .preventive-print-document tr { break-inside: avoid; }
+ .preventive-print-document thead { display: table-header-group; }
+ .preventive-print-document h2 { font-size: 15px; }
+ .preventive-print-document h3 { font-size: 12px; }
+ .preventive-print-document p { margin: 4px 0; }
+ body.preventive-printing { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+ .preventive-print-document { page: preventive-report; }
+ @page preventive-report { size: A3 landscape; margin: 8mm; }
+}

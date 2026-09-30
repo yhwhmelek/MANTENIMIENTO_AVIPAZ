@@ -1,3 +1,4 @@
+import PreventiveMaintenance from './PreventiveMaintenance'
 import ImageAttachment from './ImageAttachment'
 import { imageToDataUrl } from './imageUpload'
 import { useEffect, useRef, useState } from 'react'
@@ -398,6 +399,15 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
     } catch (error) { setMessage(error.message) }
   }
 
+  const [preventiveElement,setPreventiveElement]=useState(null)
+  useEffect(()=>{
+    const open=e=>{setPreventiveElement(e.detail||null);setSection('preventive')}
+    const request=()=>setSection('requests')
+    window.addEventListener('preventive-open-element',open)
+    window.addEventListener('maintenance-open-request',request)
+    return()=>{window.removeEventListener('preventive-open-element',open);window.removeEventListener('maintenance-open-request',request)}
+  },[])
+
   return <main className="admin-shell">
     {showProfile && <UserProfile apiUrl={apiUrl} token={token} user={currentUser} onClose={() => setShowProfile(false)} onSaved={user => { onUserChange(user); setUsers(items => items.map(item => item.id === user.id ? { ...item, ...user } : item)) }} />}
     {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
@@ -408,6 +418,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
     <header className="admin-header">
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
+        {['ADMIN','MECANICO','ELECTRICO'].includes(currentUser.rol)&&<button className={section==='preventive'?'selected':''} onClick={()=>{setPreventiveElement(null);setSection('preventive')}}>Preventivos</button>}
         <button className={section === 'requests' ? 'selected' : ''} onClick={() => { setMessage(''); setSection('requests') }}>Solicitudes</button>
         {!isOperator && <button className={isAssetsSection ? 'selected' : ''} onClick={() => { setMessage(''); setSection('machines') }}>Activos</button>}
         {!isOperator && <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>}
@@ -430,7 +441,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <button aria-current={section === 'suppliers' ? 'page' : undefined} onClick={() => setSection('suppliers')}>Proveedores</button>
         {isAdmin && <button aria-current={section === 'categories' ? 'page' : undefined} onClick={() => setSection('categories')}>Categorías</button>}
       </nav>}
-      {section === 'requests' ? null : section === 'plant-structure' ? <PlantStructure apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'requisitions' ? <PurchaseRequisition apiUrl={apiUrl} token={token} currentUser={currentUser} /> : ['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} /> : section === 'spare-parts' ? <>
+      {section === 'preventive' ? <PreventiveMaintenance apiUrl={apiUrl} token={token} currentUser={currentUser} initialElement={preventiveElement}/> : section === 'requests' ? null : section === 'plant-structure' ? <PlantStructure apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'requisitions' ? <PurchaseRequisition apiUrl={apiUrl} token={token} currentUser={currentUser} /> : ['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements apiUrl={apiUrl} token={token} isAdmin={isAdmin} canPreventives={['ADMIN','MECANICO','ELECTRICO'].includes(currentUser.rol)} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} /> : section === 'spare-parts' ? <>
         <div className="page-heading"><div><p className="eyebrow">INVENTARIO</p><h1>Repuestos</h1><p>Catalogo, existencias y costos de repuestos.</p></div>{isAdmin && <button className="primary-action" onClick={() => openSparePartForm()}><Plus size={18} /> Nuevo repuesto</button>}</div>
         <p>Stock de bodega: saldo inicial m?s compras menos consumos posteriores al corte, excluyendo anulados. Se actualiza cada 30 segundos.</p>{stockError && <p role="alert">{stockError}</p>}
         <div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Categoria</th><th>Descripcion</th><th>Marca / Modelo</th><th>N.° parte</th><th>Unidad</th><th>Stock de bodega</th><th>Stock min. / max.</th><th>Costo unit.</th><th>Ubicacion</th><th>Estado</th><th>Imagen</th></tr></thead>

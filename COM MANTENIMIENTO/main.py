@@ -2432,6 +2432,9 @@ register_parts_history(app, obtener_conexion, obtener_usuario_activo, obtener_ad
 from maintenance_requests import register_maintenance_requests
 register_maintenance_requests(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
 
+from preventive_maintenance import register_preventive
+register_preventive(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
+
 from business_contacts import register_business_contacts
 register_business_contacts(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
 from contractors import register_contractors
