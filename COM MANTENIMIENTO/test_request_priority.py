@@ -38,6 +38,30 @@ class PriorityTests(unittest.TestCase):
         for planning in (omitted,blank):
             self.assertEqual((planning.resources,planning.permits,planning.window,planning.notes),('N/A','N/A','N/A','N/A'))
 
+    def test_group_planning_without_individual_assignee(self):
+        self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
+        for group in ('MECANICO', 'ELECTRICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO'):
+            with self.subTest(group=group):
+                self.cursor.execute.return_value.fetchone.side_effect=[self.lock(), ('Jefe',)]
+                data=self.plan(assignment_type=group, assigned_user_id=None)
+                self.endpoint('programar')(1,data,usuario_id=9)
+                saved=json.loads(self.cursor.execute.call_args.args[1])['planning']
+                self.assertEqual(saved['assignment_type'],group)
+                self.assertIsNone(saved['assigned_user_id'])
+                self.assertEqual(saved['responsible_role'],group)
+                for assignment in ({'assigned_user_id':2}, {'contractor_id':3}):
+                    with self.assertRaises(ValidationError):
+                        PlanningWrite(assignment_type=group, condition='LISTA', expected_revision=0, **assignment)
+
+    def test_group_planning_allows_parallel_jobs(self):
+        self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(), ('Jefe',)]
+        other={'planning':{'assignment_type':'MECANICO', 'starts_at':'2026-10-01T09:00:00', 'ends_at':'2026-10-01T11:00:00'}}
+        self.cursor.execute.return_value.fetchall.return_value=[(2,json.dumps(other))]
+        data=self.plan(assignment_type='MECANICO',assigned_user_id=None,starts_at='2026-10-01T09:00',estimated_duration_minutes=60)
+        self.endpoint('programar')(1,data,usuario_id=9)
+        self.connection.commit.assert_called_once()
+
     def test_all_64_combinations_match_matrix_maps(self):
         cases=json.loads(Path(__file__).with_name('priority_matrix_reference.json').read_text(encoding='utf-8'))['cases']
         self.assertEqual(len(cases),64)

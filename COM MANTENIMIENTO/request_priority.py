@@ -44,8 +44,16 @@ class PlannedSparePart(StrictModel):
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
 
 
+ASSIGNMENT_GROUPS = {
+    'MECANICO': ('Mecánico', ('MECANICO',)),
+    'ELECTRICO': ('Eléctrico', ('ELECTRICO',)),
+    'MECANICO_ELECTRICO': ('Mecánico / Eléctrico', ('MECANICO', 'ELECTRICO')),
+    'MANTENIMIENTO': ('Mantenimiento', ('MECANICO', 'ELECTRICO', 'ADMIN')),
+}
+
+
 class PlanningWrite(StrictModel):
-    assignment_type: Literal['USER', 'CONTRACTOR'] = 'USER'
+    assignment_type: Literal['USER', 'CONTRACTOR', 'MECANICO', 'ELECTRICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO'] = 'USER'
     assigned_user_id: int | None = Field(default=None, gt=0)
     contractor_id: int | None = Field(default=None, gt=0)
     responsible: str = Field(default='', max_length=150)
@@ -68,6 +76,8 @@ class PlanningWrite(StrictModel):
 
     @model_validator(mode='after')
     def dates(self):
+        if self.assignment_type in ASSIGNMENT_GROUPS and (self.assigned_user_id is not None or self.contractor_id is not None):
+            raise ValueError('La asignación por grupo no permite seleccionar un usuario ni un contratista')
         if self.assignment_type == 'USER' and (self.assigned_user_id is None or self.contractor_id is not None):
             raise ValueError('Selecciona un usuario mecánico o eléctrico')
         if self.assignment_type == 'CONTRACTOR' and (self.contractor_id is None or self.assigned_user_id is not None):
@@ -180,6 +190,9 @@ def register_priority(app, write, locked, admin_user, now):
                     raise HTTPException(422, 'Selecciona un usuario activo con rol Mecánico o Eléctrico')
                 planning['responsible'] = assigned[0]
                 planning['responsible_role'] = assigned[1]
+            elif data.assignment_type in ASSIGNMENT_GROUPS:
+                planning['responsible'] = ASSIGNMENT_GROUPS[data.assignment_type][0]
+                planning['responsible_role'] = data.assignment_type
             else:
                 contractor = cursor.execute('SELECT Name,Specialty FROM dbo.Contractors WHERE ContractorId=? AND Active=1', data.contractor_id).fetchone()
                 if not contractor:

@@ -11,6 +11,7 @@ import OperatingPeriods from './OperatingPeriods'
 import MaintenanceScheduleReport from './MaintenanceScheduleReport'
 import { requestValidationError } from './requestValidationError'
 import { compareActivities } from './priorityOrder'
+import {canExecuteWork} from './workAssignment'
 
 const states = { PENDIENTE:'Pendiente', EN_PROCESO:'En proceso', POR_RECIBIR:'Por recibir', CERRADA:'Cerrada' }
 const stateText = row => row.status==='POR_RECIBIR' ? (row.request_data.admin_review?'Pendiente de conformidad':'Pendiente de revisión administrativa') : states[row.status]
@@ -45,7 +46,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const isTechnician=['MECANICO','ELECTRICO'].includes(currentUser.rol)
   const canCreate=['ADMIN','USUARIO','OPERADOR','MECANICO','ELECTRICO'].includes(currentUser.rol)
   const isContractor=row=>row?.request_data.planning?.assignment_type==='CONTRACTOR'
-  const canExecute=row=>!isOperator&&((isContractor(row)&&isAdmin)||Number(row?.request_data.planning?.assigned_user_id)===Number(currentUser.id)||Number(row?.assigned_to)===Number(currentUser.id))
+  const canExecute=row=>canExecuteWork(row,currentUser)
   const assignedWorkCount=rows.filter(r=>canExecute(r)&&['PENDIENTE','EN_PROCESO'].includes(r.status)).length
   const assignedWork=rows.filter(r=>canExecute(r)&&['PENDIENTE','EN_PROCESO'].includes(r.status))
   const pendingReceipts=rows.filter(r=>r.status==='POR_RECIBIR'&&r.request_data.admin_review&&r.requested_by===currentUser.id)
@@ -64,7 +65,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       try{const data=await request('/solicitudes-mantenimiento',{signal:controller.signal});setRows(data);setError('');setLoaded(true)}
       catch(err){if(err.name!=='AbortError')setError(err.message)}finally{pending=false}
     }
-    refresh(); const timer=setInterval(refresh,30000);window.addEventListener('focus',refresh)
+    refresh(); const timer=setInterval(refresh,5000);window.addEventListener('focus',refresh)
     return()=>{controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh)}
   },[apiUrl,token,version,open])
   useEffect(()=>{
@@ -167,7 +168,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
     try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});setSelected(result.id);setForm(null);setPhoto(null);setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
-    catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
+    catch(err){setFormError(err.message);setVersion(v=>v+1)}finally{submitting.current=false;setBusy(false)}
   }
   function startWork(){
     if(!row||row.status!=='PENDIENTE'||!canExecute(row)||executionBlock)return
@@ -231,16 +232,16 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   }
   function updateLine(kind,index,key,value){setForm(f=>({...f,[kind]:f[kind].map((line,i)=>i===index?{...line,[key]:value}:line)}))}
   return <>
-    <button className={`request-alert-trigger ${assignedWorkCount||(!isTechnician&&(managementCount||pendingReceipts.length))||error?'needs-attention':''}`} onClick={onOpen}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?(isTechnician?`Mis trabajos asignados: ${assignedWorkCount}`:`Trabajos asignados: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`):'Consultando solicitudes…'}</span></button>
+    <button className={`request-alert-trigger ${assignedWorkCount||(!isTechnician&&(managementCount||pendingReceipts.length))||error?'needs-attention':''}`} onClick={onOpen}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?(isTechnician?`Trabajos disponibles y en curso: ${assignedWorkCount}`:`Trabajos disponibles y en curso: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`):'Consultando solicitudes…'}</span></button>
     <section hidden={!open} className="request-workspace" aria-labelledby="requests-title">
       <div className="page-heading"><h1 id="requests-title">Solicitudes de mantenimiento</h1></div>
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
-      {!isOperator&&!form&&!row&&<nav className="spare-parts-nav requests-nav" aria-label="Secciones de solicitudes"><button type="button" aria-current={workspace==='pending'?'page':undefined} onClick={()=>setWorkspace('pending')}>{isTechnician?'Mis trabajos pendientes':'Pendientes y solicitudes'}</button><button type="button" aria-current={workspace==='activities'?'page':undefined} onClick={()=>setWorkspace('activities')}>Lista de actividades</button>{!isTechnician&&<><button type="button" aria-current={workspace==='schedule'?'page':undefined} onClick={()=>setWorkspace('schedule')}>Cronograma PDF</button><button type="button" aria-current={workspace==='periods'?'page':undefined} onClick={()=>setWorkspace('periods')}>Horas de máquinas</button></>}</nav>}
+      {!isOperator&&!form&&!row&&<nav className="spare-parts-nav requests-nav" aria-label="Secciones de solicitudes"><button type="button" aria-current={workspace==='pending'?'page':undefined} onClick={()=>setWorkspace('pending')}>{isTechnician?'Trabajos disponibles y en curso':'Pendientes y solicitudes'}</button><button type="button" aria-current={workspace==='activities'?'page':undefined} onClick={()=>setWorkspace('activities')}>Lista de actividades</button>{!isTechnician&&<><button type="button" aria-current={workspace==='schedule'?'page':undefined} onClick={()=>setWorkspace('schedule')}>Cronograma PDF</button><button type="button" aria-current={workspace==='periods'?'page':undefined} onClick={()=>setWorkspace('periods')}>Horas de máquinas</button></>}</nav>}
       {!isOperator&&!form&&!row&&!isTechnician&&workspace==='periods'?<OperatingPeriods request={request} machines={machines} canCreate={canCreate&&catalogReady}/>:<>
       {!form&&!row&&workspace!=='schedule'&&<div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button>{workspace==='activities'||(!isTechnician&&workspace==='pending')?<label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>:null}{!isTechnician&&workspace==='pending'&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}</div>}
       {error&&<p role="alert">{error}</p>}{formError&&<p role="alert">{formError}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
-      {!form&&!row&&workspace==='pending'&&!!assignedWork.length&&<section className="request-detail"><h3>Mis trabajos pendientes ({assignedWork.length})</h3>{assignedWork.map(work=><div className="request-line" key={work.id}><span><strong>Solicitud #{work.id}</strong> · {work.request_data.target_area||work.request_data.machine_name}<br/>{work.status==='PENDIENTE'?'Programada por iniciar':'En proceso'} · {work.request_data.description}</span><button type="button" className="primary-action" onClick={()=>{setSelected(work.id);setFormError('')}}>Abrir trabajo</button></div>)}</section>}
-      {!form&&!row&&isTechnician&&workspace==='pending'&&!assignedWork.length&&loaded&&<p className="empty-state">No tienes trabajos asignados pendientes.</p>}
+      {!form&&!row&&workspace==='pending'&&!!assignedWork.length&&<section className="request-detail"><h3>Trabajos disponibles y en curso ({assignedWork.length})</h3>{assignedWork.map(work=><div className="request-line" key={work.id}><span><strong>Solicitud #{work.id}</strong> · {work.request_data.target_area||work.request_data.machine_name}<br/>{work.status==='PENDIENTE'?'Programada por iniciar':'En proceso'} · {work.request_data.description}</span><button type="button" className="primary-action" onClick={()=>{setSelected(work.id);setFormError('')}}>Abrir trabajo</button></div>)}</section>}
+      {!form&&!row&&isTechnician&&workspace==='pending'&&!assignedWork.length&&loaded&&<p className="empty-state">No hay trabajos disponibles para tu grupo ni trabajos tuyos en curso.</p>}
       {!form&&!row&&!isTechnician&&workspace==='pending'&&!!pendingReceipts.length&&<section className="request-detail"><h3>Trabajos pendientes de mi conformidad ({pendingReceipts.length})</h3>{pendingReceipts.map(work=><div className="request-line" key={work.id}><span><strong>Solicitud #{work.id}</strong> · {work.request_data.description}</span><button type="button" className="primary-action" onClick={()=>{setSelected(work.id);setFormError('')}}>Revisar entrega</button></div>)}</section>}
       {!loaded&&!error&&<p>Cargando solicitudes…</p>}
       {!isOperator&&!form&&!row&&workspace==='activities'&&<PrioritizedActivities rows={rows.filter(r=>!filter||r.status===filter)} plants={plants} towers={towers} plantFilter={plantFilter} setPlantFilter={setPlantFilter} statusFilter={filter} apiUrl={apiUrl} token={token} busy={busy} canEdit={canCreate&&catalogReady} isAdmin={isAdmin} onSaved={()=>setVersion(v=>v+1)} onOpen={id=>{setSelected(id);setFormError('')}} onEdit={editRequest}/>}
@@ -262,7 +263,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           {isAdmin&&<button type="button" className="secondary-action" disabled={busy} onClick={()=>start('admin_flow')}>Corregir fechas del flujo</button>}
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
           {canExecute(row)&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&executionBlock&&<p role="status">No se puede iniciar o terminar todavía: {executionBlock}</p>}
-          {row.status==='PENDIENTE'&&canExecute(row)&&<button type="button" onClick={startWork} disabled={busy||Boolean(executionBlock)} title={executionBlock||'Registrar inicio real'} className="primary-action">Iniciar trabajo</button>}
+          {row.status==='PENDIENTE'&&canExecute(row)&&<button type="button" onClick={startWork} disabled={busy||Boolean(executionBlock)} title={executionBlock||'Registrar inicio real'} className="primary-action">Aceptar e iniciar trabajo</button>}
           {row.status==='EN_PROCESO'&&canExecute(row)&&<button disabled={busy||!catalogReady||!row.priority||!favorable||row.request_data.planning?.condition!=='LISTA'} className="primary-action" onClick={()=>start('complete')}>Terminar trabajo</button>}
           {row.status==='POR_RECIBIR'&&isAdmin&&!row.request_data.admin_review&&<button type="button" className="primary-action" onClick={()=>mutate(`/${row.id}/revisar`,{notes:'Trabajo revisado y aprobado'})}>Revisar y aprobar trabajo</button>}
           {row.status==='POR_RECIBIR'&&row.request_data.admin_review&&row.requested_by===currentUser.id&&<button className="primary-action" onClick={()=>start('receive')}>Recibir trabajo conforme</button>}

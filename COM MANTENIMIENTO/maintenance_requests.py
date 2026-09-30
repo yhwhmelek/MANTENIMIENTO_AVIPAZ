@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse
 from image_storage import image_directory, stored_image
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from parts_history import records
-from request_priority import NIC, decorate, backlog_key, register_priority, require_planned
+from request_priority import NIC, decorate, backlog_key, register_priority, require_planned, ASSIGNMENT_GROUPS
 from operator_permissions import operator_request
 
 MAINTENANCE_ROLES = ('ADMIN', 'OPERADOR', 'MECANICO', 'ELECTRICO')
@@ -642,8 +642,10 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             planning = original.get('planning', {})
             assigned_user_id = planning.get('assigned_user_id')
             contractor = planning.get('assignment_type') == 'CONTRACTOR'
-            role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone() if contractor else None
-            if (not contractor and assigned_user_id != usuario_id) or (contractor and (not role or role[0] != 'ADMIN')):
+            group = ASSIGNMENT_GROUPS.get(planning.get('assignment_type'))
+            role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone() if contractor or group else None
+            allowed = (bool(role) and role[0] in group[1]) if group else ((bool(role) and role[0] == 'ADMIN') if contractor else assigned_user_id == usuario_id)
+            if not allowed:
                 raise HTTPException(403, 'Solo el responsable asignado puede iniciar este trabajo')
             estimated = int(planning.get('estimated_duration_days', 0))*1440 + int(planning.get('estimated_duration_minutes', 0))
             if estimated < 1 and data.estimated_repair_minutes:
@@ -655,6 +657,10 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if started_at < row[5]:
                 raise HTTPException(422, 'El inicio del trabajo no puede ser anterior a la solicitud')
             original['start_recorded_at'] = local_now().isoformat()
+            if group:
+                person = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios WHERE Id=?", usuario_id).fetchone()
+                planning = dict(planning, assigned_user_id=usuario_id, responsible=person[0] if person else str(usuario_id), responsible_role=role[0])
+                original['planning'] = planning
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='EN_PROCESO', AssignedTo=?, AcceptedAt=?, RequestData=? WHERE RequestId=?",
                            assigned_user_id or usuario_id, started_at, json.dumps(original, ensure_ascii=False), request_id)
             return {'id': request_id}

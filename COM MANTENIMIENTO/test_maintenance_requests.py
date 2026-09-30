@@ -374,6 +374,36 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code,403)
         self.connection.commit.assert_not_called()
 
+    def test_group_acceptance_assigns_first_eligible_user(self):
+        for group, roles in mod.ASSIGNMENT_GROUPS.items():
+            for role in roles[1]:
+                with self.subTest(group=group,role=role):
+                    self.original['planning']={'assignment_type':group,'condition':'LISTA','estimated_duration_minutes':60,'assigned_user_id':None}
+                    self.cursor.execute.return_value.fetchone.side_effect=[self.locked('PENDIENTE',assigned_to=None),(role,),('Ejecutor',)]
+                    self.endpoint('/{request_id}/atender')(5,mod.StartWorkWrite(),usuario_id=3)
+                    self.assertEqual(self.cursor.execute.call_args.args[1],3)
+                    saved=json.loads(self.cursor.execute.call_args.args[3])
+                    self.assertEqual(saved['planning']['assigned_user_id'],3)
+                    self.assertEqual(saved['planning']['responsible'],'Ejecutor')
+                    self.assertEqual(saved['planning']['assignment_type'],group)
+                    self.cursor.execute.return_value.fetchone.side_effect=[self.locked('EN_PROCESO',assigned_to=3)]
+                    with self.assertRaises(HTTPException) as error:
+                        self.endpoint('/{request_id}/atender')(5,mod.StartWorkWrite(),usuario_id=4)
+                    self.assertEqual(error.exception.status_code,409)
+
+    def test_group_rejects_ineligible_and_inactive_users(self):
+        for group, roles in mod.ASSIGNMENT_GROUPS.items():
+            for role in ('ADMIN','MECANICO','ELECTRICO','USUARIO','OPERADOR',None):
+                if role in roles[1]:
+                    continue
+                with self.subTest(group=group,role=role):
+                    self.original['planning']={'assignment_type':group,'condition':'LISTA','estimated_duration_minutes':60}
+                    self.cursor.execute.return_value.fetchone.side_effect=[self.locked('PENDIENTE',assigned_to=None),(role,) if role else None]
+                    with self.assertRaises(HTTPException) as error:
+                        self.endpoint('/{request_id}/atender')(5,mod.StartWorkWrite(),usuario_id=3)
+                    self.assertEqual(error.exception.status_code,403)
+        self.connection.commit.assert_not_called()
+
     def test_admin_can_accept_own_request(self):
         self.original['planning']['assigned_user_id']=9
         self.cursor.execute.return_value.fetchone.return_value=self.locked('PENDIENTE',requested_by=9,assigned_to=None)
