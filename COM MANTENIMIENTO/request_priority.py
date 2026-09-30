@@ -34,7 +34,7 @@ class ImprovementReview(StrictModel):
 
 class ValidationWrite(StrictModel):
     factors: NIC
-    justification: str = Field(min_length=1, max_length=2000)
+    justification: str = Field(default='', max_length=2000)
     technical_review: ImprovementReview | None = None
     expected_revision: int = Field(ge=0)
 
