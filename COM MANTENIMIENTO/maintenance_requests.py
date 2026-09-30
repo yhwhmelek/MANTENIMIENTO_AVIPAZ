@@ -17,9 +17,10 @@ from image_storage import image_directory, stored_image
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from parts_history import records
 from request_priority import NIC, decorate, backlog_key, register_priority, require_planned
+from operator_permissions import operator_request
 
 MAINTENANCE_ROLES = ('ADMIN', 'OPERADOR', 'MECANICO', 'ELECTRICO')
-REQUEST_CREATOR_ROLES = ('ADMIN', 'USUARIO', 'OPERADOR')
+REQUEST_CREATOR_ROLES = ('ADMIN', 'USUARIO', 'OPERADOR', 'MECANICO', 'ELECTRICO')
 
 
 def local_now():
@@ -444,7 +445,11 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     return []
                 cursor.execute("SELECT Id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios")
                 names = {user_id: name for user_id, name in cursor.fetchall()}
-                return sorted((decode(row, names) for row in rows), key=backlog_key)
+                role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
+                decoded = [decode(row, names) for row in rows]
+                if role and role[0] == 'OPERADOR':
+                    decoded = [operator_request(row) for row in decoded if row['requested_by'] == usuario_id]
+                return sorted(decoded, key=backlog_key)
         except (pyodbc.Error, RuntimeError):
             raise HTTPException(503, 'No se pudieron consultar las solicitudes. Verifica las migraciones 005 y 006.')
 
@@ -577,7 +582,9 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         def operation(cursor):
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
             if not role or role[0] not in REQUEST_CREATOR_ROLES:
-                raise HTTPException(403, 'Solo administradores, usuarios y operadores pueden generar solicitudes')
+                raise HTTPException(403, 'Tu rol no puede generar solicitudes')
+            if role[0] == 'OPERADOR' and (data.requested_parts or data.requested_part_id is not None):
+                raise HTTPException(403, 'Los operadores no pueden seleccionar repuestos en las solicitudes')
             machine = cursor.execute('SELECT AssetCode, Name, Area FROM dbo.Machines WITH (HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone() if data.machine_id is not None else None
             if data.machine_id is not None and not machine:
                 raise HTTPException(422, 'Maquina no encontrada')

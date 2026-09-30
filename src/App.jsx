@@ -69,7 +69,7 @@ function App() {
     storage.setItem('usuario', JSON.stringify(user))
   }
 
-  if (token && currentUser) return <Dashboard apiUrl={API_URL} token={token} currentUser={currentUser} onUserChange={updateCurrentUser} onLogout={logout} />
+  if (token && currentUser) return <Dashboard key={`${currentUser.id}:${currentUser.rol}`} apiUrl={API_URL} token={token} currentUser={currentUser} onUserChange={updateCurrentUser} onLogout={logout} />
 
   return <main className="login-shell">
     <section className="brand-panel"><div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div><div className="panel-copy"><p className="eyebrow">OPERACIONES EN ORDEN</p><h1>El trabajo de hoy, bajo control.</h1><p>Gestiona mantenimientos, equipos y tareas desde un solo lugar.</p></div><div className="status-row"><span className="status-dot" />Sistema operativo</div></section>

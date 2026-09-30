@@ -13,7 +13,8 @@ import bcrypt
 import jwt
 import pyodbc
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from operator_permissions import authorize_operator
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse
@@ -366,14 +367,18 @@ def obtener_admin_actual(
 
 
 def obtener_usuario_activo(
+    request: Request,
     usuario_id: int = Depends(obtener_usuario_autenticado),
 ) -> int:
     try:
         with closing(obtener_conexion()) as conexion:
-            usuario = conexion.cursor().execute(
-                "SELECT Activo FROM dbo.Usuarios WHERE Id = ?",
+            cursor = conexion.cursor()
+            usuario = cursor.execute(
+                "SELECT Activo, Rol FROM dbo.Usuarios WHERE Id = ?",
                 usuario_id,
             ).fetchone()
+            if usuario is not None and bool(usuario.Activo) and usuario.Rol == 'OPERADOR':
+                authorize_operator(request, cursor, usuario_id)
     except (pyodbc.Error, RuntimeError):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

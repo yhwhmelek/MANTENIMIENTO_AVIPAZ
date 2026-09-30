@@ -23,8 +23,10 @@ function requestError(data, fallback) {
 
 export default function Dashboard({ apiUrl, token, currentUser, onUserChange, onLogout }) {
   const isAdmin = currentUser.rol === 'ADMIN'
+  const isOperator = currentUser.rol === 'OPERADOR'
   const [showProfile, setShowProfile] = useState(false)
-  const [section, setSection] = useState('machines')
+  const [selectedSection, setSection] = useState(currentUser.rol === 'OPERADOR' ? 'requests' : 'machines')
+  const section = isOperator ? 'requests' : selectedSection
   const [historyMachineId, setHistoryMachineId] = useState('')
   const isAssetsSection = ['machines', 'element-types', 'machine-elements', 'events', 'plant-structure'].includes(section)
   const isSparePartsSection = ['spare-parts', 'suppliers', 'categories', 'spare-reports', 'purchases', 'consumption', 'requisitions'].includes(section)
@@ -400,15 +402,15 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
     {showProfile && <UserProfile apiUrl={apiUrl} token={token} user={currentUser} onClose={() => setShowProfile(false)} onSaved={user => { onUserChange(user); setUsers(items => items.map(item => item.id === user.id ? { ...item, ...user } : item)) }} />}
     {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
     <div className="inventory-alerts">
-    <StockAlerts apiUrl={apiUrl} token={token} section={section} />
+    {!isOperator && <StockAlerts apiUrl={apiUrl} token={token} section={section} />}
     {isAdmin&&<RequisitionAlerts apiUrl={apiUrl} token={token} section={section} onOpen={()=>setSection('requisitions')}/>}
     </div>
     <header className="admin-header">
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
         <button className={section === 'requests' ? 'selected' : ''} onClick={() => { setMessage(''); setSection('requests') }}>Solicitudes</button>
-        <button className={isAssetsSection ? 'selected' : ''} onClick={() => { setMessage(''); setSection('machines') }}>Activos</button>
-        <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>
+        {!isOperator && <button className={isAssetsSection ? 'selected' : ''} onClick={() => { setMessage(''); setSection('machines') }}>Activos</button>}
+        {!isOperator && <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>}
         {isAdmin && <button className={section === 'users' ? 'selected' : ''} onClick={() => setSection('users')}>Usuarios</button>}
       </nav>
       <div className="admin-user"><span>{currentUser.nombre_completo || currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={() => setShowProfile(true)}>Mi perfil</button><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>

@@ -165,7 +165,7 @@ class RequestTests(unittest.TestCase):
 
     def test_multiple_planned_parts_do_not_consume_stock(self):
         data=mod.RequestWrite(machine_id=3,maintenance_type='CORRECTIVO',description='Trabajo',requested_parts=[{'spare_part_id':8,'quantity':2},{'spare_part_id':9,'quantity':5}])
-        self.cursor.execute.return_value.fetchone.side_effect=[('OPERADOR',),('MOL-1','Molino','Produccion'),(12,)]
+        self.cursor.execute.return_value.fetchone.side_effect=[('MECANICO',),('MOL-1','Molino','Produccion'),(12,)]
         with patch.object(mod,'part_stock',side_effect=[(('A','Rodamiento','UN'),Decimal(3),None),(('B','Perno','UN'),Decimal(1),None)]):
             self.endpoint('')(data,usuario_id=1)
         saved=json.loads(self.cursor.execute.call_args.args[4])
