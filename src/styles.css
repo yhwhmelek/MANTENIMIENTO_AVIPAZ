@@ -386,3 +386,10 @@ body>.schedule-report-document{display:none}
 .alert-category h3 { margin: 0 0 10px; }
 .alerts-center .stock-alert-trigger, .alerts-center .request-alert-trigger { position: static; width: 100%; max-width: 100%; text-align: left; box-shadow: none; }
 @media print { .alerts-center-trigger, .alerts-center { display: none !important; } }
+
+.request-alert-work { display: flex; gap: 16px; align-items: center; padding: 16px 0; border-bottom: 1px solid #dce3df; }
+.request-alert-work > div:last-child { min-width: 0; overflow-wrap: anywhere; }
+.request-machine-photo { width: 132px; min-height: 88px; flex-shrink: 0; display: grid; place-items: center; border-radius: 8px; background: #f1f5f3; color: #5a6b62; font-size: 12px; text-align: center; overflow: hidden; }
+.request-machine-photo img { display: block; width: 132px; height: 100px; object-fit: contain; }
+.request-machine-photo span { padding: 12px; }
+@media (max-width: 480px) { .request-alert-work { align-items: flex-start; flex-direction: column; } }

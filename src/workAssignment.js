@@ -15,3 +15,10 @@ export function canExecuteWork(row, user) {
   if (group) return row.status === 'PENDIENTE' && group.roles.includes(user.rol)
   return plan.assigned_user_id != null && Number(plan.assigned_user_id) === Number(user.id)
 }
+
+// Group assignments retain their category after a technician accepts the work.
+export function scheduleGroup(plan = {}) {
+  if (plan.assignment_type === 'CONTRACTOR' || plan.responsible_role === 'CONTRATISTA') return {key:'CONTRATISTA', label:'Contratista'}
+  const key = assignmentGroups[plan.assignment_type] ? plan.assignment_type : plan.responsible_role
+  return assignmentGroups[key] ? {key, label:assignmentGroups[key].label} : {key:'SIN_GRUPO', label:'Sin grupo'}
+}

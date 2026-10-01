@@ -1337,6 +1337,21 @@ def machine_record(cursor, row):
     return dict(zip((column[0] for column in cursor.description), row))
 
 
+@app.get('/maquinas/{machine_id}/imagen', response_class=FileResponse)
+def imagen_maquina(machine_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            row = conexion.cursor().execute('SELECT MachineImagePath FROM dbo.Machines WHERE MachineId = ?', machine_id).fetchone()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudo consultar la imagen')
+    if row is None or not row.MachineImagePath:
+        raise HTTPException(status_code=404, detail='La m?quina no tiene imagen')
+    path = stored_image(row.MachineImagePath)
+    if not path:
+        raise HTTPException(status_code=404, detail='No se encontro la imagen')
+    return FileResponse(path)
+
+
 def guardar_imagen_maquina(image_data):
     if not image_data:
         return None

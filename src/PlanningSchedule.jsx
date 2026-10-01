@@ -1,3 +1,4 @@
+import {scheduleGroup} from './workAssignment'
 ﻿import {useEffect,useMemo,useState} from 'react'
 
 const pad=value=>String(value).padStart(2,'0')
@@ -21,8 +22,8 @@ const palette=[
   {background:'#dcfce7',border:'#16a34a',text:'#14532d'},
   {background:'#ffedd5',border:'#ea580c',text:'#7c2d12'},
 ]
-const COLOR_STORAGE_KEY='maintenance-schedule-responsible-colors'
-const identity=plan=>`${plan?.assignment_type||'USER'}:${plan?.assignment_type==='CONTRACTOR'?plan?.contractor_id:plan?.assigned_user_id}:${plan?.responsible||''}`
+const COLOR_STORAGE_KEY='maintenance-schedule-group-colors'
+const identity=plan=>scheduleGroup(plan).key
 const contrastText=hex=>{const value=hex.replace('#',''),r=parseInt(value.slice(0,2),16),g=parseInt(value.slice(2,4),16),b=parseInt(value.slice(4,6),16);return (r*299+g*587+b*114)/1000>150?'#172033':'#ffffff'}
 const darken=hex=>`#${hex.replace('#','').match(/.{2}/g).map(value=>Math.round(parseInt(value,16)*.65).toString(16).padStart(2,'0')).join('')}`
 const colorFor=(plan,customColors={})=>{const key=identity(plan),custom=customColors[key];if(custom)return{background:custom,border:darken(custom),text:contrastText(custom)};let hash=0;for(const char of key)hash=(hash*31+char.charCodeAt(0))>>>0;return palette[hash%palette.length]}
@@ -58,7 +59,7 @@ export default function PlanningSchedule({request,row,form,onSelect}){
   }
   return <section className="full-field planning-schedule"><div className="request-toolbar"><h4>Cronograma de {row.request_data.plant_name||'la planta'}</h4><button type="button" onClick={()=>setWeekShift(value=>value-1)}>← Semana anterior</button><button type="button" onClick={()=>setWeekShift(0)}>Semana seleccionada</button><button type="button" onClick={()=>setWeekShift(value=>value+1)}>Semana siguiente →</button></div>
     <p>Horario disponible: lunes a viernes, de 07:30 a 18:00. Pulsa una celda para seleccionar directamente el día y la hora.</p>{error&&<p role="alert">{error}</p>}
-    {!!legend.length&&<><p className="schedule-color-help">Elige el color de cada responsable; se guarda automáticamente en este navegador.</p><div className="schedule-legend" aria-label="Leyenda de responsables">{legend.map(plan=>{const color=colorFor(plan,responsibleColors);return <span className="schedule-legend-item editable" key={identity(plan)}><i style={{background:color.background,borderColor:color.border}}/><strong>{plan.responsible}</strong><small>{roleName(plan)}</small><input type="color" value={responsibleColors[identity(plan)]||color.background} aria-label={`Color de ${plan.responsible}`} title={`Cambiar color de ${plan.responsible}`} onChange={event=>saveColor(plan,event.target.value)}/></span>})}<span className="schedule-legend-item"><i className="conflict-key"/><strong>Cruce</strong><small>Mismo responsable</small></span></div></>}
+    {!!legend.length&&<><p className="schedule-color-help">Elige el color de cada grupo; se guarda automáticamente en este navegador.</p><div className="schedule-legend" aria-label="Leyenda de grupos">{legend.map(plan=>{const color=colorFor(plan,responsibleColors);return <span className="schedule-legend-item editable" key={identity(plan)}><i style={{background:color.background,borderColor:color.border}}/><strong>{scheduleGroup(plan).label}</strong><input type="color" value={responsibleColors[identity(plan)]||color.background} aria-label={`Color de ${scheduleGroup(plan).label}`} title={`Cambiar color de ${scheduleGroup(plan).label}`} onChange={event=>saveColor(plan,event.target.value)}/></span>})}<span className="schedule-legend-item"><i className="conflict-key"/><strong>Cruce</strong><small>Mismo responsable</small></span></div></>}
     <div className="schedule-scroll" style={{maxHeight:'62vh',overflow:'auto',border:'1px solid #cbd5e1',borderRadius:'10px',background:'#fff'}}><div className="schedule-grid" style={gridStyle}>
       <div className="schedule-corner" style={{...headerStyle,left:0,zIndex:5,gridColumn:1,gridRow:1,fontWeight:700}}>Hora</div>{days.map((day,index)=>{const active=dayKey(day)===form.starts_at?.slice(0,10);return <div className={`schedule-header${active?' selected':''}`} style={{...headerStyle,gridColumn:index+2,gridRow:1,background:active?'#a7d8cf':'#c6ded6'}} key={dayKey(day)}><strong>{day.toLocaleDateString('es-EC',{weekday:'long'})}</strong><span>{day.toLocaleDateString('es-EC',{day:'2-digit',month:'2-digit'})}</span></div>})}
       {slots.map((minute,rowIndex)=><div className="schedule-time" style={{...timeStyle,gridRow:rowIndex+2}} key={minute}>{clock(minute)}</div>)}
