@@ -5,6 +5,7 @@ export default function MachinePhoto({apiUrl, token, machineId, name}) {
   const [visible, setVisible] = useState(false)
   const [photo, setPhoto] = useState(null)
   useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return }
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) { setVisible(true); observer.disconnect() }
     })

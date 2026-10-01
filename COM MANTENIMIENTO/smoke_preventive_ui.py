@@ -82,7 +82,7 @@ async def run():
                 for _ in range(100):
                     if await evaluate(f'Boolean({expression})'):return
                     await asyncio.sleep(.1)
-                raise AssertionError(f'UI timeout: {expression}')
+                raise AssertionError(f'UI timeout: {expression}; JS errors: {await evaluate("window.__errors")}')
             async def click(text):
                 await evaluate(f"(()=>{{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==={json.dumps(text)});if(!b)throw Error('Missing button');b.click()}})()")
             await command('Page.enable',session=session)
