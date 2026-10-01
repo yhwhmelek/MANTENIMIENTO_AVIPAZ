@@ -115,7 +115,7 @@ async def run():
             await wait_for("!!window.__savedActivity")
             assert await evaluate("window.__savedActivity.frequency.unit==='MESES'&&!('id' in window.__savedActivity)")
             await wait_for("!document.querySelector('.preventive-editor')")
-            await click('Planes por elemento')
+            await click('Planes de mantenimiento')
             await click('Editar')
             await wait_for("document.querySelector('.preventive-editor form')")
             assert await evaluate("document.querySelector('.preventive-editor form').checkValidity()")

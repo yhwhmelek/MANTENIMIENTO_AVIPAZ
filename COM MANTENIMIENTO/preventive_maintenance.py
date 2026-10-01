@@ -29,6 +29,8 @@ class ActivityWrite(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     procedure: str = Field(min_length=1, max_length=4000)
     kind: Literal['GENERAL', 'ENGRASE', 'ACEITE', 'RODAMIENTOS', 'BOBINADO'] = 'GENERAL'
+    scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
+    start_time: time = time(8)
     frequency: Frequency
     group: Literal['MECANICO', 'ELECTRICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO']
     duration_minutes: int = Field(ge=1, le=525600)
@@ -38,6 +40,12 @@ class ActivityWrite(StrictModel):
     requires_shutdown: bool = False
     active: bool = True
     revision: int = Field(default=0, ge=0)
+
+    @model_validator(mode='after')
+    def local_time(self):
+        if self.start_time.tzinfo:
+            raise ValueError('Utiliza la hora local de Ecuador')
+        return self
 
 
 class Point(StrictModel):
@@ -50,7 +58,9 @@ class Point(StrictModel):
 
 class PlanWrite(StrictModel):
     activity_id: int = Field(gt=0)
-    machine_id: int = Field(gt=0)
+    scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
+    machine_id: int | None = Field(default=None, gt=0)
+    machine_ids: list[int] = Field(default_factory=list, max_length=5000)
     element_id: int | None = Field(default=None, gt=0)
     first_due: date
     start_time: time = time(8)
@@ -63,6 +73,13 @@ class PlanWrite(StrictModel):
 
     @model_validator(mode='after')
     def valid(self):
+        if self.scope == 'GENERAL':
+            if self.machine_id is not None or self.element_id is not None or self.points:
+                raise ValueError('El plan general usa una lista de máquinas, sin elemento ni puntos individuales')
+            if not self.machine_ids or any(i <= 0 for i in self.machine_ids) or len(set(self.machine_ids)) != len(self.machine_ids):
+                raise ValueError('Selecciona máquinas válidas sin repetir')
+        elif self.machine_id is None or self.machine_ids:
+            raise ValueError('El plan específico requiere una máquina y no una lista')
         if not date(2000, 1, 1) <= self.first_due <= date(2200, 12, 31):
             raise ValueError('La fecha base debe estar entre los años 2000 y 2200')
         if self.frequency_override and not self.override_reason:
@@ -168,6 +185,20 @@ def item_status(request_status, data, moved=False):
     return 'EN_PROCESO' if request_status == 'EN_PROCESO' else 'PENDIENTE'
 
 
+def general_coverage(cursor, machine_ids):
+    """Capture the selected assets once; subsequent plan edits do not change orders."""
+    machines = []
+    for offset in range(0, len(machine_ids), 500):
+        batch = machine_ids[offset:offset+500]
+        rows = cursor.execute('''SELECT m.MachineId,m.AssetCode,m.Name,t.PlantId,m.TowerId,p.Name,t.Name,m.Status
+            FROM dbo.Machines m LEFT JOIN dbo.Towers t ON t.TowerId=m.TowerId
+            LEFT JOIN dbo.Plants p ON p.PlantId=t.PlantId WHERE m.MachineId IN ('''+','.join('?' for _ in batch)+')', *batch).fetchall()
+        if len(rows) != len(batch) or any(row[7] == 'FUERA_SERVICIO' for row in rows):
+            raise HTTPException(422, 'Hay máquinas inexistentes o fuera de servicio en el plan general. Revisa su selección.')
+        machines.extend(dict(machine_id=r[0], code=r[1], name=r[2], plant_id=r[3], tower_id=r[4], plant=r[5] or '', tower=r[6] or '') for r in rows)
+    return sorted(machines, key=lambda m: (m['plant'], m['code'], m['machine_id']))
+
+
 def register_preventive(app, connect, active_user, admin_user):
     def transaction(operation):
         try:
@@ -182,7 +213,7 @@ def register_preventive(app, connect, active_user, admin_user):
         except pyodbc.IntegrityError:
             raise HTTPException(409, 'Los datos cambiaron o ya se generó esa actividad. Actualiza el módulo.')
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudo acceder al módulo preventivo. Verifica la conexión y la migración 015.')
+            raise HTTPException(503, 'No se pudo acceder al módulo preventivo. Verifica la conexión y las migraciones 015 y 016.')
 
     def staff(cursor, user):
         row = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', user).fetchone()
@@ -223,11 +254,13 @@ def register_preventive(app, connect, active_user, admin_user):
     def save_activity(cursor, data, user, activity_id=None):
         payload = data.model_dump(mode='json', exclude={'revision'})
         if activity_id:
-            row = cursor.execute('SELECT Revision FROM dbo.PreventiveActivities WITH (UPDLOCK,HOLDLOCK) WHERE ActivityId=?', activity_id).fetchone()
+            row = cursor.execute('SELECT Revision,Data FROM dbo.PreventiveActivities WITH (UPDLOCK,HOLDLOCK) WHERE ActivityId=?', activity_id).fetchone()
             if not row:
                 raise HTTPException(404, 'Actividad no encontrada')
             if row[0] != data.revision:
                 raise HTTPException(409, 'La actividad cambió. Recarga antes de editar.')
+            if json.loads(row[1]).get('scope', 'SPECIFIC') != data.scope and cursor.execute('SELECT TOP 1 PlanId FROM dbo.PreventivePlans WHERE ActivityId=?', activity_id).fetchone():
+                raise HTTPException(422, 'Esta actividad tiene planes. Crea otra actividad para cambiar entre general y específica.')
             cursor.execute('UPDATE dbo.PreventiveActivities SET Data=?,Revision=Revision+1,UpdatedBy=?,UpdatedAt=? WHERE ActivityId=?', dump(payload), user, now(), activity_id)
         else:
             activity_id = cursor.execute('SET NOCOUNT ON; INSERT INTO dbo.PreventiveActivities(Data,UpdatedBy,UpdatedAt) VALUES(?,?,?); SELECT CAST(SCOPE_IDENTITY() AS INT)', dump(payload), user, now()).fetchone()[0]
@@ -245,14 +278,21 @@ def register_preventive(app, connect, active_user, admin_user):
         activity = cursor.execute('SELECT Data FROM dbo.PreventiveActivities WITH (HOLDLOCK) WHERE ActivityId=?', data.activity_id).fetchone()
         if not activity or (data.active and not json.loads(activity[0])['active']):
             raise HTTPException(422, 'Selecciona una actividad activa')
-        machine = cursor.execute('SELECT Status FROM dbo.Machines WHERE MachineId=?', data.machine_id).fetchone()
-        if not machine or (data.active and machine[0] == 'FUERA_SERVICIO'):
-            raise HTTPException(422, 'Selecciona una máquina activa')
+        activity_data = json.loads(activity[0])
+        if activity_data.get('scope', 'SPECIFIC') != data.scope:
+            raise HTTPException(422, 'El alcance del plan debe coincidir con la actividad')
+        if data.scope == 'GENERAL' and data.active:
+            general_coverage(cursor, data.machine_ids)
+        validate_ids = [data.machine_id] if data.scope == 'SPECIFIC' else [] if data.active else data.machine_ids
+        for machine_id in validate_ids:
+            machine = cursor.execute('SELECT Status FROM dbo.Machines WHERE MachineId=?', machine_id).fetchone()
+            if not machine or (data.active and machine[0] == 'FUERA_SERVICIO'):
+                raise HTTPException(422, 'Selecciona máquinas existentes que no estén fuera de servicio')
         if data.element_id:
             element = cursor.execute('SELECT MachineId,Active FROM dbo.MachineElements WHERE ElementId=?', data.element_id).fetchone()
             if not element or element[0] != data.machine_id or (data.active and not element[1]):
                 raise HTTPException(422, 'Selecciona un elemento activo de esa máquina')
-        if json.loads(activity[0])['kind'] == 'ENGRASE' and not data.points:
+        if data.scope == 'SPECIFIC' and activity_data['kind'] == 'ENGRASE' and not data.points:
             raise HTTPException(422, 'Agrega los puntos de engrase con su identificación')
         payload = data.model_dump(mode='json', exclude={'revision'})
         if plan_id:
@@ -262,6 +302,8 @@ def register_preventive(app, connect, active_user, admin_user):
             if old[1] != data.revision:
                 raise HTTPException(409, 'El plan cambió. Recarga antes de editar.')
             original = json.loads(old[0])
+            if original.get('scope', 'SPECIFIC') != data.scope:
+                raise HTTPException(422, 'Crea otro plan para cambiar su alcance; se conserva el historial')
             for key in ('first_due', 'activity_id', 'machine_id', 'element_id'):
                 if payload[key] != original[key]:
                     raise HTTPException(422, 'Para cambiar el activo, actividad o fecha base, desactiva este plan y crea otro; se conserva el historial')
@@ -310,11 +352,21 @@ def register_preventive(app, connect, active_user, admin_user):
             generated = []
             for entry in candidates:
                 p, a = entry['plan'], entry['activity']
-                machine = cursor.execute('''SELECT m.AssetCode,m.Name,t.PlantId,m.TowerId,p.Name,t.Name,m.Status
-                    FROM dbo.Machines m LEFT JOIN dbo.Towers t ON t.TowerId=m.TowerId
-                    LEFT JOIN dbo.Plants p ON p.PlantId=t.PlantId WHERE m.MachineId=?''', p['machine_id']).fetchone()
-                if not machine or machine[6] == 'FUERA_SERVICIO':
-                    raise HTTPException(422, 'Hay una máquina inactiva en los planes seleccionados')
+                general = p.get('scope') == 'GENERAL'
+                coverage = general_coverage(cursor, p['machine_ids']) if general else []
+                if general:
+                    plants = {m['plant_id'] for m in coverage}
+                    towers = {m['tower_id'] for m in coverage}
+                    machine = ('', '', next(iter(plants)) if len(plants) == 1 else None,
+                               next(iter(towers)) if len(towers) == 1 else None,
+                               ', '.join(sorted({m['plant'] for m in coverage if m['plant']})),
+                               ', '.join(sorted({m['tower'] for m in coverage if m['tower']})))
+                else:
+                    machine = cursor.execute('''SELECT m.AssetCode,m.Name,t.PlantId,m.TowerId,p.Name,t.Name,m.Status
+                        FROM dbo.Machines m LEFT JOIN dbo.Towers t ON t.TowerId=m.TowerId
+                        LEFT JOIN dbo.Plants p ON p.PlantId=t.PlantId WHERE m.MachineId=?''', p['machine_id']).fetchone()
+                    if not machine or machine[6] == 'FUERA_SERVICIO':
+                        raise HTTPException(422, 'Hay una máquina inactiva en los planes seleccionados')
                 element_name = ''
                 if p['element_id']:
                     element = cursor.execute('SELECT Name,Active,MachineId FROM dbo.MachineElements WHERE ElementId=?', p['element_id']).fetchone()
@@ -329,14 +381,15 @@ def register_preventive(app, connect, active_user, admin_user):
                             resources='N/A', permits='N/A', window='Requiere parada' if a['requires_shutdown'] else 'N/A',
                             condition='ESPERA_VENTANA' if a['requires_shutdown'] else 'LISTA', notes='Generado desde plan preventivo aprobado',
                             requested_parts=[], review_required=True, **actor)
-                points = p['points'] or [dict(name=element_name or machine[1])]
+                points = [dict(name=a['name'])] if general else p['points'] or [dict(name=element_name or machine[1])]
                 items = [dict(**point, key=str(i+1), status='PENDIENTE', notes='') for i, point in enumerate(points)]
                 validation = dict(factors=a['factors'], justification='Aprobación de actividad preventiva al publicar', technical_review=None, **actor)
                 payload = dict(machine_id=p['machine_id'], machine_name=machine[1], machine_code=machine[0], plant_id=machine[2], tower_id=machine[3],
-                               plant_name=machine[4], tower_name=machine[5], maintenance_type='PREVENTIVO', description=a['name'],
+                               plant_name=machine[4], tower_name=machine[5], maintenance_type='PREVENTIVO', description=a['name'], target_area=a['name'] if general else '',
                                failure=False, equipment_stopped=False, hour_meter=None, requested_parts=[], priority_revision=1,
                                requested_at=now().isoformat(), priority_validation=validation, priority_history=[validation], planning=plan, planning_history=[plan],
                                preventive=dict(plan_id=p['id'], activity_id=a['id'], activity_revision=a['revision'], plan_revision=p['revision'],
+                                               scope=p.get('scope', 'SPECIFIC'), machines=coverage,
                                                due=entry['due'], skipped_cycles=entry['skipped'], route=p['route'], element_id=p['element_id'], element_name=element_name,
                                                procedure=a['procedure'], reference=a['reference'], crew_size=a['crew_size'], items=items, participants=[], revision=0))
                 request_id = cursor.execute('SET NOCOUNT ON; INSERT INTO dbo.MaintenanceRequests(MachineId,RequestedBy,RequestedAt,RequestData) VALUES(?,?,?,?); SELECT CAST(SCOPE_IDENTITY() AS INT)', p['machine_id'], usuario_id, now(), dump(payload)).fetchone()[0]
@@ -425,6 +478,7 @@ def register_preventive(app, connect, active_user, admin_user):
                         moved=bool(moved), scheduled=scheduled.isoformat(), completed_at=completed.isoformat() if completed else None,
                         machine=data.get('machine_name',''), machine_id=data.get('machine_id'), plant=data.get('plant_name',''), tower=data.get('tower_name',''),
                         element=prev.get('element_name',''), activity=data.get('description',''), route=prev.get('route',''),
+                        scope=prev.get('scope','SPECIFIC'), machines=prev.get('machines',[]), start_time=(plan.get('starts_at') or '')[11:16],
                         origin='MT/02-01' if prev else 'MT/02-08' if data.get('maintenance_type')=='MEJORA_TECNICA' else 'MT/02-05',
                         kind=data.get('maintenance_type',''), group=plan.get('assignment_type',''), assignee=assigned or '',
                         crew_size=prev.get('crew_size',1), minutes=plan.get('estimated_duration_days',0)*1440+plan.get('estimated_duration_minutes',0),

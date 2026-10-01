@@ -22,6 +22,7 @@ def workbook(report):
     ]
     marks = {'EJECUTADO':'✓','PENDIENTE':'P','REPROGRAMADO':'R','EN_PROCESO':'En curso','PARCIAL':'Parcial','NO_REALIZADO':'No realizado','POR_VALIDAR':'Por validar'}
     details = [['Solicitud','Máquina','Elemento','Punto','Rodamiento','Chumacera','Lubricante','Dosis','Estado','Observaciones']]
+    coverage = [['Solicitud','Actividad general','Código','Máquina incluida','Planta','Torre']]
     for i, item in enumerate(report['entries'], 1):
         day = date.fromisoformat(item['scheduled']).weekday()
         days = ['']*7
@@ -36,15 +37,17 @@ def workbook(report):
                      (item.get('reviewer') or {}).get('name','Pendiente'),note])
         for p in item['items']:
             details.append([item['request_id'],item['machine'],item['element'],p['name'],p.get('bearing_code',''),p.get('housing_code',''),p.get('lubricant',''),p.get('dose',''),p['status'],p['notes']])
+        for machine in item.get('machines', []):
+            coverage.append([item['request_id'],item['activity'],machine['code'],machine['name'],machine['plant'],machine['tower']])
     if report.get('closure'):
         rows.append(['Cierre verificado por', report['closure']['name'],report['closure']['at']])
     out = BytesIO()
     with ZipFile(out, 'w', ZIP_DEFLATED) as z:
-        z.writestr('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
+        z.writestr('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>')
         z.writestr('_rels/.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')
-        z.writestr('xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="MT-02-03 Semana" sheetId="1" r:id="rId1"/><sheet name="Detalle de puntos" sheetId="2" r:id="rId2"/></sheets></workbook>')
-        z.writestr('xl/_rels/workbook.xml.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+''.join(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>' for i in (1,2))+'</Relationships>')
-        for index, table in enumerate((rows, details),1):
+        z.writestr('xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="MT-02-03 Semana" sheetId="1" r:id="rId1"/><sheet name="Detalle de puntos" sheetId="2" r:id="rId2"/><sheet name="Maquinas incluidas" sheetId="3" r:id="rId3"/></sheets></workbook>')
+        z.writestr('xl/_rels/workbook.xml.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+''.join(f'<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>' for i in (1,2,3))+'</Relationships>')
+        for index, table in enumerate((rows, details, coverage),1):
             xml = ['<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="22" width="18" customWidth="1"/><col min="4" max="5" width="35" customWidth="1"/></cols><sheetData>']
             for r, values in enumerate(table,1):
                 xml.append(f'<row r="{r}">')

@@ -20,3 +20,10 @@ assert.deepEqual(filterPrioritizedActivities([
   planned(row(2,1,10,'CRITICO')),row(3,1,10,'MEDIO'),row(1,1,10,'CRITICO'),planned(row(4,1,10,'ALTO'))
 ],{}).map(r=>r.id),[1,3,2,4])
 console.log('Filtros de planta y torre y orden de prioridad verificados.')
+
+const general = row(8,null,null,'MEDIO')
+general.request_data.preventive = {scope:'GENERAL',machines:[{plant_id:1,tower_id:10},{plant_id:2,tower_id:20}]}
+assert.equal(filterPrioritizedActivities([general],{plantId:2,towerId:20}).length,1)
+assert.equal(filterPrioritizedActivities([general],{plantId:1,towerId:20}).length,0)
+assert.equal(filterPrioritizedActivities([general],{towerId:'SIN_TORRE'}).length,0)
+console.log('Planes generales presentes en las plantas y torres incluidas.')

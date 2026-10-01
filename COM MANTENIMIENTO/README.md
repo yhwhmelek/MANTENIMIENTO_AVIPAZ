@@ -108,6 +108,30 @@ numero de parte, maquina, elemento, posicion, cantidad y criticidad.
 Las cantidades requeridas no representan existencias ni calculan por si
 solas el stock minimo. Este reporte no incluye historial de compras.
 
+### Planes preventivos generales
+
+Aplica `migrations/016_general_preventive_plans.sql` después de la 015 y reinicia
+la API. También puedes ejecutar `python migrate_preventive.py --apply`, que
+comprueba/instala ambas migraciones. `--check` indica si los planes generales
+están habilitados. La migración permite planes sin una máquina individual y
+conserva los planes y las órdenes existentes.
+
+En **Actividades y frecuencias**, crea una actividad con alcance **General para
+varias máquinas**, una hora sugerida y la duración total del trabajo. En
+**Planes de mantenimiento → Asignar actividad general**, marca las máquinas
+(o selecciona todas las visibles tras filtrar), la primera fecha y la hora.
+Al publicar se genera una sola solicitud por vencimiento, una alerta y una
+fila semanal, independientemente del número de máquinas. La selección queda
+conservada en la orden y en la hoja «Maquinas incluidas» del Excel.
+
+Los planes existentes siguen siendo específicos. No se convierten ni se
+agrupan automáticamente. Al sustituirlos por un plan general, desactiva los
+planes específicos equivalentes para evitar trabajos duplicados en próximos
+ciclos. Las órdenes abiertas mantienen su seguimiento e historial original.
+
+Pruebas: `python -m unittest test_preventive_maintenance test_general_preventive`;
+interfaz simulada: `python smoke_general_preventive_ui.py`.
+
 ### Compras, intervenciones y consumos
 
 Ejecuta `migrations/003_purchases_and_maintenance_parts.sql` despues de la 002

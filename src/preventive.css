@@ -30,3 +30,12 @@
  .preventive-print-document { page: preventive-report; }
  @page preventive-report { size: A3 landscape; margin: 8mm; }
 }
+
+.general-preventive-plans { margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid #cbd5e1; }
+.general-plan-editor { margin-top: 20px; }
+.general-plan-editor fieldset { min-width: 0; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; }
+.general-machine-list { max-height: 420px; overflow: auto; }
+.general-machine-list input[type=checkbox] { width: 20px; height: 20px; }
+.preventive-coverage { margin: 12px 0; }
+.preventive-coverage summary { cursor: pointer; font-weight: 600; }
+.preventive-coverage ul { max-height: 280px; overflow: auto; padding-left: 24px; }

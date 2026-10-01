@@ -15,14 +15,17 @@ def run():
         try:
             cursor = connection.cursor()
             if args.apply:
-                cursor.execute(Path(__file__).with_name('migrations').joinpath('015_preventive_maintenance.sql').read_text(encoding='utf-8'))
-                while cursor.nextset():
-                    pass
-                connection.commit()
-                print('MIGRATION_015_APPLIED')
+                for migration in ('015_preventive_maintenance.sql', '016_general_preventive_plans.sql'):
+                    cursor.execute(Path(__file__).with_name('migrations').joinpath(migration).read_text(encoding='utf-8'))
+                    while cursor.nextset():
+                        pass
+                    connection.commit()
+                    print('MIGRATION_APPLIED', migration)
             for name in ('PreventiveActivities','PreventivePlans','PreventiveOccurrences','PreventiveSchedule','PreventiveWeekClosures'):
                 exists = cursor.execute('SELECT OBJECT_ID(?, ?)', 'dbo.'+name, 'U').fetchone()[0]
                 print(name, 'OK' if exists else 'NOT_INSTALLED')
+            column = cursor.execute("SELECT is_nullable FROM sys.columns WHERE object_id=OBJECT_ID('dbo.PreventivePlans') AND name='MachineId'").fetchone()
+            print('GeneralPreventivePlans', 'OK' if column and column[0] else 'MIGRATION_016_REQUIRED')
         finally:
             connection.close()
     except Exception as error:

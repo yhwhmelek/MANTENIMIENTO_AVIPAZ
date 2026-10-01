@@ -18,7 +18,7 @@ export default function MaintenanceScheduleReport({rows,plants}){
   const activities=useMemo(()=>rows.filter(row=>{
     const plan=row.request_data.planning
     if(!plan?.starts_at||!valid)return false
-    if(plantId&&String(row.request_data.plant_id)!==String(plantId))return false
+    if(plantId&&String(row.request_data.plant_id)!==String(plantId)&&!row.request_data.preventive?.machines?.some(m=>String(m.plant_id)===String(plantId)))return false
     const start=new Date(plan.starts_at),end=endOf(plan),rangeStart=parse(from),rangeEnd=addDays(parse(to),1)
     return start<rangeEnd&&end>rangeStart
   }).sort((a,b)=>a.request_data.planning.starts_at.localeCompare(b.request_data.planning.starts_at)),[rows,plantId,from,to,valid])

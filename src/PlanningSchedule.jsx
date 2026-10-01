@@ -37,7 +37,7 @@ export default function PlanningSchedule({request,row,form,onSelect}){
   const selected=form.starts_at?new Date(form.starts_at):new Date()
   const monday=useMemo(()=>{const date=new Date(selected);date.setHours(0,0,0,0);date.setDate(date.getDate()-((date.getDay()+6)%7)+weekShift*7);return date},[form.starts_at,weekShift])
   const days=Array.from({length:5},(_,index)=>{const date=new Date(monday);date.setDate(date.getDate()+index);return date})
-  const activities=rows.filter(item=>item.id!==row.id&&String(item.request_data.plant_id)===String(row.request_data.plant_id)&&['PENDIENTE','EN_PROCESO'].includes(item.status)&&item.request_data.planning?.starts_at)
+  const activities=rows.filter(item=>item.id!==row.id&&(String(item.request_data.plant_id)===String(row.request_data.plant_id)||item.request_data.preventive?.machines?.some(m=>String(m.plant_id)===String(row.request_data.plant_id)))&&['PENDIENTE','EN_PROCESO'].includes(item.status)&&item.request_data.planning?.starts_at)
   const selectedEnd=form.starts_at?new Date(selected.getTime()+durationMinutes(form)*60000):null
   const sameResponsible=item=>['USER','CONTRACTOR'].includes(form.assignment_type)&&form.assignment_type===(item.request_data.planning.assignment_type||'USER')&&(form.assignment_type==='CONTRACTOR'?String(form.contractor_id)===String(item.request_data.planning.contractor_id):String(form.assigned_user_id)===String(item.request_data.planning.assigned_user_id))
   const conflicts=activities.filter(item=>{const plan=item.request_data.planning,start=new Date(plan.starts_at),end=endOf(plan);return selectedEnd&&sameResponsible(item)&&selected<end&&selectedEnd>start})
