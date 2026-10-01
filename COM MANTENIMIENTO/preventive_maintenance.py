@@ -21,8 +21,20 @@ def dump(value):
 
 
 class Frequency(StrictModel):
-    every: int = Field(ge=1, le=1200)
-    unit: Literal['DIAS', 'SEMANAS', 'MESES']
+    every: int = Field(ge=1, le=1_000_000)
+    # Days/months remain readable for existing records, but cannot be newly assigned.
+    unit: Literal['DIAS', 'SEMANAS', 'MESES', 'HORAS']
+
+    @model_validator(mode='after')
+    def interval_limit(self):
+        if self.unit != 'HORAS' and self.every > 1200:
+            raise ValueError('El intervalo de calendario no puede superar 1200 unidades')
+        return self
+
+
+def validate_frequency_change(frequency, previous=None):
+    if frequency and frequency['unit'] not in ('SEMANAS', 'HORAS') and frequency != previous:
+        raise HTTPException(422, 'Selecciona una frecuencia en semanas u horas de funcionamiento')
 
 
 class ActivityWrite(StrictModel):
@@ -132,6 +144,8 @@ def monday(day):
 
 
 def next_due(current, frequency, anchor_day):
+    if frequency['unit'] == 'HORAS':
+        raise ValueError('Las horas de funcionamiento requieren lecturas de uso, no fechas de calendario')
     if frequency['unit'] != 'MESES':
         return current + timedelta(days=frequency['every'] * (7 if frequency['unit'] == 'SEMANAS' else 1))
     month = current.year * 12 + current.month - 1 + frequency['every']
@@ -142,9 +156,12 @@ def next_due(current, frequency, anchor_day):
 
 def due_cycles(plan, activity, week):
     """Calendario fijo. Un vencimiento atrasado visible y siguientes ciclos de la semana."""
+    frequency = plan.get('frequency_override') or activity['frequency']
+    if frequency['unit'] == 'HORAS':
+        # Until operating-hour readings are integrated, do not invent calendar deadlines.
+        return []
     end = monday(week) + timedelta(days=6)
     current = date.fromisoformat(plan['next_due'])
-    frequency = plan.get('frequency_override') or activity['frequency']
     anchor = date.fromisoformat(plan['first_due']).day
     result = []
     # Saltar ciclos atrasados sin marcarlos realizados; conservar su intervalo en la orden.
@@ -259,10 +276,12 @@ def register_preventive(app, connect, active_user, admin_user):
                 raise HTTPException(404, 'Actividad no encontrada')
             if row[0] != data.revision:
                 raise HTTPException(409, 'La actividad cambió. Recarga antes de editar.')
+            validate_frequency_change(payload['frequency'], json.loads(row[1])['frequency'])
             if json.loads(row[1]).get('scope', 'SPECIFIC') != data.scope and cursor.execute('SELECT TOP 1 PlanId FROM dbo.PreventivePlans WHERE ActivityId=?', activity_id).fetchone():
                 raise HTTPException(422, 'Esta actividad tiene planes. Crea otra actividad para cambiar entre general y específica.')
             cursor.execute('UPDATE dbo.PreventiveActivities SET Data=?,Revision=Revision+1,UpdatedBy=?,UpdatedAt=? WHERE ActivityId=?', dump(payload), user, now(), activity_id)
         else:
+            validate_frequency_change(payload['frequency'])
             activity_id = cursor.execute('SET NOCOUNT ON; INSERT INTO dbo.PreventiveActivities(Data,UpdatedBy,UpdatedAt) VALUES(?,?,?); SELECT CAST(SCOPE_IDENTITY() AS INT)', dump(payload), user, now()).fetchone()[0]
         return {'id': activity_id}
 
@@ -302,6 +321,7 @@ def register_preventive(app, connect, active_user, admin_user):
             if old[1] != data.revision:
                 raise HTTPException(409, 'El plan cambió. Recarga antes de editar.')
             original = json.loads(old[0])
+            validate_frequency_change(payload['frequency_override'], original.get('frequency_override'))
             if original.get('scope', 'SPECIFIC') != data.scope:
                 raise HTTPException(422, 'Crea otro plan para cambiar su alcance; se conserva el historial')
             for key in ('first_due', 'activity_id', 'machine_id', 'element_id'):
@@ -309,6 +329,7 @@ def register_preventive(app, connect, active_user, admin_user):
                     raise HTTPException(422, 'Para cambiar el activo, actividad o fecha base, desactiva este plan y crea otro; se conserva el historial')
             cursor.execute('UPDATE dbo.PreventivePlans SET Data=?,Revision=Revision+1,UpdatedBy=?,UpdatedAt=? WHERE PlanId=?', dump(payload), user, now(), plan_id)
         else:
+            validate_frequency_change(payload['frequency_override'])
             plan_id = cursor.execute('SET NOCOUNT ON; INSERT INTO dbo.PreventivePlans(ActivityId,MachineId,ElementId,Data,NextDue,UpdatedBy,UpdatedAt) VALUES(?,?,?,?,?,?,?); SELECT CAST(SCOPE_IDENTITY() AS INT)', data.activity_id, data.machine_id, data.element_id, dump(payload), data.first_due, user, now()).fetchone()[0]
         return {'id': plan_id}
 

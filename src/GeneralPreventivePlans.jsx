@@ -1,4 +1,5 @@
 import {useState} from 'react'
+import {effectiveFrequency, frequencyLabel, needsOperatingHours, operatingHoursNotice} from './preventiveFrequency'
 
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
 
@@ -12,6 +13,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
   const [message, setMessage] = useState('')
   const general = activities.filter(a => a.scope === 'GENERAL')
   const activity = general.find(a => a.id === Number(form?.activity_id))
+  const hourly = needsOperatingHours(form, activity)
   const shown = machines.filter(m => (!plant || String(m.plant_id) === plant) && `${m.asset_code} ${m.name} ${m.tower_name || ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const change = (key, value) => setForm(current => ({...current, [key]:value}))
   function edit(plan) {
@@ -28,7 +30,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     setBusy(true); setError(''); setMessage('')
     try {
       await request(`/preventivos/planes${editing ? `/${editing}` : ''}`, {method:editing ? 'PUT' : 'POST', body:JSON.stringify(form)})
-      setForm(null); await onSaved(); setMessage('Plan general guardado. Se publicará una sola orden por fecha programada.')
+      setForm(null); await onSaved(); setMessage(hourly ? `Plan general guardado. ${operatingHoursNotice}` : 'Plan general guardado. Se publicará una sola orden por fecha programada.')
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
   return <section className="general-preventive-plans">
@@ -38,7 +40,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     {isAdmin && !form && <button className="primary-action" disabled={!general.some(a => a.active)} onClick={() => edit()}>Asignar actividad general</button>}
     {!general.length && <p>Crea una actividad con alcance «General para varias máquinas» en Actividades y frecuencias.</p>}
     <div className="table-scroll"><table><thead><tr><th>Actividad</th><th>Máquinas incluidas</th><th>Próximo vencimiento</th><th>Inicio / duración total</th><th>Estado</th>{isAdmin && <th>Acciones</th>}</tr></thead><tbody>
-      {plans.map(plan => { const a = activities.find(a => a.id === plan.activity_id); return <tr key={plan.id}><td>{a?.name}{plan.route && <small> · {plan.route}</small>}</td><td>{plan.machine_ids.length}</td><td>{plan.next_due}</td><td>{plan.start_time.slice(0,5)} · {a?.duration_minutes} min</td><td>{plan.active ? 'Activo' : 'Inactivo'}</td>{isAdmin && <td><button disabled={busy} onClick={() => edit(plan)}>Editar selección</button></td>}</tr> })}
+      {plans.map(plan => { const a = activities.find(a => a.id === plan.activity_id); return <tr key={plan.id}><td>{a?.name}{plan.route && <small> · {plan.route}</small>}</td><td>{plan.machine_ids.length}</td><td>{frequencyLabel(effectiveFrequency(plan,a))}<br/>{needsOperatingHours(plan,a)?'Pendiente de horas de funcionamiento':plan.next_due}</td><td>{plan.start_time.slice(0,5)} · {a?.duration_minutes} min</td><td>{plan.active ? 'Activo' : 'Inactivo'}</td>{isAdmin && <td><button disabled={busy} onClick={() => edit(plan)}>Editar selección</button></td>}</tr> })}
     </tbody></table></div>
     {form && <form className="general-plan-editor" onSubmit={save}><fieldset disabled={busy}>
       <h3>{editing ? 'Editar plan general' : 'Asignar actividad general'}</h3>
@@ -46,11 +48,13 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
         <label>Actividad general<select required disabled={!!editing} value={form.activity_id} onChange={e => { const a = general.find(a => a.id === Number(e.target.value)); setForm(current => ({...current, activity_id:a?.id || '', start_time:a?.start_time || '08:00'})) }}>
           <option value="">Selecciona</option>{general.filter(a => a.active || a.id === form.activity_id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></label>
-        <label>Primera intervención<input type="date" required disabled={!!editing} value={form.first_due} onChange={e => change('first_due', e.target.value)}/></label>
+        <label>{hourly ? 'Fecha de referencia del plan' : 'Primera intervención'}<input type="date" required disabled={!!editing} value={form.first_due} onChange={e => change('first_due', e.target.value)}/></label>
         <label>Hora de inicio<input type="time" required value={form.start_time} onChange={e => change('start_time', e.target.value)}/></label>
         <label>Nombre de ruta (opcional)<input maxLength={150} value={form.route} onChange={e => change('route', e.target.value)}/></label>
       </div>
       {activity && <p>Duración total sugerida: <strong>{activity.duration_minutes} minutos</strong>. Se configura en la actividad, junto con su frecuencia.</p>}
+      {activity && <p>Frecuencia: <strong>{frequencyLabel(effectiveFrequency(form, activity))}</strong></p>}
+      {hourly && <p role="status">{operatingHoursNotice}</p>}
       <p>Marca las máquinas que corresponden; por ejemplo, las que tienen elementos móviles para el engrase general.</p>
       <div className="request-toolbar"><label>Buscar máquina<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Código, nombre o torre"/></label><label>Planta<select value={plant} onChange={e => setPlant(e.target.value)}><option value="">Todas</option>{[...new Map(machines.filter(m => m.plant_id).map(m => [m.plant_id, m.plant_name])).entries()].map(([id,name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         <button type="button" onClick={() => change('machine_ids', [...new Set([...form.machine_ids, ...shown.filter(m => m.status !== 'FUERA_SERVICIO').map(m => m.machine_id)])])}>Seleccionar todas las visibles</button>

@@ -132,6 +132,16 @@ ciclos. Las órdenes abiertas mantienen su seguimiento e historial original.
 Pruebas: `python -m unittest test_preventive_maintenance test_general_preventive`;
 interfaz simulada: `python smoke_general_preventive_ui.py`.
 
+Las nuevas frecuencias se configuran en **semanas** u **horas de funcionamiento**.
+Las horas permiten guardar el intervalo de uso (por ejemplo, cada 2500 horas),
+pero no generan vencimientos por calendario: quedan pendientes de integrar
+las lecturas de funcionamiento de las máquinas. La fecha del plan por horas
+es una referencia, no una predicción de vencimiento. Las órdenes ya publicadas
+mantienen su seguimiento. Las frecuencias antiguas en días o meses se conservan
+sin convertirlas; al modificarlas se debe elegir semanas u horas. Este cambio
+se guarda en los datos existentes y no requiere una migración adicional.
+Pruebas de frecuencias: `python -m unittest test_preventive_frequency`.
+
 ### Compras, intervenciones y consumos
 
 Ejecuta `migrations/003_purchases_and_maintenance_parts.sql` despues de la 002

@@ -100,6 +100,14 @@ class GeneralPreventiveTests(unittest.TestCase):
         self.assertEqual(result, {'id':1})
         self.conn.commit.assert_called_once()
 
+    def test_hourly_general_plan_does_not_publish_from_its_reference_date(self):
+        self.activity['frequency'] = {'every':2500, 'unit':'HORAS'}
+        self.assertEqual(self.endpoint('/preventivos/proximos','GET')(date(2026,9,28),usuario_id=1), [])
+        result = self.endpoint('/preventivos/publicar')(PublishWrite(week='2026-09-28',plan_ids=[1]),usuario_id=1)
+        self.assertEqual(result, {'request_ids':[]})
+        self.assertEqual(self.requests, [])
+        self.assertEqual(self.next_due, date(2026,9,28))
+
     def test_selection_edit_keeps_published_snapshot_and_next_due(self):
         self.endpoint('/preventivos/publicar')(PublishWrite(week='2026-09-28',plan_ids=[1]),usuario_id=1)
         next_due = self.next_due
