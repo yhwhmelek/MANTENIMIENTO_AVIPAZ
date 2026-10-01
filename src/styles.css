@@ -393,3 +393,12 @@ body>.schedule-report-document{display:none}
 .request-machine-photo img { display: block; width: 132px; height: 100px; object-fit: contain; }
 .request-machine-photo span { padding: 12px; }
 @media (max-width: 480px) { .request-alert-work { align-items: flex-start; flex-direction: column; } }
+
+.request-alert-work { flex-wrap: wrap; }
+.request-alert-photos { display: flex; flex-wrap: wrap; gap: 12px; max-width: 100%; }
+.request-alert-work > .request-alert-photos { flex-basis: 100%; }
+.request-photo-thumbnail { margin: 0; max-width: 156px; }
+.request-photo-thumbnail figcaption { margin-bottom: 6px; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.selected-machine-photo .request-photo-thumbnail { max-width: 280px; }
+.selected-machine-photo .request-machine-photo, .selected-machine-photo img { width: 260px; max-width: 100%; }
+.selected-machine-photo img { height: 180px; }
