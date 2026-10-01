@@ -369,3 +369,11 @@ body>.schedule-report-document{display:none}
   body.schedule-report-printing .schedule-report-day{min-height:150mm}
   body.schedule-report-printing .schedule-report-task{font-size:9pt}
 }
+
+/* Alert access stays below every form backdrop (z-index: 20). */
+.alerts-center-trigger { position: fixed; right: 18px; bottom: 18px; z-index: 10; display: flex; align-items: center; gap: 8px; padding: 13px 18px; border: 1px solid #c88b21; border-radius: 8px; background: #fff3cd; color: #784900; box-shadow: 0 4px 18px #0002; cursor: pointer; font-weight: 700; max-width: calc(100vw - 36px); }
+.alerts-center { width: min(720px, calc(100% - 32px)); }
+.alert-category { padding: 16px 0; border-top: 1px solid #dce3df; }
+.alert-category h3 { margin: 0 0 10px; }
+.alerts-center .stock-alert-trigger, .alerts-center .request-alert-trigger { position: static; width: 100%; max-width: 100%; text-align: left; box-shadow: none; }
+@media print { .alerts-center-trigger, .alerts-center { display: none !important; } }

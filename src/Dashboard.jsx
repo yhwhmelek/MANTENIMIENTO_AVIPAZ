@@ -4,8 +4,7 @@ import { imageToDataUrl } from './imageUpload'
 import { useEffect, useRef, useState } from 'react'
 import Machines from './Machines'
 import PlantStructure from './PlantStructure'
-import StockAlerts from './StockAlerts'
-import RequisitionAlerts from './RequisitionAlerts'
+import AlertsCenter from './AlertsCenter'
 import OpeningBalance from './OpeningBalance'
 import MaintenanceRequests from './MaintenanceRequests'
 import PurchaseRequisition from './PurchaseRequisition'
@@ -25,6 +24,7 @@ function requestError(data, fallback) {
 export default function Dashboard({ apiUrl, token, currentUser, onUserChange, onLogout }) {
   const isAdmin = currentUser.rol === 'ADMIN'
   const isOperator = currentUser.rol === 'OPERADOR'
+  const [requestsAlertSlot, setRequestsAlertSlot] = useState(null)
   const [showProfile, setShowProfile] = useState(false)
   const [selectedSection, setSection] = useState(currentUser.rol === 'OPERADOR' ? 'requests' : 'machines')
   const section = isOperator ? 'requests' : selectedSection
@@ -411,10 +411,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   return <main className="admin-shell">
     {showProfile && <UserProfile apiUrl={apiUrl} token={token} user={currentUser} onClose={() => setShowProfile(false)} onSaved={user => { onUserChange(user); setUsers(items => items.map(item => item.id === user.id ? { ...item, ...user } : item)) }} />}
     {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
-    <div className="inventory-alerts">
-    {!isOperator && <StockAlerts apiUrl={apiUrl} token={token} section={section} />}
-    {isAdmin&&<RequisitionAlerts apiUrl={apiUrl} token={token} section={section} onOpen={()=>setSection('requisitions')}/>}
-    </div>
+    <AlertsCenter apiUrl={apiUrl} token={token} section={section} isOperator={isOperator} isAdmin={isAdmin} onRequestsSlot={setRequestsAlertSlot} onNavigate={setSection} />
     <header className="admin-header">
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
@@ -428,7 +425,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
     </header>
 
     <section className="admin-content">
-      <MaintenanceRequests apiUrl={apiUrl} token={token} currentUser={currentUser} open={section === 'requests'} onOpen={() => { setMessage(''); setSection('requests') }} />
+      <MaintenanceRequests alertContainer={requestsAlertSlot} apiUrl={apiUrl} token={token} currentUser={currentUser} open={section === 'requests'} onOpen={() => { setMessage(''); setSection('requests') }} />
       {isAssetsSection && <nav className="spare-parts-nav" aria-label="Activos">
         <button aria-current={section === 'plant-structure' ? 'page' : undefined} onClick={() => { setMessage(''); setSection('plant-structure') }}>Plantas y torres</button>
         {[['machines', 'Máquinas'], ['machine-elements', 'Elementos de máquinas'], ['element-types', 'Tipos de elementos'], ['events', 'Intervenciones']].map(([value, label]) => <button key={value} aria-current={section === value ? 'page' : undefined} onClick={() => { setMessage(''); setHistoryMachineId(''); setSection(value) }}>{label}</button>)}

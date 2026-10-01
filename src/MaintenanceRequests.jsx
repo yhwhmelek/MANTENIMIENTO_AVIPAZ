@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import PreventiveChecklist from './PreventiveChecklist'
 import {NICFields,benefits,PriorityBadge} from './RequestPriority'
 import PriorityWorkflow from './PriorityWorkflow'
@@ -27,7 +28,7 @@ const localInput = () => { const d = new Date(); return `${d.getFullYear()}-${St
 function Field({label,name,type='text',value,onChange,...props}) { return <label>{label}<input name={name} type={type} value={value ?? ''} onChange={e=>onChange(name,e.target.value)} {...props}/></label> }
 function Text({label,name,form,change,maxLength=1000,required=true,placeholder}) { return <label className="full-field">{label}{!required && ' (opcional)'}<textarea required={required} placeholder={placeholder ?? (required ? undefined : 'No aplica si se deja vacío')} rows={3} maxLength={maxLength} value={form[name] || ''} onChange={e=>change(name,e.target.value)}/></label> }
 
-export default function MaintenanceRequests({ apiUrl, token, currentUser, open, onOpen }) {
+export default function MaintenanceRequests({ apiUrl, token, currentUser, open, onOpen, alertContainer }) {
   const [rows,setRows] = useState([]), [machines,setMachines] = useState([]), [parts,setParts] = useState([])
   const [plants,setPlants] = useState([]), [towers,setTowers] = useState([])
   const [error,setError] = useState(''), [formError,setFormError] = useState(''), [busy,setBusy] = useState(false)
@@ -234,7 +235,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   }
   function updateLine(kind,index,key,value){setForm(f=>({...f,[kind]:f[kind].map((line,i)=>i===index?{...line,[key]:value}:line)}))}
   return <>
-    <button className={`request-alert-trigger ${assignedWorkCount||(!isTechnician&&(managementCount||pendingReceipts.length))||error?'needs-attention':''}`} onClick={onOpen}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?(isTechnician?`Trabajos disponibles y en curso: ${assignedWorkCount}`:`Trabajos disponibles y en curso: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`):'Consultando solicitudes…'}</span></button>
+    {alertContainer && createPortal(<button className={`request-alert-trigger ${assignedWorkCount||(!isTechnician&&(managementCount||pendingReceipts.length))||error?'needs-attention':''}`} onClick={event => { event.currentTarget.closest('dialog')?.close(); onOpen() }}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?(isTechnician?`Trabajos disponibles y en curso: ${assignedWorkCount}`:`Trabajos disponibles y en curso: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`):'Consultando solicitudes…'}</span></button>, alertContainer)}
     <section hidden={!open} className="request-workspace" aria-labelledby="requests-title">
       <div className="page-heading"><h1 id="requests-title">Solicitudes de mantenimiento</h1></div>
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
