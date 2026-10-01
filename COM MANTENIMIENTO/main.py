@@ -1036,7 +1036,6 @@ def guardar_elemento(datos, element_id=None):
             previous_image = None
             if element_id is not None:
                 previous_image = cursor.execute('SELECT ImagePath FROM dbo.MachineElements WHERE ElementId = ?', element_id).fetchone()[0]
-            validate_machine_tower(cursor, datos.tower_id)
             image_path = guardar_imagen_maquina(datos.image_data)
             values = [getattr(datos, field) for field in ELEMENT_COLUMNS]
             if element_id is None:
@@ -1253,7 +1252,6 @@ def guardar_especificaciones_motor(element_id: int, datos: MotorSpecificationWri
             validar_tipo_data(cursor, element_id, 'MOTOR')
             validar_data_existente(cursor, element_id, 'MOTOR')
             actual = cursor.execute('SELECT NameplateImagePath FROM dbo.MotorSpecifications WITH (UPDLOCK, HOLDLOCK) WHERE ElementId = ?', element_id).fetchone()
-            validate_machine_tower(cursor, datos.tower_id)
             image_path = guardar_imagen_maquina(datos.image_data)
             values = [getattr(datos, field) for field in SPEC_COLUMNS]
             if actual is None:
