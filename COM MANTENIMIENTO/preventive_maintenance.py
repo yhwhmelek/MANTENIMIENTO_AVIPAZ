@@ -3,6 +3,7 @@ import calendar
 import json
 from contextlib import closing
 from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
 from typing import Literal
 
 import pyodbc
@@ -10,6 +11,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import Field, model_validator
 from request_priority import StrictModel, NIC, ASSIGNMENT_GROUPS, priority
+from preventive_hours import HourReading, hour_states, latest_readings, record_reading
 
 
 def now():
@@ -24,16 +26,23 @@ class Frequency(StrictModel):
     every: int = Field(ge=1, le=1_000_000)
     # Days/months remain readable for existing records, but cannot be newly assigned.
     unit: Literal['DIAS', 'SEMANAS', 'MESES', 'HORAS']
+    first_hours: int | None = Field(default=None, ge=1, le=1_000_000)
+    advance_hours: int = Field(default=0, ge=0, le=1_000_000)
 
     @model_validator(mode='after')
     def interval_limit(self):
         if self.unit != 'HORAS' and self.every > 1200:
             raise ValueError('El intervalo de calendario no puede superar 1200 unidades')
+        if self.unit == 'HORAS' and self.advance_hours >= min(self.first_hours or self.every, self.every):
+            raise ValueError('La anticipación debe ser menor que el primer intervalo y que la frecuencia posterior')
+        if self.unit != 'HORAS' and (self.first_hours is not None or self.advance_hours):
+            raise ValueError('El primer cambio y la anticipación en horas requieren frecuencia por horas')
         return self
 
 
 def validate_frequency_change(frequency, previous=None):
-    if frequency and frequency['unit'] not in ('SEMANAS', 'HORAS') and frequency != previous:
+    same = bool(frequency and previous) and all(frequency.get(k) == previous.get(k) for k in ('every','unit'))
+    if frequency and frequency['unit'] not in ('SEMANAS', 'HORAS') and not same:
         raise HTTPException(422, 'Selecciona una frecuencia en semanas u horas de funcionamiento')
 
 
@@ -73,6 +82,9 @@ class PlanWrite(StrictModel):
     scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
     machine_id: int | None = Field(default=None, gt=0)
     machine_ids: list[int] = Field(default_factory=list, max_length=5000)
+    hour_base: Decimal = Field(default=Decimal('0'), ge=0, le=999999999, decimal_places=2)
+    hour_bases: dict[str, Decimal] = Field(default_factory=dict, max_length=5000)
+    first_service_done: bool = False
     element_id: int | None = Field(default=None, gt=0)
     first_due: date
     start_time: time = time(8)
@@ -85,6 +97,8 @@ class PlanWrite(StrictModel):
 
     @model_validator(mode='after')
     def valid(self):
+        if any(not key.isdigit() or key != str(int(key)) or int(key) not in self.machine_ids or not value.is_finite() or value < 0 or value > 999999999 or value.as_tuple().exponent < -2 for key,value in self.hour_bases.items()):
+            raise ValueError('Revisa los horómetros de referencia de las máquinas seleccionadas')
         if self.scope == 'GENERAL':
             if self.machine_id is not None or self.element_id is not None or self.points:
                 raise ValueError('El plan general usa una lista de máquinas, sin elemento ni puntos individuales')
@@ -158,7 +172,7 @@ def due_cycles(plan, activity, week):
     """Calendario fijo. Un vencimiento atrasado visible y siguientes ciclos de la semana."""
     frequency = plan.get('frequency_override') or activity['frequency']
     if frequency['unit'] == 'HORAS':
-        # Until operating-hour readings are integrated, do not invent calendar deadlines.
+        # Evaluated against meter readings by hour_states(), never as calendar days.
         return []
     end = monday(week) + timedelta(days=6)
     current = date.fromisoformat(plan['next_due'])
@@ -230,7 +244,7 @@ def register_preventive(app, connect, active_user, admin_user):
         except pyodbc.IntegrityError:
             raise HTTPException(409, 'Los datos cambiaron o ya se generó esa actividad. Actualiza el módulo.')
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudo acceder al módulo preventivo. Verifica la conexión y las migraciones 015 y 016.')
+            raise HTTPException(503, 'No se pudo acceder al módulo preventivo. Verifica la conexión y las migraciones 015, 016 y 017.')
 
     def staff(cursor, user):
         row = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', user).fetchone()
@@ -248,6 +262,42 @@ def register_preventive(app, connect, active_user, admin_user):
         activities = serialized(cursor.execute('SELECT ActivityId,Data,Revision FROM dbo.PreventiveActivities ORDER BY ActivityId').fetchall())
         plans = serialized(cursor.execute('SELECT PlanId,Data,Revision,NextDue FROM dbo.PreventivePlans ORDER BY PlanId').fetchall(), True)
         return dict(activities=activities, plans=plans)
+
+    @app.get('/preventivos/horometros')
+    def hour_readings(usuario_id: int = Depends(active_user)):
+        def operation(cursor):
+            staff(cursor, usuario_id)
+            return list(latest_readings(cursor).values())
+        return transaction(operation)
+
+    @app.post('/preventivos/horometros')
+    def save_hour_reading(data: HourReading, usuario_id: int = Depends(active_user)):
+        def operation(cursor):
+            staff(cursor, usuario_id)
+            return record_reading(cursor, data, usuario_id)
+        return transaction(operation)
+
+    @app.get('/preventivos/estado-horas')
+    def hours_status(usuario_id: int = Depends(active_user)):
+        def operation(cursor):
+            staff(cursor, usuario_id)
+            return hour_states(cursor, catalogs(cursor))
+        return transaction(operation)
+
+    @app.get('/preventivos/alertas-horas')
+    def hours_alerts(usuario_id: int = Depends(active_user)):
+        def operation(cursor):
+            staff(cursor, usuario_id)
+            role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=?', usuario_id).fetchone()[0]
+            result = []
+            for entry in hour_states(cursor, catalogs(cursor)):
+                if role != 'ADMIN' and role not in ASSIGNMENT_GROUPS[entry['group']][1]:
+                    continue
+                machines = [m for m in entry['machines'] if m['state'] in ('PROXIMO','VENCIDO')]
+                if machines:
+                    result.append(dict(entry, machines=machines))
+            return result
+        return transaction(operation)
 
     def week_open(cursor, week):
         if cursor.execute('SELECT WeekStart FROM dbo.PreventiveWeekClosures WITH (UPDLOCK,HOLDLOCK) WHERE WeekStart=?', monday(week)).fetchone():
@@ -344,10 +394,17 @@ def register_preventive(app, connect, active_user, admin_user):
     def due(cursor, week):
         cat = catalogs(cursor)
         acts = {a['id']: a for a in cat['activities']}
+        hours = {entry['plan_id']:entry for entry in hour_states(cursor, cat)}
         rows = []
         for p in cat['plans']:
             a = acts[p['activity_id']]
             if not p['active'] or not a['active']:
+                continue
+            if (p.get('frequency_override') or a['frequency'])['unit'] == 'HORAS':
+                targets = [m for m in hours.get(p['id'],{}).get('machines',[]) if m['state'] in ('PROXIMO','VENCIDO')]
+                if targets and monday(week)+timedelta(days=6) >= now().date():
+                    scheduled = max(monday(week), now().date()).isoformat()
+                    rows.append(dict(plan=p,activity=a,due=scheduled,scheduled=scheduled,skipped=0,hour_targets=targets))
                 continue
             # Mantener el vencimiento sin generar nuevas alertas mientras exista trabajo abierto.
             if cursor.execute("SELECT TOP 1 o.OccurrenceId FROM dbo.PreventiveOccurrences o JOIN dbo.MaintenanceRequests r ON r.RequestId=o.RequestId WHERE o.PlanId=? AND r.Status<>'CERRADA'", p['id']).fetchone():
@@ -374,7 +431,9 @@ def register_preventive(app, connect, active_user, admin_user):
             for entry in candidates:
                 p, a = entry['plan'], entry['activity']
                 general = p.get('scope') == 'GENERAL'
-                coverage = general_coverage(cursor, p['machine_ids']) if general else []
+                hour_targets = entry.get('hour_targets', [])
+                coverage_ids = [t['machine_id'] for t in hour_targets] if hour_targets else p.get('machine_ids',[])
+                coverage = general_coverage(cursor, coverage_ids) if general else []
                 if general:
                     plants = {m['plant_id'] for m in coverage}
                     towers = {m['tower_id'] for m in coverage}
@@ -410,13 +469,18 @@ def register_preventive(app, connect, active_user, admin_user):
                                failure=False, equipment_stopped=False, hour_meter=None, requested_parts=[], priority_revision=1,
                                requested_at=now().isoformat(), priority_validation=validation, priority_history=[validation], planning=plan, planning_history=[plan],
                                preventive=dict(plan_id=p['id'], activity_id=a['id'], activity_revision=a['revision'], plan_revision=p['revision'],
-                                               scope=p.get('scope', 'SPECIFIC'), machines=coverage,
+                                               scope=p.get('scope', 'SPECIFIC'), machines=coverage, hour_targets=hour_targets,
                                                due=entry['due'], skipped_cycles=entry['skipped'], route=p['route'], element_id=p['element_id'], element_name=element_name,
                                                procedure=a['procedure'], reference=a['reference'], crew_size=a['crew_size'], items=items, participants=[], revision=0))
                 request_id = cursor.execute('SET NOCOUNT ON; INSERT INTO dbo.MaintenanceRequests(MachineId,RequestedBy,RequestedAt,RequestData) VALUES(?,?,?,?); SELECT CAST(SCOPE_IDENTITY() AS INT)', p['machine_id'], usuario_id, now(), dump(payload)).fetchone()[0]
-                cursor.execute('INSERT INTO dbo.PreventiveOccurrences(PlanId,DueDate,RequestId) VALUES(?,?,?)', p['id'], date.fromisoformat(entry['due']), request_id)
+                if hour_targets:
+                    for target in hour_targets:
+                        cursor.execute('INSERT INTO dbo.PreventiveHourOccurrences(PlanId,MachineId,TargetHours,RequestId) VALUES(?,?,?,?)', p['id'], target['machine_id'], Decimal(target['target_hours']), request_id)
+                else:
+                    cursor.execute('INSERT INTO dbo.PreventiveOccurrences(PlanId,DueDate,RequestId) VALUES(?,?,?)', p['id'], date.fromisoformat(entry['due']), request_id)
                 cursor.execute('INSERT INTO dbo.PreventiveSchedule(RequestId,ScheduledDate,CreatedBy,CreatedAt) VALUES(?,?,?,?)', request_id, date.fromisoformat(entry['scheduled']), usuario_id, now())
-                cursor.execute('UPDATE dbo.PreventivePlans SET NextDue=?,Revision=Revision+1 WHERE PlanId=?', date.fromisoformat(entry['next_due']), p['id'])
+                if not hour_targets:
+                    cursor.execute('UPDATE dbo.PreventivePlans SET NextDue=?,Revision=Revision+1 WHERE PlanId=?', date.fromisoformat(entry['next_due']), p['id'])
                 generated.append(request_id)
             return dict(request_ids=generated)
         return transaction(operation)
@@ -510,7 +574,7 @@ def register_preventive(app, connect, active_user, admin_user):
         for r in rows:
             entries.append(entry(r[4],r[5],r[6],r[7],r[8],r[9],r[1],r[2],r[3],f'schedule-{r[0]}'))
         # Emergentes y programación manual: lectura del mismo origen de datos, sin duplicar órdenes.
-        others = cursor.execute("SELECT r.RequestId,r.Status,r.RequestData,r.ExecutionData,r.CompletedAt,COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(u.Nombres,' ',u.Apellidos))),''),u.Nombre),r.RequestedAt FROM dbo.MaintenanceRequests r LEFT JOIN dbo.Usuarios u ON u.Id=r.AssignedTo WHERE NOT EXISTS(SELECT 1 FROM dbo.PreventiveOccurrences o WHERE o.RequestId=r.RequestId)").fetchall()
+        others = cursor.execute("SELECT r.RequestId,r.Status,r.RequestData,r.ExecutionData,r.CompletedAt,COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(u.Nombres,' ',u.Apellidos))),''),u.Nombre),r.RequestedAt FROM dbo.MaintenanceRequests r LEFT JOIN dbo.Usuarios u ON u.Id=r.AssignedTo WHERE NOT EXISTS(SELECT 1 FROM dbo.PreventiveOccurrences o WHERE o.RequestId=r.RequestId) AND NOT EXISTS(SELECT 1 FROM dbo.PreventiveHourOccurrences h WHERE h.RequestId=r.RequestId)").fetchall()
         for r in others:
             raw = json.loads(r[2]); planned = (raw.get('planning') or {}).get('starts_at')
             scheduled = datetime.fromisoformat(planned).date() if planned else r[6].date()

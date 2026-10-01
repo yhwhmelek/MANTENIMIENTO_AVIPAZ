@@ -132,15 +132,40 @@ ciclos. Las órdenes abiertas mantienen su seguimiento e historial original.
 Pruebas: `python -m unittest test_preventive_maintenance test_general_preventive`;
 interfaz simulada: `python smoke_general_preventive_ui.py`.
 
-Las nuevas frecuencias se configuran en **semanas** u **horas de funcionamiento**.
-Las horas permiten guardar el intervalo de uso (por ejemplo, cada 2500 horas),
-pero no generan vencimientos por calendario: quedan pendientes de integrar
-las lecturas de funcionamiento de las máquinas. La fecha del plan por horas
-es una referencia, no una predicción de vencimiento. Las órdenes ya publicadas
-mantienen su seguimiento. Las frecuencias antiguas en días o meses se conservan
-sin convertirlas; al modificarlas se debe elegir semanas u horas. Este cambio
-se guarda en los datos existentes y no requiere una migración adicional.
-Pruebas de frecuencias: `python -m unittest test_preventive_frequency`.
+Las frecuencias por horas admiten un primer cambio, un intervalo posterior y
+horas de aviso anticipado. Ejemplo ilustrativo: primero a 50 h, luego cada
+500 h desde el cambio realmente realizado, aviso 10 h antes. No son valores
+técnicos recomendados para ningún equipo; se configuran según su procedimiento.
+
+Aplica también `migrations/017_preventive_operating_hours.sql` (incluida en
+`python migrate_preventive.py --apply`) y reinicia la API. En **Preventivos →
+Horómetros y avisos** se registran lecturas manuales. Los avisos se actualizan
+al guardar y cada 30 segundos en la ventana de alertas. El administrador
+prepara/publica la orden desde el calendario cuando el plan entra en aviso.
+Los planes generales agrupan en una orden las máquinas que alcanzaron el umbral;
+las que todavía no lo alcanzan conservan su propio seguimiento.
+
+Al entregar un preventivo por horas realizado se exige la lectura final de
+cada máquina incluida. Esa lectura inicia el intervalo siguiente; los trabajos
+no realizados no reinician el intervalo. Para equipos nuevos la referencia
+acumulada es 0. Para equipos con cambios previos, marca que el primer cambio
+ya se realizó y registra la referencia acumulada de ese último cambio.
+
+El contador del PLC y las horas acumuladas se conservan por separado. Registra
+la lectura final **antes de resetear el PLC** y confirma el reset al registrar
+la primera lectura posterior. Un reset por sí solo no significa que el cambio
+se haya realizado. Si falta la lectura final previa al reset, no se pueden
+reconstruir las horas perdidas. La integración física con el PLC aún no está
+conectada. Su futuro importador deberá enviar la lectura final y el evento de
+reset explícito, no deducirlos de una lectura baja aislada.
+
+Rutas autenticadas: `GET/POST /preventivos/horometros`,
+`GET /preventivos/estado-horas`, `GET /preventivos/alertas-horas`.
+El POST recibe `machine_id`, `hours` (contador del PLC), `observed_at` (hora
+local de Ecuador, opcional) y `counter_reset` (predeterminado false).
+Las lecturas del mismo instante son idempotentes si el valor coincide.
+Las nuevas frecuencias admiten semanas/horas; los días/meses anteriores se
+conservan. Pruebas: `python -m unittest test_preventive_frequency test_preventive_hours`.
 
 ### Compras, intervenciones y consumos
 

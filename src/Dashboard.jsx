@@ -423,7 +423,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       <div className="admin-user"><span>{currentUser.nombre_completo || currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={() => setShowProfile(true)}>Mi perfil</button><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
     </header>
     <div className="alerts-access-bar">
-    <AlertsCenter apiUrl={apiUrl} token={token} section={section} isOperator={isOperator} isAdmin={isAdmin} onRequestsSlot={setRequestsAlertSlot} onNavigate={setSection} />
+    <AlertsCenter canPreventives={['ADMIN','MECANICO','ELECTRICO'].includes(currentUser.rol)} apiUrl={apiUrl} token={token} section={section} isOperator={isOperator} isAdmin={isAdmin} onRequestsSlot={setRequestsAlertSlot} onNavigate={setSection} />
     </div>
 
     <section className="admin-content">

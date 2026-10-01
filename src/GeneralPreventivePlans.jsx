@@ -20,7 +20,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     setError(''); setMessage(''); setSearch(''); setPlant(''); setEditing(plan?.id || null)
     if (plan) { const {id, next_due, ...value} = plan; setForm(structuredClone(value)); return }
     const first = general.find(a => a.active)
-    setForm({scope:'GENERAL', activity_id:first?.id || '', machine_id:null, machine_ids:[], element_id:null,
+    setForm({hour_base:0,hour_bases:{},first_service_done:false,scope:'GENERAL', activity_id:first?.id || '', machine_id:null, machine_ids:[], element_id:null,
       first_due:today(), start_time:first?.start_time || '08:00', frequency_override:null, override_reason:'', route:'', points:[], active:true, revision:0})
   }
   async function save(event) {
@@ -29,7 +29,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     if (!form.machine_ids.length) { setError('Selecciona al menos una máquina.'); return }
     setBusy(true); setError(''); setMessage('')
     try {
-      await request(`/preventivos/planes${editing ? `/${editing}` : ''}`, {method:editing ? 'PUT' : 'POST', body:JSON.stringify(form)})
+      await request(`/preventivos/planes${editing ? `/${editing}` : ''}`, {method:editing ? 'PUT' : 'POST', body:JSON.stringify({...form,hour_bases:Object.fromEntries(Object.entries(form.hour_bases||{}).filter(([id])=>form.machine_ids.includes(Number(id))))})})
       setForm(null); await onSaved(); setMessage(hourly ? `Plan general guardado. ${operatingHoursNotice}` : 'Plan general guardado. Se publicará una sola orden por fecha programada.')
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -40,7 +40,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     {isAdmin && !form && <button className="primary-action" disabled={!general.some(a => a.active)} onClick={() => edit()}>Asignar actividad general</button>}
     {!general.length && <p>Crea una actividad con alcance «General para varias máquinas» en Actividades y frecuencias.</p>}
     <div className="table-scroll"><table><thead><tr><th>Actividad</th><th>Máquinas incluidas</th><th>Próximo vencimiento</th><th>Inicio / duración total</th><th>Estado</th>{isAdmin && <th>Acciones</th>}</tr></thead><tbody>
-      {plans.map(plan => { const a = activities.find(a => a.id === plan.activity_id); return <tr key={plan.id}><td>{a?.name}{plan.route && <small> · {plan.route}</small>}</td><td>{plan.machine_ids.length}</td><td>{frequencyLabel(effectiveFrequency(plan,a))}<br/>{needsOperatingHours(plan,a)?'Pendiente de horas de funcionamiento':plan.next_due}</td><td>{plan.start_time.slice(0,5)} · {a?.duration_minutes} min</td><td>{plan.active ? 'Activo' : 'Inactivo'}</td>{isAdmin && <td><button disabled={busy} onClick={() => edit(plan)}>Editar selección</button></td>}</tr> })}
+      {plans.map(plan => { const a = activities.find(a => a.id === plan.activity_id); return <tr key={plan.id}><td>{a?.name}{plan.route && <small> · {plan.route}</small>}</td><td>{plan.machine_ids.length}</td><td>{frequencyLabel(effectiveFrequency(plan,a))}<br/>{needsOperatingHours(plan,a)?'Consultar Horómetros y avisos':plan.next_due}</td><td>{plan.start_time.slice(0,5)} · {a?.duration_minutes} min</td><td>{plan.active ? 'Activo' : 'Inactivo'}</td>{isAdmin && <td><button disabled={busy} onClick={() => edit(plan)}>Editar selección</button></td>}</tr> })}
     </tbody></table></div>
     {form && <form className="general-plan-editor" onSubmit={save}><fieldset disabled={busy}>
       <h3>{editing ? 'Editar plan general' : 'Asignar actividad general'}</h3>
@@ -54,16 +54,16 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
       </div>
       {activity && <p>Duración total sugerida: <strong>{activity.duration_minutes} minutos</strong>. Se configura en la actividad, junto con su frecuencia.</p>}
       {activity && <p>Frecuencia: <strong>{frequencyLabel(effectiveFrequency(form, activity))}</strong></p>}
-      {hourly && <p role="status">{operatingHoursNotice}</p>}
+      {hourly && <><p role="status">{operatingHoursNotice}</p><label className="checkbox-field"><input type="checkbox" checked={!!form.first_service_done} onChange={e=>change('first_service_done',e.target.checked)}/>El primer cambio ya fue realizado; las referencias corresponden al último cambio</label></>}
       <p>Marca las máquinas que corresponden; por ejemplo, las que tienen elementos móviles para el engrase general.</p>
       <div className="request-toolbar"><label>Buscar máquina<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Código, nombre o torre"/></label><label>Planta<select value={plant} onChange={e => setPlant(e.target.value)}><option value="">Todas</option>{[...new Map(machines.filter(m => m.plant_id).map(m => [m.plant_id, m.plant_name])).entries()].map(([id,name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         <button type="button" onClick={() => change('machine_ids', [...new Set([...form.machine_ids, ...shown.filter(m => m.status !== 'FUERA_SERVICIO').map(m => m.machine_id)])])}>Seleccionar todas las visibles</button>
         <button type="button" onClick={() => change('machine_ids', form.machine_ids.filter(id => !shown.some(m => m.machine_id === id)))}>Quitar selección visible</button>
       </div>
       <p role="status">{form.machine_ids.length} máquinas seleccionadas · {shown.length} visibles</p>
-      <div className="general-machine-list table-scroll"><table><thead><tr><th>Incluir</th><th>Código</th><th>Máquina</th><th>Planta / torre</th></tr></thead><tbody>{shown.map(m => <tr key={m.machine_id}>
+      <div className="general-machine-list table-scroll"><table><thead><tr><th>Incluir</th><th>Código</th><th>Máquina</th><th>Planta / torre</th>{hourly&&<th>Referencia acumulada (h)</th>}</tr></thead><tbody>{shown.map(m => <tr key={m.machine_id}>
         <td><input type="checkbox" aria-label={`Incluir ${m.asset_code} ${m.name}`} checked={form.machine_ids.includes(m.machine_id)} disabled={m.status === 'FUERA_SERVICIO' && !form.machine_ids.includes(m.machine_id)} onChange={e => change('machine_ids', e.target.checked ? [...form.machine_ids, m.machine_id] : form.machine_ids.filter(id => id !== m.machine_id))}/></td>
-        <td>{m.asset_code}</td><td>{m.name}{m.status === 'FUERA_SERVICIO' && ' · Fuera de servicio'}</td><td>{m.plant_name} / {m.tower_name}</td>
+        <td>{m.asset_code}</td><td>{m.name}{m.status === 'FUERA_SERVICIO' && ' · Fuera de servicio'}</td><td>{m.plant_name} / {m.tower_name}</td>{hourly&&<td><input aria-label={`Referencia de ${m.name}`} type="number" min="0" max="999999999" step="0.01" disabled={!form.machine_ids.includes(m.machine_id)} value={form.hour_bases?.[m.machine_id]??0} onChange={e=>change('hour_bases',{...form.hour_bases,[m.machine_id]:e.target.value||0})}/></td>}
       </tr>)}</tbody></table></div>
       <label className="checkbox-field"><input type="checkbox" checked={form.active} onChange={e => change('active', e.target.checked)}/>Plan activo</label>
       <p>Los cambios de selección se aplican a futuras órdenes. Las órdenes publicadas conservan sus máquinas originales.</p>

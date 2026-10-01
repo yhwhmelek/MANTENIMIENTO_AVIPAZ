@@ -1,3 +1,4 @@
+from preventive_hours import finish_hour_work
 """Solicitudes, entrega y recepcion. Fechas operativas en hora local de Ecuador (UTC-5)."""
 import json
 import base64
@@ -153,12 +154,15 @@ class CompleteWrite(StrictModel):
     recommendations: str | None = Field(default=None, max_length=1000)
     delivery_conditions: str | None = Field(default=None, max_length=1000)
     hour_meter: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    preventive_hours: dict[str, Decimal] = Field(default_factory=dict, max_length=5000)
     waiting_parts_minutes: int = Field(default=0, ge=0, le=525600)
     parts: list[PartUsed] = Field(default_factory=list, max_length=30)
     tools: list[ToolReconciliation] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode='after')
     def validate_times(self):
+        if any(not key.isdigit() or not value.is_finite() or value<0 or value>999999999 or value.as_tuple().exponent < -2 for key,value in self.preventive_hours.items()):
+            raise ValueError('Revisa las lecturas finales de las máquinas')
         for field in ('cause', 'recommendations', 'delivery_conditions'):
             setattr(self, field, getattr(self, field) or None)
         for value in (self.repair_started_at, self.repair_finished_at, self.stopped_at, self.restored_at):
@@ -711,6 +715,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             if data.image_data:
                 new_image[0] = save_request_image(data.image_data)
                 payload['image_paths'] = [new_image[0]]
+            finish_hour_work(cursor, request_id, original, data.preventive_hours, usuario_id)
             event_id = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.MaintenanceEvents
                 (MachineId,PerformedOn,MaintenanceType,Description,CreatedBy) VALUES (?,?,?,?,?);
                 SELECT CAST(SCOPE_IDENTITY() AS int);''', original['machine_id'], data.repair_finished_at.date(), original['maintenance_type'], f'Solicitud #{request_id}: {data.work_done}'[:500], usuario_id).fetchone()[0]

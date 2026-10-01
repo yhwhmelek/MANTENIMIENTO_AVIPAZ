@@ -60,7 +60,7 @@ class FrequencyEndpointTests(unittest.TestCase):
         self.connection.cursor.return_value.execute.return_value.fetchone.return_value = (5,)
         self.assertEqual(self.endpoint('/preventivos/actividades','POST')(ActivityWrite(**self.data),usuario_id=1), {'id':5})
         args = self.connection.cursor.return_value.execute.call_args.args
-        self.assertEqual(json.loads(args[1])['frequency'], {'every':2500,'unit':'HORAS'})
+        self.assertEqual(json.loads(args[1])['frequency'], {'every':2500,'unit':'HORAS','first_hours':None,'advance_hours':0})
         self.connection.commit.assert_called_once()
 
     def test_new_legacy_frequency_rejected_before_insert(self):
