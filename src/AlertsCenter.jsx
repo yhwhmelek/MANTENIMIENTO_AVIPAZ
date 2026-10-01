@@ -11,8 +11,8 @@ export default function AlertsCenter({ apiUrl, token, section, isOperator, isAdm
   function navigate(section) { close(); onNavigate(section) }
 
   return <>
-    <button ref={trigger} className="alerts-center-trigger" aria-haspopup="dialog" onClick={() => { setOpen(true); dialog.current.showModal() }}>
-      <Bell size={20} /> Alertas disponibles
+    <button ref={trigger} className="alerts-center-trigger" aria-haspopup="dialog" aria-expanded={open} onClick={() => { setOpen(true); dialog.current.showModal() }}>
+      <span className="alerts-bell" aria-hidden="true"><Bell size={20} /><span className="alerts-indicator" /></span><span>Alertas disponibles</span>
     </button>
     <dialog ref={dialog} className="stock-alert-dialog alerts-center" aria-labelledby="alerts-center-title" onClose={() => { setOpen(false); trigger.current?.focus() }}>
       <div className="modal-header"><h2 id="alerts-center-title">Alertas</h2><button onClick={close} aria-label="Cerrar alertas"><X /></button></div>

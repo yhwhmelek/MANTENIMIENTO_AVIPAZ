@@ -411,7 +411,6 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   return <main className="admin-shell">
     {showProfile && <UserProfile apiUrl={apiUrl} token={token} user={currentUser} onClose={() => setShowProfile(false)} onSaved={user => { onUserChange(user); setUsers(items => items.map(item => item.id === user.id ? { ...item, ...user } : item)) }} />}
     {isAdmin && openingBalancePart && <OpeningBalance key={openingBalancePart.spare_part_id} apiUrl={apiUrl} token={token} part={openingBalancePart} onClose={() => setOpeningBalancePart(null)} />}
-    <AlertsCenter apiUrl={apiUrl} token={token} section={section} isOperator={isOperator} isAdmin={isAdmin} onRequestsSlot={setRequestsAlertSlot} onNavigate={setSection} />
     <header className="admin-header">
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
@@ -423,6 +422,9 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       </nav>
       <div className="admin-user"><span>{currentUser.nombre_completo || currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={() => setShowProfile(true)}>Mi perfil</button><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
     </header>
+    <div className="alerts-access-bar">
+    <AlertsCenter apiUrl={apiUrl} token={token} section={section} isOperator={isOperator} isAdmin={isAdmin} onRequestsSlot={setRequestsAlertSlot} onNavigate={setSection} />
+    </div>
 
     <section className="admin-content">
       <MaintenanceRequests alertContainer={requestsAlertSlot} apiUrl={apiUrl} token={token} currentUser={currentUser} open={section === 'requests'} onOpen={() => { setMessage(''); setSection('requests') }} />
