@@ -87,6 +87,7 @@ class UsuarioResponse(BaseModel):
     nombre_completo: str
     correo: EmailStr
     rol: str
+    planta_id: int | None = None
 
 
 class LoginResponse(BaseModel):
@@ -101,12 +102,16 @@ class UsuarioAdministracionResponse(UsuarioResponse):
 
 
 class CambioRolRequest(BaseModel):
-    rol: Literal["ADMIN", "USUARIO", "OPERADOR", "MECANICO", "ELECTRICO"]
+    rol: Literal["ADMIN", "USUARIO", "OPERADOR", "MECANICO", "ELECTRICO", "TECNICO"]
 
 
 class CambioNombreRequest(BaseModel):
     nombres: str = Field(min_length=1, max_length=100)
     apellidos: str = Field(min_length=1, max_length=100)
+
+
+class CambioPlantaRequest(BaseModel):
+    planta_id: int | None = Field(gt=0)
 
 
 class PerfilWrite(BaseModel):
@@ -128,7 +133,8 @@ def nombre_completo(usuario):
 def respuesta_usuario(usuario):
     return UsuarioResponse(id=usuario.Id, nombre=usuario.Nombre,
         nombres=usuario.Nombres, apellidos=usuario.Apellidos,
-        nombre_completo=nombre_completo(usuario), correo=usuario.Correo, rol=usuario.Rol)
+        nombre_completo=nombre_completo(usuario), correo=usuario.Correo, rol=usuario.Rol,
+        planta_id=getattr(usuario, 'PlantId', None))
 
 
 class MotorBase(BaseModel):
@@ -562,7 +568,7 @@ def login(datos: LoginRequest):
         with closing(obtener_conexion()) as conexion:
             usuario = conexion.cursor().execute(
                 """
-                SELECT Id, Nombre, Nombres, Apellidos, Correo, PasswordHash, Rol, Activo
+                SELECT Id, Nombre, Nombres, Apellidos, Correo, PasswordHash, Rol, Activo, PlantId
                 FROM dbo.Usuarios
                 WHERE LOWER(Nombre) = LOWER(?)
                 """,
@@ -613,7 +619,7 @@ def perfil_actual(usuario_id: int = Depends(obtener_usuario_activo)):
     try:
         with closing(obtener_conexion()) as conexion:
             usuario = conexion.cursor().execute("""
-                SELECT Id, Nombre, Nombres, Apellidos, Correo, Rol
+                SELECT Id, Nombre, Nombres, Apellidos, Correo, Rol, PlantId
                 FROM dbo.Usuarios WHERE Id=?
             """, usuario_id).fetchone()
     except (pyodbc.Error, RuntimeError):
@@ -642,7 +648,7 @@ def actualizar_perfil(datos: PerfilWrite, usuario_id: int = Depends(obtener_usua
                 raise HTTPException(status_code=409, detail="El usuario o correo ya esta registrado")
             usuario = cursor.execute("""
                 UPDATE dbo.Usuarios SET Nombre=?, Nombres=?, Apellidos=?, Correo=?
-                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol, INSERTED.PlantId
                 WHERE Id=? AND Activo=1
             """, nombre, nombres, apellidos, correo, usuario_id).fetchone()
             if usuario is None:
@@ -721,7 +727,7 @@ def registrar_usuario(datos: RegistroRequest):
                 """
                 INSERT INTO dbo.Usuarios
                     (Nombre, Nombres, Apellidos, Correo, PasswordHash, Rol, Activo, CreadoEn)
-                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol, INSERTED.PlantId
                 VALUES (?, ?, ?, ?, ?, 'USUARIO', 1, SYSUTCDATETIME())
                 """,
                 nombre,
@@ -748,7 +754,7 @@ def listar_usuarios(usuario_id: int = Depends(obtener_admin_actual)):
         with closing(obtener_conexion()) as conexion:
             usuarios = conexion.cursor().execute(
                 """
-                SELECT Id, Nombre, Nombres, Apellidos, Correo, Rol, Activo, CreadoEn
+                SELECT Id, Nombre, Nombres, Apellidos, Correo, Rol, Activo, CreadoEn, PlantId
                 FROM dbo.Usuarios
                 ORDER BY CreadoEn DESC, Id DESC
                 """
@@ -768,6 +774,7 @@ def listar_usuarios(usuario_id: int = Depends(obtener_admin_actual)):
             nombre_completo=nombre_completo(usuario),
             correo=usuario.Correo,
             rol=usuario.Rol,
+            planta_id=usuario.PlantId,
             activo=bool(usuario.Activo),
             creado_en=usuario.CreadoEn,
         )
@@ -787,7 +794,7 @@ def cambiar_rol(
                 """
                 UPDATE dbo.Usuarios
                 SET Rol = ?
-                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol, INSERTED.PlantId
                 WHERE Id = ?
                 """,
                 datos.rol,
@@ -810,6 +817,32 @@ def cambiar_rol(
     return respuesta_usuario(usuario)
 
 
+@app.patch("/usuarios/{usuario_id}/planta", response_model=UsuarioResponse)
+def cambiar_planta(usuario_id: int, datos: CambioPlantaRequest,
+                   usuario_actual_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if datos.planta_id is not None and not cursor.execute(
+                'SELECT PlantId FROM dbo.Plants WHERE PlantId=?', datos.planta_id
+            ).fetchone():
+                raise HTTPException(status_code=422, detail='La planta seleccionada no existe')
+            usuario = cursor.execute('''
+                UPDATE dbo.Usuarios SET PlantId=?
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos,
+                    INSERTED.Correo, INSERTED.Rol, INSERTED.PlantId
+                WHERE Id=?
+            ''', datos.planta_id, usuario_id).fetchone()
+            if usuario is None:
+                raise HTTPException(status_code=404, detail='Usuario no encontrado')
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='No se pudo actualizar la planta. Verifica la migración 018.')
+    return respuesta_usuario(usuario)
+
+
 @app.patch("/usuarios/{usuario_id}/nombre", response_model=UsuarioResponse)
 def cambiar_nombre(usuario_id: int, datos: CambioNombreRequest,
                   usuario_actual_id: int = Depends(obtener_admin_actual)):
@@ -820,7 +853,7 @@ def cambiar_nombre(usuario_id: int, datos: CambioNombreRequest,
         with closing(obtener_conexion()) as conexion:
             usuario = conexion.cursor().execute("""
                 UPDATE dbo.Usuarios SET Nombres=?, Apellidos=?
-                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol
+                OUTPUT INSERTED.Id, INSERTED.Nombre, INSERTED.Nombres, INSERTED.Apellidos, INSERTED.Correo, INSERTED.Rol, INSERTED.PlantId
                 WHERE Id=?
             """, nombres, apellidos, usuario_id).fetchone()
             if usuario is None:

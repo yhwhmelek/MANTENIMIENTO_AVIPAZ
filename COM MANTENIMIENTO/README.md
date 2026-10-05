@@ -192,6 +192,38 @@ Los formularios no modifican existencias. Detalles en `INVENTARIO_TECNICO.md`.
 
 Pruebas: `python -m unittest test_parts_history test_machine_spare_parts test_element_data`.
 
+### Planta del personal y rol Técnico
+
+Antes de actualizar la API, ejecutar `python migrate_user_plants.py --apply`
+(requiere las migraciones previas, incluida 007 para plantas y 013 para roles).
+Aplicar `018_user_plants.sql` agrega `Usuarios.PlantId` con referencia a `Plants`
+y permite el rol `TECNICO` en las restricciones existentes. Es repetible y no
+asigna plantas automáticamente. Reiniciar la API y publicar el contenido de `dist`.
+
+En **Usuarios**, el administrador selecciona el rol y la planta de cada persona
+desde el catálogo existente, por ejemplo Samanga o Santa Fe. El nuevo rol
+**Técnico** tiene su grupo propio y participa también en **Mantenimiento (todos)**;
+no participa automáticamente en los grupos exclusivos Mecánico o Eléctrico.
+La planta asignada se consulta en **Mi perfil**. La API de asignación es
+`PATCH /usuarios/{id}/planta` con `{"planta_id": 1}`, solo para administradores.
+Enviar `null` quita la asignación.
+
+Los avisos de solicitudes y sus contadores se restringen a la planta del personal
+mecánico, eléctrico y técnico. Los preventivos por horas se filtran además por
+especialidad. Una actividad general de varias plantas avisa en cada planta
+incluida, mostrando en la alerta solo su cobertura local; sigue siendo una única
+orden compartida. Los administradores reciben avisos de todas las plantas.
+Sin planta asignada, el personal ve una indicación para solicitar su configuración
+y no recibe avisos de actividades de plantas indeterminadas. El listado histórico
+y los permisos para ejecutar trabajos conservan su funcionamiento: este filtro
+organiza notificaciones, no establece aislamiento de datos entre plantas.
+
+Las consultas de avisos usan la asignación actual del servidor. El perfil se
+actualiza cada 30 segundos y al recuperar el foco, sin exigir cerrar sesión.
+Verificaciones: `python -m unittest discover -p "test_*.py"`,
+`node src/plantAlerts.test.js`, `node src/workAssignment.test.js` (desde la raíz)
+y `python smoke_plant_alerts_ui.py` con Edge y datos simulados.
+
 Ejemplo de `POST /auth/login`:
 
 ```json

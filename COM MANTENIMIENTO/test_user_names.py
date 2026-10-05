@@ -12,6 +12,7 @@ class UserNamesTests(unittest.TestCase):
     def test_admin_can_assign_technical_roles(self):
         self.assertEqual(main.CambioRolRequest(rol='MECANICO').rol, 'MECANICO')
         self.assertEqual(main.CambioRolRequest(rol='ELECTRICO').rol, 'ELECTRICO')
+        self.assertEqual(main.CambioRolRequest(rol='TECNICO').rol, 'TECNICO')
         with self.assertRaises(ValidationError):
             main.CambioRolRequest(rol='SUPERVISOR')
 

@@ -40,7 +40,7 @@ class PriorityTests(unittest.TestCase):
 
     def test_group_planning_without_individual_assignee(self):
         self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
-        for group in ('MECANICO', 'ELECTRICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO'):
+        for group in ('MECANICO', 'ELECTRICO', 'TECNICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO'):
             with self.subTest(group=group):
                 self.cursor.execute.return_value.fetchone.side_effect=[self.lock(), ('Jefe',)]
                 data=self.plan(assignment_type=group, assigned_user_id=None)

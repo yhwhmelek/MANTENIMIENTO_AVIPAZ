@@ -6,7 +6,7 @@ function test(name, run) { run(); console.log(`OK: ${name}`) }
 test('pending group alerts reach only matching roles; acceptance removes other users', () => {
   for (const [assignment_type,group] of Object.entries(assignmentGroups)) {
     const row={status:'PENDIENTE',assigned_to:null,request_data:{planning:{assignment_type}}}
-    for (const rol of ['MECANICO','ELECTRICO','ADMIN','USUARIO','OPERADOR']) {
+    for (const rol of ['MECANICO','ELECTRICO','TECNICO','ADMIN','USUARIO','OPERADOR']) {
       assert.equal(canExecuteWork(row,{id:2,rol}),group.roles.includes(rol))
     }
     row.status='EN_PROCESO'

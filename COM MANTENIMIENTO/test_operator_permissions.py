@@ -51,7 +51,7 @@ class OperatorPermissionsTests(unittest.TestCase):
         self.assertGreater(checked, 15)
 
     def test_technical_roles_keep_inventory_access(self):
-        for role in ('MECANICO', 'ELECTRICO', 'ADMIN'):
+        for role in ('MECANICO', 'ELECTRICO', 'TECNICO', 'ADMIN'):
             for route in ('/repuestos', '/stock-repuestos', '/maquinas/{machine_id}/repuestos'):
                 with self.subTest(role=role, route=route):
                     self.assertEqual(self.authorize(role, 'GET', route), 7)
@@ -105,7 +105,7 @@ class OperatorPermissionsTests(unittest.TestCase):
                    for user_id in (7, 9)]
         for role, expected in [('OPERADOR', [7]), ('MECANICO', [7, 9]), ('ELECTRICO', [7, 9])]:
             with self.subTest(role=role), patch.object(maintenance, 'records', return_value=deepcopy(records)):
-                self.cursor.execute.return_value.fetchone.return_value = (role,)
+                self.cursor.execute.return_value.fetchone.return_value = (role, None)
                 self.cursor.fetchall.return_value = []
                 result = endpoint(usuario_id=7)
                 self.assertEqual([row['id'] for row in result], expected)
@@ -117,7 +117,7 @@ class OperatorPermissionsTests(unittest.TestCase):
     def test_technical_roles_can_create_requests_with_parts(self):
         endpoint = next(r.endpoint for r in self.app.routes
                         if r.path == '/solicitudes-mantenimiento' and 'POST' in r.methods)
-        for role in ('MECANICO', 'ELECTRICO'):
+        for role in ('MECANICO', 'ELECTRICO', 'TECNICO'):
             with self.subTest(role=role):
                 self.cursor.execute.return_value.fetchone.side_effect = [(role,), ('M1', 'Molino', 'Planta'), (12,)]
                 data = maintenance.RequestWrite(machine_id=3, maintenance_type='CORRECTIVO', description='Reparar',

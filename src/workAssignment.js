@@ -1,8 +1,9 @@
 export const assignmentGroups = {
   MECANICO: {label:'Mecánico', roles:['MECANICO']},
   ELECTRICO: {label:'Eléctrico', roles:['ELECTRICO']},
+  TECNICO: {label:'Técnico', roles:['TECNICO']},
   MECANICO_ELECTRICO: {label:'Mecánico / Eléctrico', roles:['MECANICO','ELECTRICO']},
-  MANTENIMIENTO: {label:'Mantenimiento (todos)', roles:['MECANICO','ELECTRICO','ADMIN']},
+  MANTENIMIENTO: {label:'Mantenimiento (todos)', roles:['MECANICO','ELECTRICO','TECNICO','ADMIN']},
 }
 
 export function canExecuteWork(row, user) {

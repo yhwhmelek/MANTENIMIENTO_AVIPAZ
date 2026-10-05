@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from pydantic import Field, model_validator
 from request_priority import StrictModel, NIC, ASSIGNMENT_GROUPS, priority
 from preventive_hours import HourReading, hour_states, latest_readings, record_reading
+from plant_alerts import filter_hour_alerts
 
 
 def now():
@@ -53,7 +54,7 @@ class ActivityWrite(StrictModel):
     scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
     start_time: time = time(8)
     frequency: Frequency
-    group: Literal['MECANICO', 'ELECTRICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO']
+    group: Literal['MECANICO', 'ELECTRICO', 'TECNICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO']
     duration_minutes: int = Field(ge=1, le=525600)
     crew_size: int = Field(default=1, ge=1, le=100)
     factors: NIC
@@ -248,7 +249,7 @@ def register_preventive(app, connect, active_user, admin_user):
 
     def staff(cursor, user):
         row = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', user).fetchone()
-        if not row or row[0] not in ('ADMIN', 'MECANICO', 'ELECTRICO'):
+        if not row or row[0] not in ('ADMIN', 'MECANICO', 'ELECTRICO', 'TECNICO'):
             raise HTTPException(403, 'Este módulo es para el personal de mantenimiento')
 
     def stamp(cursor, user):
@@ -288,15 +289,11 @@ def register_preventive(app, connect, active_user, admin_user):
     def hours_alerts(usuario_id: int = Depends(active_user)):
         def operation(cursor):
             staff(cursor, usuario_id)
-            role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=?', usuario_id).fetchone()[0]
-            result = []
-            for entry in hour_states(cursor, catalogs(cursor)):
-                if role != 'ADMIN' and role not in ASSIGNMENT_GROUPS[entry['group']][1]:
-                    continue
-                machines = [m for m in entry['machines'] if m['state'] in ('PROXIMO','VENCIDO')]
-                if machines:
-                    result.append(dict(entry, machines=machines))
-            return result
+            role, plant_id = cursor.execute('SELECT Rol,PlantId FROM dbo.Usuarios WHERE Id=?', usuario_id).fetchone()
+            machine_plants = {} if role == 'ADMIN' else dict(cursor.execute('''
+                SELECT m.MachineId,t.PlantId FROM dbo.Machines m
+                JOIN dbo.Towers t ON t.TowerId=m.TowerId''').fetchall())
+            return filter_hour_alerts(hour_states(cursor, catalogs(cursor)), role, plant_id, machine_plants, ASSIGNMENT_GROUPS)
         return transaction(operation)
 
     def week_open(cursor, week):
@@ -314,7 +311,7 @@ def register_preventive(app, connect, active_user, admin_user):
     def people(usuario_id: int = Depends(active_user)):
         def operation(cursor):
             staff(cursor, usuario_id)
-            rows = cursor.execute("SELECT Id,COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres,' ',Apellidos))),''),Nombre),Rol FROM dbo.Usuarios WHERE Activo=1 AND Rol IN ('ADMIN','MECANICO','ELECTRICO') ORDER BY Nombre").fetchall()
+            rows = cursor.execute("SELECT Id,COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres,' ',Apellidos))),''),Nombre),Rol FROM dbo.Usuarios WHERE Activo=1 AND Rol IN ('ADMIN','MECANICO','ELECTRICO','TECNICO') ORDER BY Nombre").fetchall()
             return [dict(id=r[0], nombre_completo=r[1], rol=r[2]) for r in rows]
         return transaction(operation)
 

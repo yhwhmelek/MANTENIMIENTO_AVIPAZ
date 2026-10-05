@@ -28,7 +28,7 @@ const contrastText=hex=>{const value=hex.replace('#',''),r=parseInt(value.slice(
 const darken=hex=>`#${hex.replace('#','').match(/.{2}/g).map(value=>Math.round(parseInt(value,16)*.65).toString(16).padStart(2,'0')).join('')}`
 const colorFor=(plan,customColors={})=>{const key=identity(plan),custom=customColors[key];if(custom)return{background:custom,border:darken(custom),text:contrastText(custom)};let hash=0;for(const char of key)hash=(hash*31+char.charCodeAt(0))>>>0;return palette[hash%palette.length]}
 const loadColors=()=>{try{return JSON.parse(localStorage.getItem(COLOR_STORAGE_KEY)||'{}')}catch{return{}}}
-const roleName=plan=>plan?.responsible_role==='CONTRATISTA'?'Contratista':plan?.responsible_role==='MECANICO'?'Mecánico':plan?.responsible_role==='ELECTRICO'?'Eléctrico':plan?.responsible_role||'Responsable'
+const roleName=plan=>plan?.responsible_role==='CONTRATISTA'?'Contratista':plan?.responsible_role==='MECANICO'?'Mecánico':plan?.responsible_role==='ELECTRICO'?'Eléctrico':plan?.responsible_role==='TECNICO'?'Técnico':plan?.responsible_role||'Responsable'
 
 export default function PlanningSchedule({request,row,form,onSelect}){
   const [rows,setRows]=useState([]),[weekShift,setWeekShift]=useState(0),[error,setError]=useState('')

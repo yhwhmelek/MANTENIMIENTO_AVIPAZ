@@ -44,6 +44,7 @@ export default function UserProfile({ apiUrl, token, user, onSaved, onClose }) {
 
   return <div className="modal-backdrop" role="presentation"><div className="motor-modal profile-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title">
     <div className="modal-header"><div><p className="eyebrow">MI CUENTA</p><h2 id="profile-title">Editar mi información</h2></div><button type="button" onClick={onClose} aria-label="Cerrar perfil"><X /></button></div>
+    <p>Planta: <strong>{user.rol==='ADMIN'?'Todas las plantas':user.planta_nombre||(user.planta_id?'Consultando planta…':'Sin planta asignada')}</strong>. La asignación de planta la administra un administrador.</p>
     <form onSubmit={saveProfile} className="motor-form-grid">
       <label>Usuario de acceso *<input required autoComplete="username" maxLength={100} value={profile.nombre} onChange={e => setProfile({ ...profile, nombre: e.target.value })}/></label>
       <label>Nombre<input autoComplete="given-name" maxLength={100} value={profile.nombres} onChange={e => setProfile({ ...profile, nombres: e.target.value })}/></label>

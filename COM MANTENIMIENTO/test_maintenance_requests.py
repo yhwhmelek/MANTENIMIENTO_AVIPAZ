@@ -393,7 +393,7 @@ class RequestTests(unittest.TestCase):
 
     def test_group_rejects_ineligible_and_inactive_users(self):
         for group, roles in mod.ASSIGNMENT_GROUPS.items():
-            for role in ('ADMIN','MECANICO','ELECTRICO','USUARIO','OPERADOR',None):
+            for role in ('ADMIN','MECANICO','ELECTRICO','TECNICO','USUARIO','OPERADOR',None):
                 if role in roles[1]:
                     continue
                 with self.subTest(group=group,role=role):

@@ -1,4 +1,5 @@
 from preventive_hours import finish_hour_work
+from plant_alerts import route_request_alerts
 """Solicitudes, entrega y recepcion. Fechas operativas en hora local de Ecuador (UTC-5)."""
 import json
 import base64
@@ -20,8 +21,8 @@ from parts_history import records
 from request_priority import NIC, decorate, backlog_key, register_priority, require_planned, ASSIGNMENT_GROUPS
 from operator_permissions import operator_request
 
-MAINTENANCE_ROLES = ('ADMIN', 'OPERADOR', 'MECANICO', 'ELECTRICO')
-REQUEST_CREATOR_ROLES = ('ADMIN', 'USUARIO', 'OPERADOR', 'MECANICO', 'ELECTRICO')
+MAINTENANCE_ROLES = ('ADMIN', 'OPERADOR', 'MECANICO', 'ELECTRICO', 'TECNICO')
+REQUEST_CREATOR_ROLES = ('ADMIN', 'USUARIO', 'OPERADOR', 'MECANICO', 'ELECTRICO', 'TECNICO')
 
 
 def local_now():
@@ -320,12 +321,15 @@ SELECT = '''SELECT r.RequestId AS id, r.MachineId AS machine_id,
     COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(u.Nombres, ' ', u.Apellidos))), ''), u.Nombre) AS requester_name,
     COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(a.Nombres, ' ', a.Apellidos))), ''), a.Nombre) AS assignee_name,
     COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(receiver.Nombres, ' ', receiver.Apellidos))), ''), receiver.Nombre) AS receiver_name,
-    COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(executor.Nombres, ' ', executor.Apellidos))), ''), executor.Nombre) AS executor_name
+    COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(executor.Nombres, ' ', executor.Apellidos))), ''), executor.Nombre) AS executor_name,
+    machine_tower.PlantId AS machine_plant_id
     FROM dbo.MaintenanceRequests r JOIN dbo.Usuarios u ON u.Id=r.RequestedBy
     LEFT JOIN dbo.Usuarios a ON a.Id=r.AssignedTo
     LEFT JOIN dbo.Usuarios receiver ON receiver.Id=r.ReceivedBy
     LEFT JOIN dbo.MaintenanceEvents event ON event.MaintenanceEventId=r.MaintenanceEventId
-    LEFT JOIN dbo.Usuarios executor ON executor.Id=event.CreatedBy'''
+    LEFT JOIN dbo.Usuarios executor ON executor.Id=event.CreatedBy
+    LEFT JOIN dbo.Machines machine ON machine.MachineId=r.MachineId
+    LEFT JOIN dbo.Towers machine_tower ON machine_tower.TowerId=machine.TowerId'''
 
 
 def decode(row, user_names=None):
@@ -449,8 +453,10 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     return []
                 cursor.execute("SELECT Id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios")
                 names = {user_id: name for user_id, name in cursor.fetchall()}
-                role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
+                role = cursor.execute('SELECT Rol,PlantId FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
                 decoded = [decode(row, names) for row in rows]
+                if role:
+                    route_request_alerts(decoded, role[0], role[1])
                 if role and role[0] == 'OPERADOR':
                     decoded = [operator_request(row) for row in decoded if row['requested_by'] == usuario_id]
                 return sorted(decoded, key=backlog_key)

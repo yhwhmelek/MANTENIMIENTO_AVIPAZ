@@ -47,13 +47,14 @@ class PlannedSparePart(StrictModel):
 ASSIGNMENT_GROUPS = {
     'MECANICO': ('Mecánico', ('MECANICO',)),
     'ELECTRICO': ('Eléctrico', ('ELECTRICO',)),
+    'TECNICO': ('Técnico', ('TECNICO',)),
     'MECANICO_ELECTRICO': ('Mecánico / Eléctrico', ('MECANICO', 'ELECTRICO')),
-    'MANTENIMIENTO': ('Mantenimiento', ('MECANICO', 'ELECTRICO', 'ADMIN')),
+    'MANTENIMIENTO': ('Mantenimiento', ('MECANICO', 'ELECTRICO', 'TECNICO', 'ADMIN')),
 }
 
 
 class PlanningWrite(StrictModel):
-    assignment_type: Literal['USER', 'CONTRACTOR', 'MECANICO', 'ELECTRICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO'] = 'USER'
+    assignment_type: Literal['USER', 'CONTRACTOR', 'MECANICO', 'ELECTRICO', 'TECNICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO'] = 'USER'
     assigned_user_id: int | None = Field(default=None, gt=0)
     contractor_id: int | None = Field(default=None, gt=0)
     responsible: str = Field(default='', max_length=150)
@@ -79,7 +80,7 @@ class PlanningWrite(StrictModel):
         if self.assignment_type in ASSIGNMENT_GROUPS and (self.assigned_user_id is not None or self.contractor_id is not None):
             raise ValueError('La asignación por grupo no permite seleccionar un usuario ni un contratista')
         if self.assignment_type == 'USER' and (self.assigned_user_id is None or self.contractor_id is not None):
-            raise ValueError('Selecciona un usuario mecánico o eléctrico')
+            raise ValueError('Selecciona un usuario mecánico, eléctrico o técnico')
         if self.assignment_type == 'CONTRACTOR' and (self.contractor_id is None or self.assigned_user_id is not None):
             raise ValueError('Selecciona un contratista')
         if self.starts_at and self.starts_at.tzinfo:
@@ -188,8 +189,8 @@ def register_priority(app, write, locked, admin_user, now):
             planning['review_required'] = True
             if data.assignment_type == 'USER':
                 assigned = cursor.execute("SELECT COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre), Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1", data.assigned_user_id).fetchone()
-                if not assigned or assigned[1] not in ('MECANICO', 'ELECTRICO'):
-                    raise HTTPException(422, 'Selecciona un usuario activo con rol Mecánico o Eléctrico')
+                if not assigned or assigned[1] not in ('MECANICO', 'ELECTRICO', 'TECNICO'):
+                    raise HTTPException(422, 'Selecciona un usuario activo con rol Mecánico, Eléctrico o Técnico')
                 planning['responsible'] = assigned[0]
                 planning['responsible_role'] = assigned[1]
             elif data.assignment_type in ASSIGNMENT_GROUPS:

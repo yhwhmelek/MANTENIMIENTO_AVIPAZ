@@ -16,11 +16,22 @@ function App() {
   useEffect(() => {
     if (!token) return
     const controller = new AbortController()
-    fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
-      .then(response => response.ok ? response.json() : null)
-      .then(user => { if (user && !controller.signal.aborted) updateCurrentUser(user) })
-      .catch(() => {})
-    return () => controller.abort()
+    let pending = false
+    async function refreshUser() {
+      if (pending || controller.signal.aborted) return
+      pending = true
+      try {
+        const response = await fetch(`${API_URL}/auth/me`, {headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
+        if (response.ok) {
+          const user = await response.json()
+          if (!controller.signal.aborted) updateCurrentUser(user)
+        }
+      } catch {} finally {pending = false}
+    }
+    refreshUser()
+    const timer = setInterval(refreshUser,30000)
+    window.addEventListener('focus',refreshUser)
+    return () => {controller.abort();clearInterval(timer);window.removeEventListener('focus',refreshUser)}
   }, [token])
 
   async function handleLogin(event) {

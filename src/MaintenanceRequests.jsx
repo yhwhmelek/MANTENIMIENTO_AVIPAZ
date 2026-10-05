@@ -17,6 +17,7 @@ import MaintenanceScheduleReport from './MaintenanceScheduleReport'
 import { requestValidationError } from './requestValidationError'
 import { compareActivities } from './priorityOrder'
 import {canExecuteWork} from './workAssignment'
+import {plantAlertMatches, plantAlertCoverage} from './plantAlerts'
 
 const states = { PENDIENTE:'Pendiente', EN_PROCESO:'En proceso', POR_RECIBIR:'Por recibir', CERRADA:'Cerrada' }
 const stateText = row => row.status==='POR_RECIBIR' ? (row.request_data.admin_review?'Pendiente de conformidad':'Pendiente de revisión administrativa') : states[row.status]
@@ -48,12 +49,12 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const detail=useRef(null)
   const isAdmin=currentUser.rol==='ADMIN'
   const isOperator=currentUser.rol==='OPERADOR'
-  const isTechnician=['MECANICO','ELECTRICO'].includes(currentUser.rol)
-  const canCreate=['ADMIN','USUARIO','OPERADOR','MECANICO','ELECTRICO'].includes(currentUser.rol)
+  const isTechnician=['MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)
+  const canCreate=['ADMIN','USUARIO','OPERADOR','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)
   const isContractor=row=>row?.request_data.planning?.assignment_type==='CONTRACTOR'
   const canExecute=row=>canExecuteWork(row,currentUser)
-  const assignedWorkCount=rows.filter(r=>canExecute(r)&&['PENDIENTE','EN_PROCESO'].includes(r.status)).length
-  const assignedWork=rows.filter(r=>canExecute(r)&&['PENDIENTE','EN_PROCESO'].includes(r.status))
+  const assignedWork=rows.filter(r=>canExecute(r)&&plantAlertMatches(r,currentUser)&&['PENDIENTE','EN_PROCESO'].includes(r.status))
+  const assignedWorkCount=assignedWork.length
   const pendingReceipts=rows.filter(r=>r.status==='POR_RECIBIR'&&r.request_data.admin_review&&r.requested_by===currentUser.id)
   const managementCount=isAdmin?rows.filter(r=>(r.status==='PENDIENTE'&&!r.request_data.planning)||(r.status==='POR_RECIBIR'&&!r.request_data.admin_review)).length:0
   const alertWork = isAdmin ? rows.filter(work=>['PENDIENTE','EN_PROCESO','POR_RECIBIR'].includes(work.status)) : [...new Map([...assignedWork, ...(!isTechnician ? pendingReceipts : [])].map(work=>[work.id,work])).values()]
@@ -239,7 +240,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   }
   function updateLine(kind,index,key,value){setForm(f=>({...f,[kind]:f[kind].map((line,i)=>i===index?{...line,[key]:value}:line)}))}
   return <>
-    {alertContainer && createPortal(<><button className={`request-alert-trigger ${assignedWorkCount||(!isTechnician&&(managementCount||pendingReceipts.length))||error?'needs-attention':''}`} onClick={event => { event.currentTarget.closest('dialog')?.close(); setSelected(null); setForm(null); setWorkspace('pending'); onOpen() }}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?(isTechnician?`Trabajos disponibles y en curso: ${assignedWorkCount}`:`Trabajos disponibles y en curso: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`):'Consultando solicitudes…'}</span></button>{alertWork.map(work=><div className="request-alert-work" key={work.id}><RequestPhotos apiUrl={apiUrl} token={token} work={work}/><div><strong>Solicitud #{work.id} · {work.request_data.machine_name||work.request_data.target_area}</strong><p>{stateText(work)} · {work.request_data.description}</p><PreventiveCoverage machines={work.request_data.preventive?.machines}/><button type="button" onClick={event=>{event.currentTarget.closest('dialog')?.close();setSelected(work.id);setForm(null);setFormError('');onOpen()}}>Abrir trabajo</button></div></div>)}</>, alertContainer)}
+    {alertContainer && createPortal(<><button className={`request-alert-trigger ${assignedWorkCount||(!isTechnician&&(managementCount||pendingReceipts.length))||error?'needs-attention':''}`} onClick={event => { event.currentTarget.closest('dialog')?.close(); setSelected(null); setForm(null); setWorkspace('pending'); onOpen() }}><Bell size={18}/><span role="status">{error?'Solicitudes sin verificar':loaded?(isTechnician?`Trabajos disponibles y en curso: ${assignedWorkCount}`:`Trabajos disponibles y en curso: ${assignedWorkCount} · Por recibir: ${pendingReceipts.length}${isAdmin?` · Gestión administrativa: ${managementCount}`:''}`):'Consultando solicitudes…'}</span></button>{isTechnician&&currentUser.planta_id==null&&<p role="status">No tienes planta asignada. Solicita a un administrador que la configure en Usuarios para recibir los avisos de tu planta.</p>}{alertWork.map(work=><div className="request-alert-work" key={work.id}><RequestPhotos apiUrl={apiUrl} token={token} work={work}/><div><strong>Solicitud #{work.id} · {work.request_data.machine_name||work.request_data.target_area}</strong><p>{stateText(work)} · {work.request_data.description}</p><PreventiveCoverage machines={plantAlertCoverage(work,currentUser)}/><button type="button" onClick={event=>{event.currentTarget.closest('dialog')?.close();setSelected(work.id);setForm(null);setFormError('');onOpen()}}>Abrir trabajo</button></div></div>)}</>, alertContainer)}
     <section hidden={!open} className="request-workspace" aria-labelledby="requests-title">
       <div className="page-heading"><h1 id="requests-title">Solicitudes de mantenimiento</h1></div>
       <p>Solicitar y preevaluar → validar prioridad → programar → ejecutar y entregar → recibir y aceptar el trabajo.</p>
