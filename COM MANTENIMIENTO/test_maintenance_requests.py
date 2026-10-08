@@ -501,6 +501,15 @@ class RequestTests(unittest.TestCase):
                         dict(repair_finished_at=(mod.local_now()+timedelta(days=1)).isoformat())]:
             with self.subTest(changes=changes),self.assertRaises(ValidationError):self.completion(**changes)
 
+    def test_delivery_after_form_open_requires_current_restoration_time(self):
+        times = dict(stopped_at='2026-01-01T08:20:35',
+                     repair_finished_at='2026-01-01T10:12:45')
+        with self.assertRaisesRegex(ValidationError, 'La parada debe contener'):
+            self.completion(**times, restored_at='2026-01-01T10:00')
+        delivered = self.completion(**times, restored_at=times['repair_finished_at'])
+        self.assertEqual(delivered.restored_at, delivered.repair_finished_at)
+        self.assertEqual(delivered.stopped_at.second, 35)
+
     def test_receipt_defaults_and_persists_conformity(self):
         for payload in [{}, {'notes': None}, {'notes': ''}, {'notes': '   '}]:
             with self.subTest(payload=payload):
