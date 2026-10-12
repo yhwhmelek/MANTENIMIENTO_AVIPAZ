@@ -143,6 +143,7 @@ class ToolReconciliation(StrictModel):
 
 
 class CompleteWrite(StrictModel):
+    finish_now: bool = Field(default=False, strict=True)
     image_data: str | None = Field(default=None, max_length=14_000_000)
     improvement_result: str = Field(default='', max_length=2000)
     other_materials: str = Field(default='', max_length=2000)
@@ -159,6 +160,16 @@ class CompleteWrite(StrictModel):
     waiting_parts_minutes: int = Field(default=0, ge=0, le=525600)
     parts: list[PartUsed] = Field(default_factory=list, max_length=30)
     tools: list[ToolReconciliation] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode='before')
+    @classmethod
+    def automatic_completion_time(cls, values):
+        if isinstance(values, dict) and values.get('finish_now') is True:
+            values = dict(values)
+            finished = local_now()
+            values['repair_finished_at'] = finished
+            values['restored_at'] = finished if values.get('stopped_at') else None
+        return values
 
     @model_validator(mode='after')
     def validate_times(self):
@@ -704,7 +715,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 raise HTTPException(422, 'Conserva el inicio de parada registrado por el solicitante')
             if original.get('hour_meter') is not None and (data.hour_meter is None or data.hour_meter < Decimal(original['hour_meter'])):
                 raise HTTPException(422, 'El horometro final debe ser mayor o igual al inicial')
-            payload = data.model_dump(mode='json', exclude={'image_data'})
+            payload = data.model_dump(mode='json', exclude={'image_data', 'finish_now'})
             payload['recorded_at'] = local_now().isoformat()
             payload['repair_started_at'] = recorded_start.isoformat()
             payload['repair_duration_minutes'] = round((data.repair_finished_at-recorded_start).total_seconds()/60, 2)

@@ -510,6 +510,37 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(delivered.restored_at, delivered.repair_finished_at)
         self.assertEqual(delivered.stopped_at.second, 35)
 
+    def test_automatic_delivery_uses_server_clock(self):
+        now = datetime(2026, 1, 1, 10, 12, 45)
+        with patch.object(mod, 'local_now', return_value=now):
+            delivered = self.completion(finish_now=True,
+                repair_finished_at='2099-01-01T10:00',
+                stopped_at='2026-01-01T08:20:35', restored_at='2099-01-01T10:00')
+            self.assertEqual(delivered.repair_finished_at, now)
+            self.assertEqual(delivered.restored_at, now)
+            payload = delivered.model_dump(exclude={'repair_finished_at', 'restored_at'})
+            self.assertEqual(mod.CompleteWrite(**payload).repair_finished_at, now)
+            no_shutdown = self.completion(finish_now=True)
+            self.assertEqual(no_shutdown.repair_finished_at, now)
+            self.assertIsNone(no_shutdown.restored_at)
+
+    def test_automatic_delivery_still_rejects_future_start(self):
+        with patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 10)):
+            with self.assertRaisesRegex(ValidationError, 'no pueden ser futuros'):
+                self.completion(finish_now=True, repair_started_at='2026-01-01T11:00')
+
+    def test_automatic_delivery_persists_server_time(self):
+        self.cursor.execute.return_value.fetchone.side_effect = [self.locked('EN_PROCESO'), (42,)]
+        now = datetime(2026, 1, 1, 10, 12, 45)
+        with patch.object(mod, 'local_now', return_value=now):
+            self.endpoint('/{request_id}/completar')(5, self.completion(finish_now=True, parts=[]), usuario_id=2)
+        update = next(call for call in self.cursor.execute.call_args_list if 'SET Status=\'POR_RECIBIR\'' in call.args[0])
+        self.assertEqual(update.args[1], now)
+        execution = json.loads(update.args[2])
+        self.assertEqual(execution['repair_finished_at'], now.isoformat())
+        self.assertNotIn('finish_now', execution)
+        self.connection.commit.assert_called_once()
+
     def test_receipt_defaults_and_persists_conformity(self):
         for payload in [{}, {'notes': None}, {'notes': ''}, {'notes': '   '}]:
             with self.subTest(payload=payload):
