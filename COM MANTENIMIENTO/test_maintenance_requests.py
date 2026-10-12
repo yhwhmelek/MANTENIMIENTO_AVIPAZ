@@ -529,6 +529,23 @@ class RequestTests(unittest.TestCase):
             with self.assertRaisesRegex(ValidationError, 'no pueden ser futuros'):
                 self.completion(finish_now=True, repair_started_at='2026-01-01T11:00')
 
+    def test_future_delivery_diagnostic_identifies_field_and_clocks(self):
+        now = datetime(2026, 1, 1, 10)
+        with patch.object(mod, 'local_now', return_value=now):
+            for field in ('repair_started_at', 'repair_finished_at', 'stopped_at', 'restored_at'):
+                with self.subTest(field=field):
+                    with self.assertRaises(ValidationError) as caught:
+                        self.completion(**{field: '2026-01-01T11:00'})
+                    message = str(caught.exception)
+                    self.assertIn(field, message)
+                    self.assertIn('2026-01-01 11:00:00', message)
+                    self.assertIn('2026-01-01 10:00:00', message)
+                    self.assertIn('calculada por: formulario', message)
+            with self.assertRaises(ValidationError) as caught:
+                self.completion(finish_now=True, stopped_at='2026-01-01T11:00')
+            self.assertIn('stopped_at', str(caught.exception))
+            self.assertIn('calculada por: servidor', str(caught.exception))
+
     def test_automatic_delivery_persists_server_time(self):
         self.cursor.execute.return_value.fetchone.side_effect = [self.locked('EN_PROCESO'), (42,)]
         now = datetime(2026, 1, 1, 10, 12, 45)

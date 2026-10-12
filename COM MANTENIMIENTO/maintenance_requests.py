@@ -177,11 +177,24 @@ class CompleteWrite(StrictModel):
             raise ValueError('Revisa las lecturas finales de las máquinas')
         for field in ('cause', 'recommendations', 'delivery_conditions'):
             setattr(self, field, getattr(self, field) or None)
-        for value in (self.repair_started_at, self.repair_finished_at, self.stopped_at, self.restored_at):
+        now = local_now()
+        time_fields = {
+            'repair_started_at': 'Inicio de reparación',
+            'repair_finished_at': 'Fin de reparación',
+            'stopped_at': 'Inicio de parada',
+            'restored_at': 'Retorno a servicio',
+        }
+        for field, label in time_fields.items():
+            value = getattr(self, field)
             if value and value.tzinfo is not None:
                 raise ValueError('Usa fechas locales de Ecuador sin zona horaria')
-            if value and value > local_now():
-                raise ValueError('Los tiempos reales no pueden ser futuros')
+            if value and value > now:
+                source = 'servidor' if self.finish_now else 'formulario'
+                raise ValueError(
+                    f'Los tiempos reales no pueden ser futuros. {label} ({field}): '
+                    f'{value.isoformat(sep=" ")}; hora del servidor (Ecuador UTC-5): '
+                    f'{now.isoformat(sep=" ")}. Hora de entrega calculada por: {source}.'
+                )
         if self.repair_finished_at <= self.repair_started_at:
             raise ValueError('El fin de reparacion debe ser posterior al inicio')
         if (self.stopped_at is None) != (self.restored_at is None):
