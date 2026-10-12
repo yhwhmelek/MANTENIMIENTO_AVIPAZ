@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pyodbc
 from fastapi import FastAPI, HTTPException
+import asyncio
+from types import SimpleNamespace
 from pydantic import ValidationError
 import maintenance_requests as mod
 
@@ -279,21 +281,24 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(args[3], datetime(2026, 1, 1, 8))
         self.assertIn('recorded_at', json.loads(args[4]))
 
-    def test_historical_work_start_preserved(self):
+    def test_start_ignores_legacy_browser_clock(self):
         self.cursor.execute.return_value.fetchone.return_value = self.locked('PENDIENTE')
-        self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(
-            estimated_repair_minutes=60, started_at='2026-01-01T09:00'), usuario_id=2)
-        self.assertEqual(self.cursor.execute.call_args.args[2], datetime(2026, 1, 1, 9))
+        now = datetime(2026, 1, 1, 10)
+        with patch.object(mod, 'local_now', return_value=now):
+            self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(
+                estimated_repair_minutes=60, started_at='2099-01-01T09:00'), usuario_id=2)
+        self.assertEqual(self.cursor.execute.call_args.args[2], now)
 
     def test_work_cannot_start_before_request(self):
         self.cursor.execute.return_value.fetchone.return_value = self.locked('PENDIENTE')
-        with self.assertRaises(HTTPException) as error:
-            self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(
-                estimated_repair_minutes=60, started_at='2026-01-01T07:00'), usuario_id=2)
+        with patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 7)):
+            with self.assertRaises(HTTPException) as error:
+                self.endpoint('/{request_id}/atender')(5, mod.StartWorkWrite(estimated_repair_minutes=60), usuario_id=2)
         self.assertEqual(error.exception.status_code, 422)
         self.connection.commit.assert_not_called()
 
-    def test_completion_date_is_actual_finish(self):
+    @patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 10))
+    def test_completion_date_is_actual_finish(self, clock):
         self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
         self.endpoint('/{request_id}/completar')(5, self.completion(parts=[]), usuario_id=2)
         self.assertEqual(self.cursor.execute.call_args.args[1], datetime(2026, 1, 1, 10))
@@ -323,13 +328,15 @@ class RequestTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             mod.AdminFlowUpdate(requested_at='2026-01-01T09:00',started_at='2026-01-01T08:00')
 
-    def test_historical_receipt_preserved_and_validated(self):
+    def test_receipt_uses_server_time_and_validates_chronology(self):
         self.cursor.execute.return_value.fetchone.return_value = self.locked('POR_RECIBIR')
-        with self.assertRaises(HTTPException) as error:
-            self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(received_at='2026-01-01T09:59'), usuario_id=1)
+        with patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 9, 59)):
+            with self.assertRaises(HTTPException) as error:
+                self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(), usuario_id=1)
         self.assertEqual(error.exception.status_code, 422)
         self.connection.commit.assert_not_called()
-        self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(received_at='2026-01-01T10:30'), usuario_id=1)
+        with patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 10, 30)):
+            self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(received_at='2099-01-01T10:30'), usuario_id=1)
         self.assertEqual(self.cursor.execute.call_args.args[1], datetime(2026, 1, 1, 10, 30))
 
     def test_admin_review_is_recorded_before_new_flow_receipt(self):
@@ -343,10 +350,8 @@ class RequestTests(unittest.TestCase):
 
     def test_historical_dates_reject_future_and_zoned_values(self):
         for value in ((mod.local_now() + timedelta(days=1)).isoformat(), '2026-01-01T09:00Z'):
-            with self.assertRaises(ValidationError):
-                mod.StartWorkWrite(estimated_repair_minutes=60, started_at=value)
-            with self.assertRaises(ValidationError):
-                mod.ReceiptWrite(received_at=value)
+            self.assertLessEqual(mod.StartWorkWrite(estimated_repair_minutes=60, started_at=value).started_at, mod.local_now())
+            self.assertLessEqual(mod.ReceiptWrite(received_at=value).received_at, mod.local_now())
             with self.assertRaises(ValidationError):
                 mod.RequestWrite(machine_id=3, description='Historico', maintenance_type='CORRECTIVO', requested_at=value)
 
@@ -425,13 +430,63 @@ class RequestTests(unittest.TestCase):
 
     def test_completion_cannot_change_recorded_start(self):
         self.original['estimated_repair_minutes'] = 60
+        self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
+        self.endpoint('/{request_id}/completar')(5,self.completion(repair_started_at='2026-01-01T09:15',parts=[]),usuario_id=2)
+        execution = json.loads(self.cursor.execute.call_args.args[2])
+        self.assertEqual(execution['repair_started_at'], '2026-01-01T09:00:00')
+
+    def post_action(self, payload):
+        async def run():
+            messages = []
+            async def receive():
+                return {'type': 'http.request', 'body': json.dumps(payload).encode(), 'more_body': False}
+            async def send(message):
+                messages.append(message)
+            await self.app({'type': 'http', 'asgi': {'version': '3.0'}, 'http_version': '1.1',
+                            'method': 'POST', 'scheme': 'http', 'path': '/solicitudes-mantenimiento/57/completar',
+                            'raw_path': b'/solicitudes-mantenimiento/57/completar', 'query_string': b'',
+                            'headers': [(b'content-type', b'application/json')],
+                            'server': ('test', 80), 'client': ('127.0.0.1', 1234), 'root_path': ''}, receive, send)
+            status = next(m['status'] for m in messages if m['type'] == 'http.response.start')
+            text = b''.join(m.get('body', b'') for m in messages if m['type'] == 'http.response.body').decode()
+            return SimpleNamespace(status_code=status, text=text, json=lambda: json.loads(text))
+        return asyncio.run(run())
+
+    def test_http_legacy_delivery_ignores_all_browser_dates(self):
+        self.app.dependency_overrides[self.active] = lambda: 2
+        self.original['stopped_at'] = '2026-01-01T08:20:35'
+        now = datetime(2026, 1, 1, 10, 30)
+        for supplied in (False, True):
+            with self.subTest(supplied=supplied):
+                self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
+                payload = {'work_done': 'Motor reparado', 'hour_meter': '101', 'parts': []}
+                if supplied:
+                    payload.update(finish_now=False, repair_started_at='2099-01-01T12:00:00Z',
+                                   repair_finished_at='2099-01-01T12:00:05Z',
+                                   stopped_at='2099-01-01T11:00:00Z', restored_at='2099-01-01T12:00:05Z')
+                with patch.object(mod, 'local_now', return_value=now):
+                    response = self.post_action(payload)
+                self.assertEqual(response.status_code, 200, response.text)
+                saved = json.loads(self.cursor.execute.call_args.args[2])
+                self.assertEqual(saved['repair_started_at'], '2026-01-01T09:00:00')
+                self.assertEqual(saved['stopped_at'], self.original['stopped_at'])
+                self.assertEqual(saved['repair_finished_at'], now.isoformat())
+                self.assertEqual(saved['restored_at'], now.isoformat())
+
+    def test_http_delivery_keeps_validating_work_and_stored_dates(self):
+        self.app.dependency_overrides[self.active] = lambda: 2
+        response = self.post_action({'work_done': ' '})
+        self.assertEqual(response.status_code, 422)
+        self.connection.commit.assert_not_called()
         self.cursor.execute.return_value.fetchone.return_value = self.locked()
-        with self.assertRaises(HTTPException) as error:
-            self.endpoint('/{request_id}/completar')(5,self.completion(repair_started_at='2026-01-01T09:15',parts=[]),usuario_id=2)
-        self.assertEqual(error.exception.status_code,422)
+        with patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 8, 59)):
+            response = self.post_action({'work_done': 'Reparado', 'hour_meter': '101'})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn('Inicio de reparación', response.json()['detail'])
         self.connection.commit.assert_not_called()
 
-    def test_completion_uses_exact_server_start_for_duration(self):
+    @patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 10))
+    def test_completion_uses_exact_server_start_for_duration(self, clock):
         self.original['estimated_repair_minutes'] = 60
         locked = (1,2,'EN_PROCESO',json.dumps(self.original),datetime(2026,1,1,9,0,30))
         self.cursor.execute.return_value.fetchone.side_effect = [locked,(33,)]
@@ -461,7 +516,8 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(error.exception.status_code,409)
         self.assertEqual(sum('INSERT INTO dbo.MaintenancePartsUsed' in c.args[0] for c in self.cursor.execute.call_args_list),1)
 
-    def test_insufficient_stock_and_cutoff_roll_back(self):
+    @patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 10))
+    def test_insufficient_stock_and_cutoff_roll_back(self, clock):
         for stock,cutoff,code in [(Decimal(0),None,409),(Decimal(3),datetime(2026,1,1).date(),422)]:
             self.cursor.execute.return_value.fetchone.return_value = self.locked()
             with patch.object(mod,'part_stock',return_value=(('MALLA','Malla','u'),stock,cutoff)), self.assertRaises(HTTPException) as error:
@@ -584,7 +640,8 @@ class RequestTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.completion(recommendations='x' * 1001)
 
-    def test_completion_without_optional_fields_still_consumes_parts(self):
+    @patch.object(mod, 'local_now', return_value=datetime(2026, 1, 1, 10))
+    def test_completion_without_optional_fields_still_consumes_parts(self, clock):
         self.cursor.execute.return_value.fetchone.side_effect = [self.locked(), (33,)]
         with patch.object(mod, 'part_stock', return_value=(('MALLA','Malla','u'), Decimal(2), None)):
             self.endpoint('/{request_id}/completar')(5, self.completion(cause='Ajuste requerido', recommendations='', delivery_conditions=None), usuario_id=2)
@@ -638,11 +695,11 @@ class RequestTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             mod.RequestWrite(preevaluation={'n':2,'i':2,'c':2},machine_id=3,description='Cambio',maintenance_type='CORRECTIVO',equipment_stopped=True,urgency=4,impact=3,risk=2)
         self.original['stopped_at']='2026-01-01T08:00:00'
-        self.cursor.execute.return_value.fetchone.return_value=self.locked()
-        with self.assertRaises(HTTPException) as error:
-            self.endpoint('/{request_id}/completar')(5,self.completion(),usuario_id=2)
-        self.assertEqual(error.exception.status_code,422)
-        self.connection.commit.assert_not_called()
+        self.cursor.execute.return_value.fetchone.side_effect=[self.locked(), (33,)]
+        self.endpoint('/{request_id}/completar')(5,self.completion(parts=[]),usuario_id=2)
+        saved = json.loads(self.cursor.execute.call_args.args[2])
+        self.assertEqual(saved['stopped_at'], self.original['stopped_at'])
+        self.assertEqual(saved['restored_at'], saved['repair_finished_at'])
 
 
 if __name__=='__main__':

@@ -181,7 +181,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   }
   function startWork(){
     if(!row||row.status!=='PENDIENTE'||!canExecute(row)||executionBlock)return
-    mutate(`/${row.id}/atender`,row.request_data.preventive?{}:{started_at:localInput()})
+    mutate(`/${row.id}/atender`,{})
   }
   async function deleteRequest(){
     if(currentUser.rol!=='ADMIN'||submitting.current||!window.confirm(`?Eliminar definitivamente la solicitud #${selected}, su intervenci?n, todos sus consumos y confirmaciones? Se recalcular? el stock. Esta acci?n no se puede deshacer.`))return
@@ -237,6 +237,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       payload.parts=payload.parts.map(p=>({...p,spare_part_id:Number(p.spare_part_id)}))
       payload.tools=payload.tools.map(t=>({...t,quantity_in:Number(t.quantity_in),quantity_out:Number(t.quantity_out)}))
     }
+    if(mode==='receive')delete payload.received_at
     mutate(mode==='new'?'':`/${selected}/${mode==='complete'?'completar':'recibir'}`,payload)
   }
   function updateLine(kind,index,key,value){setForm(f=>({...f,[kind]:f[kind].map((line,i)=>i===index?{...line,[key]:value}:line)}))}
@@ -319,14 +320,14 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><Text label="Resultado de mejora" name="improvement_result" maxLength={2000} form={form} change={change}/><Text label="Otros materiales utilizados (fuera de inventario)" name="other_materials" maxLength={2000} required={false} form={form} change={change}/></>}
           <p className="full-field">Se copiaron la descripci?n y el repuesto previsto de la solicitud. Ajusta el trabajo, los repuestos y las cantidades seg?n lo realizado; puedes quitar o a?adir repuestos antes de entregar.</p>
           <p className="full-field">Inicio real: {time(form.repair_started_at)}. Al guardar se registrará el momento de finalización.</p>
-          {[['stopped_at','Inicio real de parada'],['restored_at','Retorno real a servicio']].map(([key,label])=><Field key={key} label={label} name={key} type="datetime-local" value={form[key]} onChange={change}/>)}
+          <p className="full-field">El servidor registrará la hora de entrega y, si hubo parada, el retorno a servicio.</p>
           <Field label="Horómetro final (h)" type="number" min="0" step="0.01" name="hour_meter" value={form.hour_meter} onChange={change}/>
           <Field label="Minutos de espera por repuestos" type="number" min="0" step="1" required name="waiting_parts_minutes" value={form.waiting_parts_minutes} onChange={change}/>
           {[['work_done','Trabajo realizado',2000],['cause','Posibles causas',1000],['recommendations','Recomendaciones de operación',1000],['delivery_conditions','Condiciones de entrega',1000]].map(([name,label,max])=><Text key={name} name={name} label={label} maxLength={max} required={name==='work_done'} form={form} change={change}/>)}
           <div className="full-field"><h4>Conciliación de piezas / herramientas</h4>{form.tools.map((t,i)=><div className="request-line" key={i}><label>Descripción<input required maxLength={100} value={t.description} onChange={e=>updateLine('tools',i,'description',e.target.value)}/></label><label>Ingreso<input required type="number" min="0" step="1" value={t.quantity_in} onChange={e=>updateLine('tools',i,'quantity_in',e.target.value)}/></label><label>Salida<input required type="number" min="0" step="1" value={t.quantity_out} onChange={e=>updateLine('tools',i,'quantity_out',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('tools',form.tools.filter((_,j)=>j!==i))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.tools.length>=20} onClick={()=>change('tools',[...form.tools,{description:'',quantity_in:'0',quantity_out:'0'}])}>Añadir pieza / herramienta</button></div>
           <ImageAttachment label="Foto del trabajo realizado (opcional)" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="La imagen se comprimirá y guardará como evidencia de la finalización. JPG, PNG o WEBP; máximo 10 MB."/>
         </>}
-        {mode==='receive'&&<><Field label="Fecha y hora de recepcion" name="received_at" type="datetime-local" required value={form.received_at} onChange={change}/><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
+        {mode==='receive'&&<><p className="full-field">El servidor registrará la hora de recepción al confirmar.</p><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
       </div>{formError&&<p className="form-message" role="alert" style={{whiteSpace:'pre-line'}}>{formError}</p>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='edit'?'Guardar datos de la mejora':mode==='admin_flow'?'Guardar fechas corregidas':mode==='complete'?(isTechnician?'Entregar trabajo':'Entregar trabajo y consumir repuestos'):mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}
       </>}
     </section>

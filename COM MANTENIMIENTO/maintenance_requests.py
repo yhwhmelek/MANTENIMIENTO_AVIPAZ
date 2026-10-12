@@ -16,7 +16,7 @@ import pyodbc
 from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse
 from image_storage import image_directory, stored_image
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator, ValidationError
 from parts_history import records
 from request_priority import NIC, decorate, backlog_key, register_priority, require_planned, ASSIGNMENT_GROUPS
 from operator_permissions import operator_request
@@ -209,10 +209,38 @@ class CompleteWrite(StrictModel):
         return self
 
 
+class CompleteActionWrite(CompleteWrite):
+    """HTTP action: old browser timestamps are accepted but never trusted."""
+    repair_started_at: datetime | None = None
+    repair_finished_at: datetime | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def automatic_completion_time(cls, values):
+        if isinstance(values, dict):
+            values = dict(values)
+            for field in ('repair_started_at', 'repair_finished_at', 'stopped_at', 'restored_at'):
+                values[field] = None
+            values['finish_now'] = True
+        return values
+
+    @model_validator(mode='after')
+    def validate_times(self):
+        # Validate chronology after loading the persisted start and stop times.
+        return self
+
+
 class StartWorkWrite(StrictModel):
     # Compatibilidad con clientes anteriores; la estimación oficial viene de la programación.
     estimated_repair_minutes: int | None = Field(default=None, ge=1, le=525600)
     started_at: datetime = Field(default_factory=local_now)
+
+    @model_validator(mode='before')
+    @classmethod
+    def use_server_time(cls, values):
+        if isinstance(values, dict):
+            return {**values, 'started_at': local_now()}
+        return values
 
     @model_validator(mode='after')
     def validate_start(self):
@@ -224,6 +252,13 @@ class StartWorkWrite(StrictModel):
 class ReceiptWrite(StrictModel):
     received_at: datetime = Field(default_factory=local_now)
     notes: str | None = Field(default='Entrega conforme', max_length=1000)
+
+    @model_validator(mode='before')
+    @classmethod
+    def use_server_time(cls, values):
+        if isinstance(values, dict):
+            return {**values, 'received_at': local_now()}
+        return values
 
     @model_validator(mode='after')
     def default_receipt_notes(self):
@@ -701,9 +736,10 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         return write(operation)
 
     @app.post('/solicitudes-mantenimiento/{request_id}/completar')
-    def complete_request(request_id: int, data: CompleteWrite, usuario_id: int = Depends(active_user)):
+    def complete_request(request_id: int, data: CompleteActionWrite, usuario_id: int = Depends(active_user)):
         new_image = [None]
         def operation(cursor):
+            nonlocal data
             row = locked(cursor, request_id)
             if row[2] != 'EN_PROCESO':
                 raise HTTPException(409, 'La solicitud ya fue entregada o no esta en proceso')
@@ -717,15 +753,17 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 raise HTTPException(422, 'Describe el resultado de la mejora tecnica')
             from preventive_maintenance import checklist_complete
             checklist_complete(original)
-            recorded_start = row[4] if original.get('estimated_repair_minutes') is not None else data.repair_started_at
-            if original.get('estimated_repair_minutes') is not None and data.repair_started_at != row[4].replace(second=0, microsecond=0):
-                raise HTTPException(422, 'El inicio de reparación debe coincidir con el registrado al comenzar el trabajo')
-            if data.repair_started_at < row[4].replace(second=0, microsecond=0):
-                raise HTTPException(422, 'El inicio de reparación debe ser posterior a la recepción de la solicitud')
-            if data.repair_finished_at <= recorded_start:
-                raise HTTPException(422, 'El fin de reparación debe ser posterior al inicio registrado')
-            if original.get('stopped_at') and data.stopped_at != datetime.fromisoformat(original['stopped_at']):
-                raise HTTPException(422, 'Conserva el inicio de parada registrado por el solicitante')
+            recorded_start = row[4]
+            if recorded_start is None:
+                raise HTTPException(422, 'La solicitud no tiene un inicio registrado')
+            try:
+                data = CompleteWrite.model_validate({
+                    **data.model_dump(), 'finish_now': True,
+                    'repair_started_at': recorded_start,
+                    'stopped_at': original.get('stopped_at'),
+                })
+            except ValidationError as exc:
+                raise HTTPException(422, '; '.join(error['msg'] for error in exc.errors())) from exc
             if original.get('hour_meter') is not None and (data.hour_meter is None or data.hour_meter < Decimal(original['hour_meter'])):
                 raise HTTPException(422, 'El horometro final debe ser mayor o igual al inicial')
             payload = data.model_dump(mode='json', exclude={'image_data', 'finish_now'})

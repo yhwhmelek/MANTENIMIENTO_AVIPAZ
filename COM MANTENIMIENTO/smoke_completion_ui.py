@@ -98,7 +98,7 @@ async def run():
             assert await evaluate("!document.querySelector('.request-fields').disabled")
             assert await evaluate("document.querySelector('.request-workspace form textarea').value==='Motor reparado'")
             assert await evaluate("window.__payload.finish_now===true && !('repair_finished_at' in window.__payload)")
-            assert await evaluate("window.__payload.stopped_at==='2026-01-01T08:20:35'")
+            assert await evaluate("!window.__payload.stopped_at && !window.__payload.repair_started_at")
             await evaluate('window.__reject=false')
             await click('Entregar trabajo')
             await wait_for("!document.querySelector('.request-workspace form')")
