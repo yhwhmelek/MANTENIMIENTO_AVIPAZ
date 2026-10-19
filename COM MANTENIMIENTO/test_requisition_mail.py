@@ -11,6 +11,19 @@ from purchase_requisitions import NS
 
 
 class MailTests(unittest.TestCase):
+    def test_receipt_invoice_is_sent_with_excel_and_signature(self):
+        from requisition_records import InvoiceWrite
+        invoice = InvoiceWrite(filename='factura.pdf', content_base64=base64.b64encode(b'%PDF-invoice').decode())
+        with patch.dict('os.environ', {'REQUISITION_SMTP_PASSWORD':'test-only'}), patch('requisition_mail.smtplib.SMTP_SSL') as smtp:
+            client = smtp.return_value.__enter__.return_value
+            client.send_message.return_value = {}
+            send_requisition(self.data(), invoice=invoice)
+            files = list(client.send_message.call_args.args[0].iter_attachments())
+        self.assertEqual(len(files), 2)
+        self.assertTrue(files[0].get_filename().endswith('.xlsx'))
+        self.assertEqual(files[1].get_filename(), 'factura.pdf')
+        self.assertEqual(files[1].get_payload(decode=True), b'%PDF-invoice')
+
     def attachment(self, filename='foto.jpg', content=b'foto de prueba'):
         return dict(filename=filename, content_base64=base64.b64encode(content).decode('ascii'))
 

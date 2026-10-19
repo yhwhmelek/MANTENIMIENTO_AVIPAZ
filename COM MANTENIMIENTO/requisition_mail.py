@@ -45,19 +45,11 @@ class MailAttachment(BaseModel):
         return self
 
 
-class RequisitionMail(BaseModel):
-    attachments: list[MailAttachment] = Field(default_factory=list, max_length=10)
-    requisition: RequisitionWrite
+class MailContent(BaseModel):
     to: list[str] = Field(min_length=1, max_length=30)
     cc: list[str] = Field(default_factory=list, max_length=30)
     subject: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=10000)
-
-    @model_validator(mode='after')
-    def attachment_total(self):
-        if sum(len(item.decoded()) for item in self.attachments) > MAX_TOTAL_ATTACHMENT_BYTES:
-            raise ValueError('Los archivos adjuntos no pueden superar 15 MB en total')
-        return self
 
     @field_validator('to', 'cc')
     @classmethod
@@ -80,7 +72,18 @@ class RequisitionMail(BaseModel):
         return value
 
 
-def send_requisition(data, connect=None):
+class RequisitionMail(MailContent):
+    attachments: list[MailAttachment] = Field(default_factory=list, max_length=10)
+    requisition: RequisitionWrite
+
+    @model_validator(mode='after')
+    def attachment_total(self):
+        if sum(len(item.decoded()) for item in self.attachments) > MAX_TOTAL_ATTACHMENT_BYTES:
+            raise ValueError('Los archivos adjuntos no pueden superar 15 MB en total')
+        return self
+
+
+def send_requisition(data, connect=None, invoice=None):
     host = os.getenv('REQUISITION_SMTP_HOST', 'mail.avipaz.ec')
     user = os.getenv('REQUISITION_SMTP_USER', 'mantenimientosamanga@avipaz.ec')
     password = os.getenv('REQUISITION_SMTP_PASSWORD')
@@ -113,6 +116,11 @@ def send_requisition(data, connect=None):
                                subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                filename=f'CO-01-01_Requisicion_{data.requisition.requested_on.isoformat()}.xlsx')
         recipients = list(dict.fromkeys(data.to + data.cc))
+        if invoice is not None:
+            invoice_content, invoice_type = invoice.decoded()
+            maintype, subtype = invoice_type.split('/', 1)
+            message.add_attachment(invoice_content, maintype=maintype, subtype=subtype,
+                                   filename=invoice.filename)
         for attachment in data.attachments:
             mime_type = mimetypes.guess_type(attachment.filename)[0] or 'application/octet-stream'
             maintype, subtype = mime_type.split('/', 1)

@@ -1,6 +1,6 @@
 import unittest
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import base64
 import json
 import pyodbc
@@ -60,6 +60,51 @@ class RecordsTests(unittest.TestCase):
         self.assertEqual(self.cursor.execute.call_count,1)
         self.connection.rollback.assert_called_once()
         self.connection.commit.assert_not_called()
+
+    def confirmation_receipt(self):
+        return ReceiptWrite(**(self.receipt.model_dump() | {
+            'confirmation': {'to': ['compras@example.com'], 'cc': ['bodega@example.com'],
+                             'subject': 'Material recibido', 'body': 'Confirmamos la llegada.'},
+            'invoice': {'filename': 'factura.pdf', 'content_base64': base64.b64encode(b'%PDF-factura').decode()}}))
+
+    def test_confirmation_sends_saved_invoice_only_after_commit(self):
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            (self.requisition.model_dump_json(), None, None), (1,), ('UN',), None, (42,)]
+        def send(mail, connect, invoice):
+            self.connection.commit.assert_called_once()
+            self.assertEqual(invoice.decoded()[0], b'%PDF-factura')
+            self.assertIn('F-1', mail.body)
+            self.assertIn('Rodamiento: 3 UN', mail.body)
+            self.assertEqual(mail.to, ['compras@example.com'])
+            return {'message': 'Confirmación enviada'}
+        with patch('requisition_records.send_requisition', side_effect=send):
+            result = self.endpoint('/requisiciones-compra/{record_id}/recibir')(7,self.confirmation_receipt(),user=2)
+        self.assertEqual(result['status'], 'RECIBIDA')
+        self.assertIn('message', result['confirmation'])
+        self.assertTrue(any('INSERT INTO dbo.PurchaseRequisitionInvoices' in call.args[0] for call in self.cursor.execute.call_args_list))
+
+    def test_mail_failure_does_not_undo_received_inventory(self):
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            (self.requisition.model_dump_json(), None, None), (1,), ('UN',), None, (42,)]
+        with patch('requisition_records.send_requisition', side_effect=HTTPException(503,'SMTP no disponible')):
+            result = self.endpoint('/requisiciones-compra/{record_id}/recibir')(7,self.confirmation_receipt(),user=2)
+        self.assertEqual(result['status'], 'RECIBIDA')
+        self.assertEqual(result['confirmation']['error'], 'SMTP no disponible')
+        self.connection.commit.assert_called_once()
+        self.connection.rollback.assert_not_called()
+
+    def test_duplicate_receipt_does_not_send_confirmation(self):
+        self.cursor.execute.return_value.fetchone.return_value=(self.requisition.model_dump_json(),date.today(),'{}')
+        with patch('requisition_records.send_requisition') as send:
+            with self.assertRaises(HTTPException):
+                self.endpoint('/requisiciones-compra/{record_id}/recibir')(7,self.confirmation_receipt(),user=2)
+            send.assert_not_called()
+
+    def test_invalid_confirmation_address_rejected_before_save(self):
+        data = self.confirmation_receipt().model_dump()
+        data['confirmation']['to'] = ['invalid']
+        with self.assertRaises(ValidationError):
+            ReceiptWrite(**data)
 
     def test_cutoff_rejection_rolls_back(self):
         self.cursor.execute.return_value.fetchone.side_effect = [

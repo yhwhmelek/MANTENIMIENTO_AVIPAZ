@@ -11,6 +11,7 @@ import pyodbc
 from fastapi import Depends, HTTPException, Response
 from pydantic import Field, model_validator
 from purchase_requisitions import TextModel, RequisitionWrite, generate_requisition, machine_locations
+from requisition_mail import MailContent, RequisitionMail, send_requisition
 
 
 class RequisitionEdit(TextModel):
@@ -53,6 +54,7 @@ class InvoiceWrite(TextModel):
 
 
 class ReceiptWrite(TextModel):
+    confirmation: MailContent | None = None
     invoice: InvoiceWrite | None = None
     supplier_id: int = Field(gt=0)
     purchased_on: date
@@ -151,11 +153,14 @@ def register_requisition_records(app, connect, active_user, admin_user):
 
     @app.post('/requisiciones-compra/{record_id}/recibir')
     def receive(record_id: int, data: ReceiptWrite, user: int = Depends(admin_user)):
+        saved_requisition = None
         def operation(cursor):
+            nonlocal saved_requisition
             row = get_record(cursor, record_id, lock=True)
             if row[1] is not None:
                 raise HTTPException(409, 'Esta requisicion ya fue recibida; no se duplicaron las compras')
             requisition = RequisitionWrite.model_validate_json(row[0])
+            saved_requisition = requisition
             if len(data.items) != len(requisition.items):
                 raise HTTPException(422, 'Confirma todos los items de la requisicion')
             if data.purchased_on < requisition.requested_on:
@@ -189,4 +194,21 @@ def register_requisition_records(app, connect, active_user, admin_user):
             cursor.execute('''UPDATE dbo.PurchaseRequisitions SET ReceivedAt=SYSDATETIME(),
                 ReceivedBy=?,Receipt=? WHERE RequisitionId=?''', user, json.dumps(receipt), record_id)
             return {'id': record_id, 'status': 'RECIBIDA', 'purchase_ids': purchases}
-        return transact(operation)
+        result = transact(operation)
+        if data.confirmation:
+            # SMTP happens only after the receipt, invoice and inventory commit.
+            summary = (f'\n\nRecepción de requisición #{record_id}\n'
+                       f'Fecha: {data.purchased_on} · Documento: {data.document_number}\n')
+            summary += '\n'.join(
+                f'{saved_requisition.items[index].description}: {item.quantity} '
+                f'{saved_requisition.items[index].unit} × {item.unit_cost} {data.currency}'
+                for index, item in enumerate(data.items))
+            try:
+                mail = RequisitionMail(requisition=saved_requisition, **data.confirmation.model_dump())
+                mail.body += summary
+                result['confirmation'] = send_requisition(mail, connect, invoice=data.invoice)
+            except HTTPException as exc:
+                result['confirmation'] = {'error': str(exc.detail)}
+            except Exception:
+                result['confirmation'] = {'error': 'No se pudo confirmar el envío del correo. Verifica con los destinatarios antes de reenviar.'}
+        return result
