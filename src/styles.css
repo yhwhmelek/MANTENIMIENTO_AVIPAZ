@@ -193,6 +193,15 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
   .request-print .excel-continuation { font: 8pt Arial, sans-serif; margin: 4px 0; }
 }
 .priority-badge { display: inline-block; border-radius: 5px; padding: 5px 9px; font-weight: 700; border: 1px solid currentColor; }
+.priority-criteria { margin: 0 0 24px; border: 1px solid #cad1cd; border-radius: 8px; background: #fff; }
+.priority-criteria > summary { padding: 16px; cursor: pointer; font-weight: 700; color: #214c3f; }
+.priority-criteria > summary:focus-visible { outline: 2px solid #214c3f; outline-offset: 2px; }
+.priority-criteria-content { padding: 0 16px 16px; }
+.priority-criteria-content h2 { font-size: 20px; }
+.priority-criteria-content p { line-height: 1.6; }
+.priority-criteria-content table { width: 100%; }
+.priority-criteria-content th, .priority-criteria-content td { white-space: normal; vertical-align: top; min-width: 70px; }
+.priority-criteria-content caption { text-align: left; padding: 8px 0; color: #68736d; }
 .priority-CRITICO { background: #fee2e2; color: #991b1b; }
 .priority-ALTO { background: #ffedd5; color: #9a3412; }
 .priority-MEDIO { background: #fef9c3; color: #713f12; }

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from fastapi import FastAPI, HTTPException
 from pydantic import ValidationError
 from maintenance_requests import RequestWrite, CompleteWrite, StartWorkWrite, register_maintenance_requests
-from request_priority import NIC, priority, backlog_key, ValidationWrite, PlanningWrite
+from request_priority import NIC, priority, decorate, backlog_key, ValidationWrite, PlanningWrite
 
 
 class PriorityTests(unittest.TestCase):
@@ -72,6 +72,19 @@ class PriorityTests(unittest.TestCase):
                 self.assertEqual(result['score'],case['n']*case['i']*case['c'])
         for factors,level in [((3,4,2),'ALTO'),((4,1,4),'ALTO'),((2,1,1),'BAJO'),((2,2,1),'BAJO'),((4,3,2),'ALTO'),((3,1,4),'ALTO')]:
             self.assertEqual(priority(dict(zip(('n','i','c'),factors)))['level'],level)
+
+    def test_same_official_matrix_for_maintenance_and_improvements(self):
+        for n in range(1, 5):
+            for i in range(1, 5):
+                for c in range(1, 5):
+                    factors = dict(n=n, i=i, c=c)
+                    results = []
+                    for kind in ('CORRECTIVO', 'PREVENTIVO', 'MEJORA_TECNICA'):
+                        row = {'request_data': {'maintenance_type': kind,
+                            'priority_validation': {'factors': factors}}}
+                        results.append(decorate(row)['priority'])
+                    self.assertEqual(results[0], results[1])
+                    self.assertEqual(results[0], results[2])
 
     def test_invalid_factors_and_forged_official_fields_rejected(self):
         for value in [0,5,True,1.5]:
