@@ -4,6 +4,7 @@ from contextlib import closing
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from typing import Literal
 import math
 import re
 import zipfile
@@ -24,11 +25,18 @@ class TextModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
 
 class RequisitionItem(TextModel):
+    item_type: Literal['MATERIAL', 'SERVICIO'] = 'MATERIAL'
     spare_part_id: int | None = Field(default=None, gt=0)
     description: str = Field(min_length=1, max_length=160)
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     unit: str = Field(min_length=1, max_length=20)
     specifications: str = Field(default='', max_length=500)
+
+    @model_validator(mode='after')
+    def service_without_stock(self):
+        if self.item_type == 'SERVICIO' and self.spare_part_id is not None:
+            raise ValueError('Un servicio no debe vincularse a un repuesto')
+        return self
 
 class RequisitionWrite(TextModel):
     department: str = Field(min_length=1, max_length=80)

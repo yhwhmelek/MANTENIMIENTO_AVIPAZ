@@ -6,6 +6,7 @@ import json
 import base64
 import binascii
 from urllib.parse import quote
+from typing import Literal
 
 import pyodbc
 from fastapi import Depends, HTTPException, Response
@@ -20,9 +21,18 @@ class RequisitionEdit(TextModel):
 
 
 class ReceivedItem(TextModel):
-    spare_part_id: int = Field(gt=0)
+    item_type: Literal['MATERIAL', 'SERVICIO'] = 'MATERIAL'
+    spare_part_id: int | None = Field(default=None, gt=0)
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     unit_cost: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
+
+    @model_validator(mode='after')
+    def stock_reference(self):
+        if self.item_type == 'MATERIAL' and self.spare_part_id is None:
+            raise ValueError('Selecciona un repuesto para el material o clasifica el item como servicio')
+        if self.item_type == 'SERVICIO' and self.spare_part_id is not None:
+            raise ValueError('Un servicio no debe vincularse a un repuesto')
+        return self
 
 
 class InvoiceWrite(TextModel):
@@ -169,6 +179,11 @@ def register_requisition_records(app, connect, active_user, admin_user):
                 raise HTTPException(422, 'Selecciona un proveedor activo')
             purchases = []
             for index, item in enumerate(data.items):
+                if requisition.items[index].item_type == 'SERVICIO' and item.item_type != 'SERVICIO':
+                    raise HTTPException(422, f'Item {index+1}: el servicio no ingresa al inventario')
+                if item.item_type == 'SERVICIO':
+                    purchases.append(None)
+                    continue
                 part = cursor.execute('SELECT UnitOfMeasure FROM dbo.SpareParts WITH (HOLDLOCK) WHERE SparePartId=? AND Active=1', item.spare_part_id).fetchone()
                 if not part:
                     raise HTTPException(422, f'Item {index+1}: selecciona un repuesto activo; registra primero los productos nuevos en Inventario')

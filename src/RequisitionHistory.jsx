@@ -40,7 +40,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     setMail({to:'',cc:'',subject:`Confirmación de recepción · Requisición #${row.id}`,body:'Estimados,\n\nConfirmamos la recepción del material de la requisición indicada. Se incluyen los datos de la compra y la factura, si fue adjuntada.\n\nSaludos cordiales,'})
     setSelected(row);setError('');setInvoice(null)
     const d=new Date(),today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-    setReceipt({supplier_id:catalog.suppliers.find(s=>s.name===row.requisition.supplier)?.supplier_id||'',purchased_on:today,document_number:'',currency:'USD',items:row.requisition.items.map(i=>({spare_part_id:i.spare_part_id||'',quantity:i.quantity,unit_cost:''}))})
+    setReceipt({supplier_id:catalog.suppliers.find(s=>s.name===row.requisition.supplier)?.supplier_id||'',purchased_on:today,document_number:'',currency:'USD',items:row.requisition.items.map(i=>({item_type:i.item_type||'MATERIAL',spare_part_id:i.spare_part_id||'',quantity:i.quantity,unit_cost:''}))})
   }
   async function excel(row){
     setBusy(true);setError('')
@@ -68,11 +68,11 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         attachment={filename,content_base64:dataUrl.split(',')[1]}
       }
       setUploadStage(sendEmail?'Guardando recepción y enviando confirmación…':'Guardando recepción…')
-      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,invoice:attachment,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc)}:null})})
+      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,items:receipt.items.map(item=>({...item,spare_part_id:item.item_type==='SERVICIO'?null:item.spare_part_id})),invoice:attachment,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc)}:null})})
       const data=await r.json();if(!r.ok)throw new Error(requestValidationError(data))
       setSelected(null);setRefresh(v=>v+1)
       setShowMail(false)
-      setMessage(`Recepción #${selected.id} guardada e inventario actualizado.${data.confirmation?.error?' El correo no pudo confirmarse: '+data.confirmation.error:data.confirmation?' '+data.confirmation.message:''}`)
+      setMessage(`Recepción #${selected.id} guardada. Los materiales ingresan al inventario; los servicios quedan registrados sin movimiento de stock.${data.confirmation?.error?' El correo no pudo confirmarse: '+data.confirmation.error:data.confirmation?' '+data.confirmation.message:''}`)
       window.dispatchEvent(new Event('requisitions-updated'));window.dispatchEvent(new Event('stock-updated'))
     }catch(e){setError(e.message)}finally{submitting.current=false;setBusy(false);setUploadStage('')}
   }
@@ -95,7 +95,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     {selected&&<section className="request-detail"><h3>Requisición #{selected.id}</h3><p>{selected.requisition.department} · {selected.requisition.requester} · Entrega: {selected.requisition.urgent?'Urgente':selected.requisition.delivery_on}</p><p>Máquinas: {selected.requisition.machine_codes||'No aplica'}</p><p>{selected.requisition.observations}</p>
       {selected.requisition.items.map((item,i)=><p key={i}><strong>{i+1}. {item.description}</strong> · {item.quantity} {item.unit}<br/>{item.specifications}</p>)}
       {selected.receipt?.invoice&&<button type="button" disabled={busy} onClick={downloadInvoice}>Descargar factura: {selected.receipt.invoice.filename}</button>}
-      {selected.receipt&&<><h3>Compra registrada</h3><p>Documento: {selected.receipt.document_number} · Fecha: {selected.receipt.purchased_on} · Administrador: {selected.received_by}</p>{selected.receipt.items.map((item,i)=><p key={i}>{(selected.receipt.requisition_at_receipt||selected.requisition).items[i]?.description||'Item recibido'}: {item.quantity} × {item.unit_cost} {selected.receipt.currency} · Compra #{selected.receipt.purchase_ids[i]}</p>)}</>}
+      {selected.receipt&&<><h3>Compra registrada</h3><p>Documento: {selected.receipt.document_number} · Fecha: {selected.receipt.purchased_on} · Administrador: {selected.received_by}</p>{selected.receipt.items.map((item,i)=><p key={i}>{(selected.receipt.requisition_at_receipt||selected.requisition).items[i]?.description||'Item recibido'}: {item.quantity} × {item.unit_cost} {selected.receipt.currency} · {selected.receipt.purchase_ids[i]?`Compra #${selected.receipt.purchase_ids[i]}`:'Servicio / actividad sin inventario'}</p>)}</>}
       {isAdmin&&selected.status==='PENDIENTE'&&<form onSubmit={receive}><fieldset disabled={busy} className="request-fields"><h3>Confirmar llegada y registrar compra</h3><p>Indica las cantidades efectivamente recibidas y el precio unitario. Esta confirmación cierra la requisición. Para productos nuevos, crea primero el repuesto en Inventario. Los servicios no se ingresan como existencias.</p><div className="motor-form-grid">
         <label>Proveedor *<select required value={receipt.supplier_id} onChange={e=>change('supplier_id',e.target.value)}><option value="">Selecciona</option>{catalog.suppliers.map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.name}</option>)}</select></label>
         <label>Fecha de recepción *<input required type="date" min={selected.requisition.requested_on} value={receipt.purchased_on} onChange={e=>change('purchased_on',e.target.value)}/></label>
@@ -103,7 +103,8 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         <ImageAttachment label="Adjuntar factura (opcional: PDF o foto, máximo 10 MB)" key={selected.id} accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={e=>{setInvoice(e.target.files?.[0]||null);setError('')}} help="" />
         <label>Moneda *<input required pattern="[A-Z]{3}" maxLength={3} value={receipt.currency} onChange={e=>change('currency',e.target.value.toUpperCase())}/></label>
       </div>{receipt.items.map((item,i)=><div className="request-detail" key={i}><strong>{selected.requisition.items[i].description} · Unidad: {selected.requisition.items[i].unit}</strong><div className="motor-form-grid">
-        <label>Repuesto de inventario *<select required value={item.spare_part_id} onChange={e=>itemChange(i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{catalog.parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description} ({p.unit_of_measure})</option>)}</select></label>
+        <label>Tipo de recepcion<select value={item.item_type||'MATERIAL'} disabled={selected.requisition.items[i].item_type==='SERVICIO'} onChange={e=>setReceipt(r=>({...r,items:r.items.map((row,n)=>n===i?{...row,item_type:e.target.value,spare_part_id:''}:row)}))}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option></select></label>
+        {item.item_type!=='SERVICIO'&&<label>Repuesto de inventario *<select required value={item.spare_part_id} onChange={e=>itemChange(i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{catalog.parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description} ({p.unit_of_measure})</option>)}</select></label>}
         <label>Cantidad recibida *<input required type="number" min="0.01" max="99999999.99" step="0.01" value={item.quantity} onChange={e=>itemChange(i,'quantity',e.target.value)}/></label>
         <label>Precio unitario *<input required type="number" min="0" step="0.0001" value={item.unit_cost} onChange={e=>itemChange(i,'unit_cost',e.target.value)}/></label>
       </div></div>)}
@@ -115,7 +116,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         <p>Firma del correo:</p><img src={signatureImage} alt="Firma de Mantenimiento AVIPAZ" style={{width:800,maxWidth:'100%',height:'auto'}}/>
       </section>}
       <div className="modal-actions"><button className="primary-action" type="submit" value="save">{busy?'Procesando…':'Aceptar'}</button>{showMail?<><button className="primary-action" type="submit" value="email">Aceptar y enviar correo de confirmación</button><button type="button" className="secondary-action" onClick={()=>setShowMail(false)}>Ocultar correo</button></>:<button type="button" className="secondary-action" onClick={()=>setShowMail(true)}>Aceptar y enviar correo…</button>}</div>
-      <p>Ambas opciones guardan la compra, la factura adjunta y actualizan el inventario.</p></fieldset></form>}
+      <p>Ambas opciones guardan la recepcion y la factura adjunta. Solo los materiales actualizan el inventario; los servicios registran su cantidad y costo sin exigir repuesto.</p></fieldset></form>}
       <button type="button" disabled={busy} onClick={()=>setSelected(null)}>Cerrar detalle</button>
     </section>}
   </section>

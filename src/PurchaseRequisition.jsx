@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import RequisitionHistory from './RequisitionHistory'
 import signatureImage from './firma_correo.jpg'
 
-const newItem = () => ({ description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
+const newItem = () => ({ item_type:'MATERIAL',description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
 const fileBase64 = file => new Promise((resolve,reject)=>{
   const reader=new FileReader()
   reader.onload=()=>resolve({filename:file.name,content_base64:reader.result.split(',')[1]})
@@ -133,7 +133,8 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     </div>
     <h2>Productos, bienes o servicios</h2>
     {form.items.map((item,index)=><section className="request-detail" key={index}><div className="request-toolbar"><strong>Ítem {index+1}</strong><button type="button" className="secondary-action" disabled={form.items.length===1} onClick={()=>change('items',form.items.filter((_,i)=>i!==index))}>Quitar ítem</button></div><div className="motor-form-grid">
-      <label className="full-field">Completar desde Inventario (opcional)<select value="" onChange={e=>usePart(index,e.target.value)}><option value="">Selecciona un repuesto o escribe sus datos abajo</option>{catalog.parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>
+      <label>Tipo de pedido<select value={item.item_type||'MATERIAL'} onChange={e=>setForm(f=>({...f,items:f.items.map((row,i)=>i===index?{...row,item_type:e.target.value,spare_part_id:null,unit:e.target.value==='SERVICIO'?'SERVICIO':'UNIDAD'}:row)}))}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option></select></label>
+      {item.item_type!=='SERVICIO'&&<label className="full-field">Completar desde Inventario (opcional)<select value="" onChange={e=>usePart(index,e.target.value)}><option value="">Selecciona un repuesto o escribe sus datos abajo</option>{catalog.parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>}
       <label>Producto / bien o servicio *<textarea rows={2} required maxLength={160} value={item.description} onChange={e=>itemChange(index,'description',e.target.value)}/></label>
       <label>Cantidad *<input required type="number" min="0.01" max="99999999.99" step="0.01" value={item.quantity} onChange={e=>itemChange(index,'quantity',e.target.value)}/></label>
       <label>Unidad *<input required maxLength={20} value={item.unit} onChange={e=>itemChange(index,'unit',e.target.value)}/></label>

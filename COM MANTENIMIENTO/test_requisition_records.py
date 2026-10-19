@@ -61,6 +61,47 @@ class RecordsTests(unittest.TestCase):
         self.connection.rollback.assert_called_once()
         self.connection.commit.assert_not_called()
 
+    def test_service_receipt_records_cost_without_inventory(self):
+        self.requisition.items[0].item_type = 'SERVICIO'
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            (self.requisition.model_dump_json(), None, None), (1,)]
+        data = self.receipt.model_dump()
+        data['items'] = [dict(item_type='SERVICIO', quantity=1, unit_cost='120.50')]
+        result = self.endpoint('/requisiciones-compra/{record_id}/recibir')(7,ReceiptWrite(**data),user=2)
+        self.assertEqual(result['purchase_ids'], [None])
+        sql = ' '.join(call.args[0] for call in self.cursor.execute.call_args_list)
+        self.assertNotIn('dbo.SpareParts', sql)
+        self.assertNotIn('dbo.SparePartPurchases', sql)
+        saved = json.loads(self.cursor.execute.call_args.args[2])
+        self.assertEqual(saved['items'][0]['unit_cost'], '120.50')
+        self.assertEqual(saved['items'][0]['item_type'], 'SERVICIO')
+        self.connection.commit.assert_called_once()
+
+    def test_mixed_receipt_keeps_item_purchase_alignment(self):
+        self.requisition.items.append(self.requisition.items[0].model_copy(update={'item_type':'SERVICIO', 'description':'Instalación'}))
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            (self.requisition.model_dump_json(), None, None), (1,), ('UN',), None, (42,)]
+        data = self.receipt.model_dump()
+        data['items'].append(dict(item_type='SERVICIO', quantity=1, unit_cost=20))
+        result = self.endpoint('/requisiciones-compra/{record_id}/recibir')(7,ReceiptWrite(**data),user=2)
+        self.assertEqual(result['purchase_ids'], [42, None])
+        self.assertEqual(sum('INSERT INTO dbo.SparePartPurchases' in call.args[0] for call in self.cursor.execute.call_args_list), 1)
+
+    def test_service_cannot_reference_part_and_material_requires_one(self):
+        data = self.receipt.model_dump()
+        for item in [dict(item_type='SERVICIO', spare_part_id=3, quantity=1, unit_cost=1),
+                     dict(item_type='MATERIAL', quantity=1, unit_cost=1)]:
+            with self.assertRaises(ValidationError):
+                ReceiptWrite(**(data | {'items':[item]}))
+
+    def test_old_request_can_explicitly_receive_as_service(self):
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            (self.requisition.model_dump_json(), None, None), (1,)]
+        data = self.receipt.model_dump()
+        data['items'] = [dict(item_type='SERVICIO', quantity=1, unit_cost=20)]
+        result = self.endpoint('/requisiciones-compra/{record_id}/recibir')(7,ReceiptWrite(**data),user=2)
+        self.assertEqual(result['purchase_ids'], [None])
+
     def confirmation_receipt(self):
         return ReceiptWrite(**(self.receipt.model_dump() | {
             'confirmation': {'to': ['compras@example.com'], 'cc': ['bodega@example.com'],
