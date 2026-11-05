@@ -4,6 +4,10 @@ import {useEffect, useRef, useState} from 'react'
 import signatureImage from './firma_correo.jpg'
 import { requestValidationError } from './requestValidationError'
 
+const DEFAULT_MAIL_TO = 'adquisiciones@avipaz.ec'
+const DEFAULT_MAIL_CC = 'compras@avipaz.ec, mantenimientosamanga@avipaz.ec'
+const fileBase64 = file => new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({filename:file.name,content_base64:reader.result.split(',')[1]});reader.onerror=()=>reject(new Error(`No se pudo leer ${file.name}.`));reader.readAsDataURL(file)})
+
 export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revision,onEdit,editingBusy}){
   const [rows,setRows]=useState([]),[selected,setSelected]=useState(null),[receipt,setReceipt]=useState(null)
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[refresh,setRefresh]=useState(0)
@@ -12,18 +16,25 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
   const submitting=useRef(false)
   const [showMail,setShowMail]=useState(false),[message,setMessage]=useState('')
   const [mail,setMail]=useState({to:'',cc:'',subject:'',body:''})
+  const [showRequisitionMail,setShowRequisitionMail]=useState(false)
+  const [requisitionMail,setRequisitionMail]=useState({to:DEFAULT_MAIL_TO,cc:DEFAULT_MAIL_CC,subject:'',body:''})
+  const [requisitionAttachments,setRequisitionAttachments]=useState([])
   const [contacts,setContacts]=useState([]),[contactsError,setContactsError]=useState('')
   useEffect(()=>{
-    if(!showMail)return
+    if(!showMail&&!showRequisitionMail)return
     const controller=new AbortController()
     fetch(`${apiUrl}/contactos-correo`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
       .then(async r=>{const data=await r.json();if(!r.ok)throw new Error('No se pudieron cargar los contactos. Puedes escribir los correos.');setContacts(data);setContactsError('')})
       .catch(e=>{if(e.name!=='AbortError')setContactsError(e.message)})
     return()=>controller.abort()
-  },[showMail,apiUrl,token])
+  },[showMail,showRequisitionMail,apiUrl,token])
   function addRecipient(field,email){
     if(!email)return
     setMail(current=>{const values=current[field].split(/[,;\s]+/).filter(Boolean);if(!values.some(v=>v.toLowerCase()===email.toLowerCase()))values.push(email);return {...current,[field]:values.join(', ')}})
+  }
+  function addRecipientToSaved(field,email){
+    if(!email)return
+    setRequisitionMail(current=>{const values=current[field].split(/[,;\s]+/).filter(Boolean);if(!values.some(value=>value.toLowerCase()===email.toLowerCase()))values.push(email);return {...current,[field]:values.join(', ')}})
   }
   const visibleRows=pendingOnly?rows.filter(row=>row.status==='PENDIENTE'):rows
   const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'}
@@ -36,11 +47,27 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     return()=>controller.abort()
   },[apiUrl,token,revision,refresh])
   function open(row){
-    setShowMail(false);setMessage('')
+    setShowMail(false);setShowRequisitionMail(false);setMessage('');setRequisitionAttachments([])
     setMail({to:'',cc:'',subject:`Confirmación de recepción · Requisición #${row.id}`,body:'Estimados,\n\nConfirmamos la recepción del material de la requisición indicada. Se incluyen los datos de la compra y la factura, si fue adjuntada.\n\nSaludos cordiales,'})
     setSelected(row);setError('');setInvoice(null)
     const d=new Date(),today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     setReceipt({supplier_id:catalog.suppliers.find(s=>s.name===row.requisition.supplier)?.supplier_id||'',purchased_on:today,document_number:'',currency:'USD',items:row.requisition.items.map(i=>({item_type:i.item_type||'MATERIAL',spare_part_id:i.spare_part_id||'',quantity:i.quantity,unit_cost:''}))})
+  }
+  function openRequisitionMail(){
+    setRequisitionMail({to:DEFAULT_MAIL_TO,cc:DEFAULT_MAIL_CC,subject:`Requisición de compra #${selected.id}`,body:'Estimados,\n\nAdjunto la requisición de compra para su revisión y gestión.\n\nSaludos cordiales,'})
+    setRequisitionAttachments([]);setShowRequisitionMail(true);setError('')
+  }
+  async function sendSavedRequisitionMail(event){
+    event.preventDefault();if(busy||!selected||submitting.current)return
+    const addresses=value=>value.split(/[,;\s]+/).map(item=>item.trim()).filter(Boolean)
+    if(!addresses(requisitionMail.to).length||!requisitionMail.subject.trim()||!requisitionMail.body.trim()){setError('Completa el destinatario, asunto y mensaje del correo.');return}
+    submitting.current=true;setBusy(true);setError('');setMessage('')
+    try{
+      const files=await Promise.all(requisitionAttachments.map(fileBase64))
+      const response=await fetch(`${apiUrl}/requisiciones-compra/enviar`,{method:'POST',headers,body:JSON.stringify({requisition:selected.requisition,...requisitionMail,to:addresses(requisitionMail.to),cc:addresses(requisitionMail.cc),attachments:files})})
+      const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'No se pudo enviar la requisición.')
+      setMessage(data.message);setShowRequisitionMail(false);setRequisitionAttachments([])
+    }catch(e){setError(e.message)}finally{submitting.current=false;setBusy(false)}
   }
   async function excel(row){
     setBusy(true);setError('')
@@ -95,6 +122,14 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     {selected&&<section className="request-detail"><h3>Requisición #{selected.id}</h3><p>{selected.requisition.department} · {selected.requisition.requester} · Entrega: {selected.requisition.urgent?'Urgente':selected.requisition.delivery_on}</p><p>Máquinas: {selected.requisition.machine_codes||'No aplica'}</p><p>{selected.requisition.observations}</p>
       {selected.requisition.items.map((item,i)=><p key={i}><strong>{i+1}. {item.description}</strong> · {item.quantity} {item.unit}<br/>{item.specifications}</p>)}
       {selected.receipt?.invoice&&<button type="button" disabled={busy} onClick={downloadInvoice}>Descargar factura: {selected.receipt.invoice.filename}</button>}
+      {!showRequisitionMail&&<button type="button" className="secondary-action" disabled={busy} onClick={openRequisitionMail}>Enviar requisición por correo</button>}
+      {showRequisitionMail&&<form className="request-detail" onSubmit={sendSavedRequisitionMail}><h3>Enviar requisición por correo</h3><p>Se adjuntará automáticamente el Excel de esta requisición. Puedes agregar archivos adicionales si lo necesitas.</p><div className="motor-form-grid">
+        <label>Para *<input required value={requisitionMail.to} onChange={e=>setRequisitionMail(m=>({...m,to:e.target.value}))}/><select aria-label="Añadir contacto a Para" value="" onChange={e=>addRecipientToSaved('to',e.target.value)}><option value="">Añadir contacto a Para…</option>{contacts.map((contact,i)=><option key={`${contact.email}-${i}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</select></label>
+        <label>Copia (CC)<input value={requisitionMail.cc} onChange={e=>setRequisitionMail(m=>({...m,cc:e.target.value}))}/><select aria-label="Añadir contacto a Copia" value="" onChange={e=>addRecipientToSaved('cc',e.target.value)}><option value="">Añadir contacto a Copia…</option>{contacts.map((contact,i)=><option key={`${contact.email}-${i}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</select></label>
+        <label className="full-field">Asunto *<input required maxLength={200} value={requisitionMail.subject} onChange={e=>setRequisitionMail(m=>({...m,subject:e.target.value}))}/></label>
+        <label className="full-field">Mensaje *<textarea required rows={6} maxLength={10000} value={requisitionMail.body} onChange={e=>setRequisitionMail(m=>({...m,body:e.target.value}))}/></label>
+        <label className="full-field">Archivos adicionales (opcional)<input type="file" multiple onChange={e=>setRequisitionAttachments(Array.from(e.target.files||[]).slice(0,10))}/></label>
+      </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>setShowRequisitionMail(false)}>Cancelar</button><button className="primary-action" disabled={busy}>{busy?'Enviando…':'Enviar correo con Excel'}</button></div></form>}
       {selected.receipt&&<><h3>Compra registrada</h3><p>Documento: {selected.receipt.document_number} · Fecha: {selected.receipt.purchased_on} · Administrador: {selected.received_by}</p>{selected.receipt.items.map((item,i)=><p key={i}>{(selected.receipt.requisition_at_receipt||selected.requisition).items[i]?.description||'Item recibido'}: {item.quantity} × {item.unit_cost} {selected.receipt.currency} · {selected.receipt.purchase_ids[i]?`Compra #${selected.receipt.purchase_ids[i]}`:'Servicio / actividad sin inventario'}</p>)}</>}
       {isAdmin&&selected.status==='PENDIENTE'&&<form onSubmit={receive}><fieldset disabled={busy} className="request-fields"><h3>Confirmar llegada y registrar compra</h3><p>Indica las cantidades efectivamente recibidas y el precio unitario. Esta confirmación cierra la requisición. Para productos nuevos, crea primero el repuesto en Inventario. Los servicios no se ingresan como existencias.</p><div className="motor-form-grid">
         <label>Proveedor *<select required value={receipt.supplier_id} onChange={e=>change('supplier_id',e.target.value)}><option value="">Selecciona</option>{catalog.suppliers.map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.name}</option>)}</select></label>
