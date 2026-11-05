@@ -1,9 +1,10 @@
 import AuthenticatedPhoto from './AuthenticatedPhoto'
 import MachinePhoto from './MachinePhoto'
 
-export default function RequestPhotos({apiUrl, token, work}) {
+export default function RequestPhotos({apiUrl, token, work, singlePhoto=false}) {
   const data = work.request_data
-  const paths = data.image_paths?.length ? data.image_paths : data.image_path ? [data.image_path] : []
+  const allPaths = data.image_paths?.length ? data.image_paths : data.image_path ? [data.image_path] : []
+  const paths = singlePhoto ? allPaths.slice(0, 1) : allPaths
   if (!data.machine_id && !paths.length) return null
   return <div className="request-alert-photos">
     <MachinePhoto apiUrl={apiUrl} token={token} machineId={data.machine_id} name={data.machine_name}/>
