@@ -61,11 +61,6 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const pendingReceipts=safeRows.filter(r=>r.status==='POR_RECIBIR'&&r.request_data.admin_review&&r.requested_by===currentUser.id)
   const managementCount=isAdmin?safeRows.filter(r=>(r.status==='PENDIENTE'&&!r.request_data.planning)||(r.status==='POR_RECIBIR'&&!r.request_data.admin_review)).length:0
   const alertWork = isAdmin ? safeRows.filter(work=>['PENDIENTE','EN_PROCESO','POR_RECIBIR'].includes(work.status)) : [...new Map([...assignedWork, ...(!isTechnician ? pendingReceipts : [])].map(work=>[work.id,work])).values()]
-  const historicalRows=safeRows.filter(item=>{
-    const query=historySearch.trim().toLowerCase()
-    const text=[item.id,item.requester_name,item.request_data?.source_requester,item.request_data?.machine_code,item.request_data?.machine_name,item.request_data?.description,item.request_data?.plant_name,item.request_data?.tower_name].filter(Boolean).join(' ').toLowerCase()
-    return (!filter||item.status===filter)&&(!plantFilter||String(item.request_data?.plant_id)===String(plantFilter))&&(!query||text.includes(query))
-  })
   async function request(path,options={}) {
     const response=await fetch(`${apiUrl}${path}`,{...options,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}})
     const data=await response.json().catch(()=>({}))
