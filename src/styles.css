@@ -412,6 +412,10 @@ body>.schedule-report-document{display:none}
 .selected-machine-photo .request-machine-photo, .selected-machine-photo img { width: 260px; max-width: 100%; }
 .selected-machine-photo img { height: 180px; }
 
-.request-activity-photo-list { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
-.request-activity-photo-item { min-width: 180px; }
-.request-activity-photo-item > strong { display: block; margin-bottom: 6px; }
+.request-activity-photo-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 16px; align-items: start; }
+.request-activity-photo-item { min-width: 0; padding: 12px; border: 1px solid #d4ded9; border-radius: 8px; background: #fff; }
+.request-activity-photo-item > strong { display: block; margin-bottom: 8px; }
+.request-activity-photo-item .request-alert-photos { display: block; }
+.request-activity-photo-item .request-photo-thumbnail { width: 100%; max-width: none; }
+.request-activity-photo-item .request-machine-photo { width: 100%; height: 140px; }
+.request-activity-photo-item .request-machine-photo img { width: 100%; height: 140px; object-fit: contain; }
