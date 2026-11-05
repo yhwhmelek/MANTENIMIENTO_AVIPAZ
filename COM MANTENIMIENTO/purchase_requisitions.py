@@ -27,6 +27,9 @@ class TextModel(BaseModel):
 class RequisitionItem(TextModel):
     item_type: Literal['MATERIAL', 'SERVICIO'] = 'MATERIAL'
     spare_part_id: int | None = Field(default=None, gt=0)
+    tower_id: int | None = Field(default=None, gt=0)
+    machine_id: int | None = Field(default=None, gt=0)
+    supplier_id: int | None = Field(default=None, gt=0)
     description: str = Field(min_length=1, max_length=160)
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     unit: str = Field(min_length=1, max_length=20)
@@ -36,6 +39,8 @@ class RequisitionItem(TextModel):
     def service_without_stock(self):
         if self.item_type == 'SERVICIO' and self.spare_part_id is not None:
             raise ValueError('Un servicio no debe vincularse a un repuesto')
+        if self.item_type == 'SERVICIO' and any(value is not None for value in (self.tower_id, self.machine_id, self.supplier_id)):
+            raise ValueError('Un servicio no debe vincularse a torre, maquina o proveedor de repuesto')
         return self
 
 class RequisitionWrite(TextModel):

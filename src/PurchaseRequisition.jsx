@@ -14,7 +14,9 @@ const today = () => {const d=new Date();return `${d.getFullYear()}-${String(d.ge
 
 export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const [form,setForm]=useState({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[newItem()]})
-  const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[]})
+  const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[],towers:[]})
+  const [machineParts,setMachineParts]=useState({})
+  const [partSuppliers,setPartSuppliers]=useState({})
   const [catalogError,setCatalogError]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
   const [revision,setRevision]=useState(0)
   const [editing,setEditing]=useState(null)
@@ -65,11 +67,11 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   }
   useEffect(()=>{
     const controller=new AbortController()
-    Promise.all(['/repuestos','/proveedores','/maquinas'].map(async path=>{
+    Promise.all(['/repuestos','/proveedores','/maquinas','/torres'].map(async path=>{
       const response=await fetch(`${apiUrl}${path}`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
       if(!response.ok)throw new Error('No se pudieron cargar los catálogos. Puedes completar los datos manualmente.')
       return response.json()
-    })).then(([parts,suppliers,machines])=>setCatalog({parts:parts.filter(p=>p.active),suppliers:suppliers.filter(p=>p.active),machines}))
+    })).then(([parts,suppliers,machines,towers])=>setCatalog({parts:parts.filter(p=>p.active),suppliers:suppliers.filter(p=>p.active),machines,towers}))
       .catch(err=>{if(err.name!=='AbortError')setCatalogError(err.message)})
     return()=>controller.abort()
   },[apiUrl,token])
@@ -88,8 +90,19 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   function usePart(index,id){
     const part=catalog.parts.find(p=>String(p.spare_part_id)===id)
     if(!part)return
+    loadPartSuppliers(part.spare_part_id)
     setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,spare_part_id:part.spare_part_id,description:part.description.slice(0,160),unit:part.unit_of_measure,specifications:[part.internal_code,part.brand,part.model,part.part_number].filter(Boolean).join(' · ').slice(0,500)}:item)}))
   }
+  async function loadMachineParts(machineId){
+    if(!machineId||machineParts[machineId])return
+    try{const response=await fetch(`${apiUrl}/maquinas/${machineId}/repuestos`,{headers:{Authorization:`Bearer ${token}`}});const data=await response.json();if(!response.ok)throw new Error(data.detail||'No se pudieron cargar los repuestos de la máquina.');setMachineParts(current=>({...current,[machineId]:data}))}catch(err){setError(err.message)}
+  }
+  async function loadPartSuppliers(partId){
+    if(!partId||partSuppliers[partId])return
+    try{const response=await fetch(`${apiUrl}/repuestos/${partId}/proveedores`,{headers:{Authorization:`Bearer ${token}`}});const data=await response.json();if(!response.ok)throw new Error(data.detail||'No se pudieron cargar los proveedores del repuesto.');setPartSuppliers(current=>({...current,[partId]:data}))}catch(err){setError(err.message)}
+  }
+  function selectMachine(index,machineId){itemChange(index,'machine_id',machineId);itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null);loadMachineParts(machineId)}
+  function selectType(index,type){setForm(f=>({...f,items:f.items.map((row,i)=>i===index?{...row,item_type:type,tower_id:null,machine_id:null,spare_part_id:null,supplier_id:null,unit:type==='SERVICIO'?'SERVICIO':'UNIDAD'}:row)}))}
   async function generate(event){
     event.preventDefault();if(submitting.current)return
     const action=event.nativeEvent.submitter?.value
@@ -133,8 +146,14 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     </div>
     <h2>Productos, bienes o servicios</h2>
     {form.items.map((item,index)=><section className="request-detail" key={index}><div className="request-toolbar"><strong>Ítem {index+1}</strong><button type="button" className="secondary-action" disabled={form.items.length===1} onClick={()=>change('items',form.items.filter((_,i)=>i!==index))}>Quitar ítem</button></div><div className="motor-form-grid">
-      <label>Tipo de pedido<select value={item.item_type||'MATERIAL'} onChange={e=>setForm(f=>({...f,items:f.items.map((row,i)=>i===index?{...row,item_type:e.target.value,spare_part_id:null,unit:e.target.value==='SERVICIO'?'SERVICIO':'UNIDAD'}:row)}))}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option></select></label>
-      {item.item_type!=='SERVICIO'&&<label className="full-field">Completar desde Inventario (opcional)<select value="" onChange={e=>usePart(index,e.target.value)}><option value="">Selecciona un repuesto o escribe sus datos abajo</option>{catalog.parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>}
+      <label>Tipo de pedido<select value={item.item_type||'MATERIAL'} onChange={e=>selectType(index,e.target.value)}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option></select></label>
+      {item.item_type!=='SERVICIO'&&<>
+        <label>Torre<select value={item.tower_id||''} onChange={e=>{itemChange(index,'tower_id',e.target.value);itemChange(index,'machine_id','');itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null)}}><option value="">Selecciona una torre</option>{catalog.towers.map(t=><option key={t.tower_id} value={t.tower_id}>{t.plant_name} · {t.name}</option>)}</select></label>
+        <label>Máquina<select value={item.machine_id||''} disabled={!item.tower_id} onChange={e=>selectMachine(index,e.target.value)}><option value="">Selecciona una máquina</option>{catalog.machines.filter(m=>String(m.tower_id)===String(item.tower_id)).map(m=><option key={m.machine_id} value={m.machine_id}>{m.asset_code} · {m.name}</option>)}</select></label>
+        <label className="full-field">Repuesto de la máquina<select value="" disabled={!item.machine_id} onChange={e=>usePart(index,e.target.value)}><option value="">{item.machine_id?'Selecciona un repuesto específico':'Selecciona una máquina para ver sus repuestos'}</option>{(machineParts[item.machine_id]||[]).map(p=><option key={`machine-${p.machine_spare_part_id}`} value={p.spare_part_id}>{p.internal_code} · {p.description}{p.element_name?` · ${p.element_name}`:''}</option>)}</select></label>
+        <label className="full-field">Otros repuestos del inventario<select value="" onChange={e=>usePart(index,e.target.value)}><option value="">Selecciona un repuesto general</option>{catalog.parts.filter(p=>!(machineParts[item.machine_id]||[]).some(mp=>mp.spare_part_id===p.spare_part_id)).map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>
+        {item.spare_part_id&&<label>Proveedor del repuesto<select value={item.supplier_id||''} onChange={e=>itemChange(index,'supplier_id',e.target.value)}><option value="">Selecciona un proveedor</option>{(partSuppliers[item.spare_part_id]||[]).map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.supplier_name}{s.preferred_supplier?' · Preferido':''}</option>)}</select><span className="field-help">Solo se muestran proveedores asociados a este repuesto.</span></label>}
+      </>}
       <label>Producto / bien o servicio *<textarea rows={2} required maxLength={160} value={item.description} onChange={e=>itemChange(index,'description',e.target.value)}/></label>
       <label>Cantidad *<input required type="number" min="0.01" max="99999999.99" step="0.01" value={item.quantity} onChange={e=>itemChange(index,'quantity',e.target.value)}/></label>
       <label>Unidad *<input required maxLength={20} value={item.unit} onChange={e=>itemChange(index,'unit',e.target.value)}/></label>
