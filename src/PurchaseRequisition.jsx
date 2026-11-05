@@ -4,6 +4,8 @@ import SparePartCombobox from './SparePartCombobox'
 import signatureImage from './firma_correo.jpg'
 
 const newItem = () => ({ item_type:'MATERIAL',description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
+const DEFAULT_MAIL_TO = 'adquisiciones@avipaz.ec'
+const DEFAULT_MAIL_CC = 'compras@avipaz.ec, mantenimientosamanga@avipaz.ec'
 const fileBase64 = file => new Promise((resolve,reject)=>{
   const reader=new FileReader()
   reader.onload=()=>resolve({filename:file.name,content_base64:reader.result.split(',')[1]})
@@ -31,6 +33,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const [mailDraft,setMailDraft]=useState(null)
   const [attachments,setAttachments]=useState([])
   useEffect(()=>{if(!mailDraft)setAttachments([])},[mailDraft])
+  useEffect(()=>{if(mailDraft)setMail(current=>({...current,to:current.to||DEFAULT_MAIL_TO,cc:current.cc||DEFAULT_MAIL_CC}))},[mailDraft])
   function addAttachments(event){
     const files=[...attachments,...Array.from(event.target.files||[])]
     event.target.value=''
@@ -144,7 +147,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
         id=data.id;saved.current={id,fingerprint};setRevision(v=>v+1);window.dispatchEvent(new Event('requisitions-updated'))
       }
       setMessage(`Requisición #${id} guardada. ${editing?.status==='RECIBIDA'?'Los datos de compra e inventario se conservan.':'Pendiente de recepción por un administrador.'}`)
-      if(action==='email'){setMailDraft(payload);return}
+      if(action==='email'){setMail(current=>({...current,to:DEFAULT_MAIL_TO,cc:DEFAULT_MAIL_CC}));setMailDraft(payload);return}
       if(action!=='excel')return
       const response=await fetch(`${apiUrl}/requisiciones-compra/${id}/archivo`,{headers:{Authorization:`Bearer ${token}`}})
       if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(typeof data.detail==='string'?data.detail:'Revisa los campos, las fechas y las cantidades ingresadas.')}
