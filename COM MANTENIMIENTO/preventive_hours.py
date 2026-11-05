@@ -90,7 +90,14 @@ def hour_states(cursor, catalog):
     for plan in plans:
         activity = activities[plan['activity_id']]
         frequency = plan.get('frequency_override') or activity['frequency']
-        machine_ids = plan['machine_ids'] if plan.get('scope')=='GENERAL' else [plan['machine_id']]
+        if plan.get('scope') == 'GENERAL':
+            if plan.get('coverage_mode', 'SELECTED') == 'ALL':
+                excluded = set(plan.get('excluded_machine_ids', []))
+                machine_ids = [row[0] for row in cursor.execute("SELECT m.MachineId FROM dbo.Machines m WHERE m.Status<>'FUERA_SERVICIO'").fetchall() if row[0] not in excluded]
+            else:
+                machine_ids = plan.get('machine_ids', [])
+        else:
+            machine_ids = [plan['machine_id']]
         machines = [machine_threshold(plan,frequency,i,readings.get(i),completed.get((plan['id'],i)),opened.get((plan['id'],i)) or calendar_open.get(plan['id'])) for i in machine_ids]
         result.append(dict(plan_id=plan['id'], activity=activity['name'], group=activity['group'], frequency=frequency, machines=machines))
     return result

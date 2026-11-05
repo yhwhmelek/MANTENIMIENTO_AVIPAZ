@@ -83,6 +83,8 @@ class PlanWrite(StrictModel):
     scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
     machine_id: int | None = Field(default=None, gt=0)
     machine_ids: list[int] = Field(default_factory=list, max_length=5000)
+    coverage_mode: Literal['SELECTED', 'ALL'] = 'SELECTED'
+    excluded_machine_ids: list[int] = Field(default_factory=list, max_length=5000)
     hour_base: Decimal = Field(default=Decimal('0'), ge=0, le=999999999, decimal_places=2)
     hour_bases: dict[str, Decimal] = Field(default_factory=dict, max_length=5000)
     first_service_done: bool = False
@@ -103,8 +105,12 @@ class PlanWrite(StrictModel):
         if self.scope == 'GENERAL':
             if self.machine_id is not None or self.element_id is not None or self.points:
                 raise ValueError('El plan general usa una lista de máquinas, sin elemento ni puntos individuales')
-            if not self.machine_ids or any(i <= 0 for i in self.machine_ids) or len(set(self.machine_ids)) != len(self.machine_ids):
+            if self.coverage_mode == 'SELECTED' and (not self.machine_ids or any(i <= 0 for i in self.machine_ids) or len(set(self.machine_ids)) != len(self.machine_ids)):
                 raise ValueError('Selecciona máquinas válidas sin repetir')
+            if self.coverage_mode == 'ALL' and (self.machine_ids or any(i <= 0 for i in self.excluded_machine_ids) or len(set(self.excluded_machine_ids)) != len(self.excluded_machine_ids)):
+                raise ValueError('Para todos los activos usa solo exclusiones')
+            if set(self.machine_ids) & set(self.excluded_machine_ids):
+                raise ValueError('Un activo no puede estar incluido y excluido a la vez')
         elif self.machine_id is None or self.machine_ids:
             raise ValueError('El plan específico requiere una máquina y no una lista')
         if not date(2000, 1, 1) <= self.first_due <= date(2200, 12, 31):
@@ -231,6 +237,15 @@ def general_coverage(cursor, machine_ids):
     return sorted(machines, key=lambda m: (m['plant'], m['code'], m['machine_id']))
 
 
+def general_machine_ids(cursor, plan):
+    """Resolve live coverage for all-assets plans; old selected plans stay compatible."""
+    if plan.get('coverage_mode', 'SELECTED') != 'ALL':
+        return list(plan.get('machine_ids', []))
+    rows = cursor.execute("SELECT m.MachineId FROM dbo.Machines m WHERE m.Status<>'FUERA_SERVICIO'").fetchall()
+    excluded = set(plan.get('excluded_machine_ids', []))
+    return [row[0] for row in rows if row[0] not in excluded]
+
+
 def register_preventive(app, connect, active_user, admin_user):
     def transaction(operation):
         try:
@@ -348,7 +363,7 @@ def register_preventive(app, connect, active_user, admin_user):
         if activity_data.get('scope', 'SPECIFIC') != data.scope:
             raise HTTPException(422, 'El alcance del plan debe coincidir con la actividad')
         if data.scope == 'GENERAL' and data.active:
-            general_coverage(cursor, data.machine_ids)
+            general_coverage(cursor, general_machine_ids(cursor, data.model_dump(mode='json')))
         validate_ids = [data.machine_id] if data.scope == 'SPECIFIC' else [] if data.active else data.machine_ids
         for machine_id in validate_ids:
             machine = cursor.execute('SELECT Status FROM dbo.Machines WHERE MachineId=?', machine_id).fetchone()
@@ -429,7 +444,7 @@ def register_preventive(app, connect, active_user, admin_user):
                 p, a = entry['plan'], entry['activity']
                 general = p.get('scope') == 'GENERAL'
                 hour_targets = entry.get('hour_targets', [])
-                coverage_ids = [t['machine_id'] for t in hour_targets] if hour_targets else p.get('machine_ids',[])
+                coverage_ids = [t['machine_id'] for t in hour_targets] if hour_targets else general_machine_ids(cursor, p)
                 coverage = general_coverage(cursor, coverage_ids) if general else []
                 if general:
                     plants = {m['plant_id'] for m in coverage}
