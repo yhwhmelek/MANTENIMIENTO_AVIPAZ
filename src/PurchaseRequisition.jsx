@@ -18,6 +18,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[],towers:[]})
   const [machineParts,setMachineParts]=useState({})
   const [partSuppliers,setPartSuppliers]=useState({})
+  const [machineSearch,setMachineSearch]=useState({})
   const [catalogError,setCatalogError]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
   const [revision,setRevision]=useState(0)
   const [editing,setEditing]=useState(null)
@@ -102,8 +103,14 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     if(!partId||partSuppliers[partId])return
     try{const response=await fetch(`${apiUrl}/repuestos/${partId}/proveedores`,{headers:{Authorization:`Bearer ${token}`}});const data=await response.json();if(!response.ok)throw new Error(data.detail||'No se pudieron cargar los proveedores del repuesto.');setPartSuppliers(current=>({...current,[partId]:data}))}catch(err){setError(err.message)}
   }
-  function selectMachine(index,machineId){itemChange(index,'machine_id',machineId);itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null);loadMachineParts(machineId)}
-  function selectType(index,type){setForm(f=>({...f,items:f.items.map((row,i)=>i===index?{...row,item_type:type,tower_id:null,machine_id:null,spare_part_id:null,supplier_id:null,unit:type==='SERVICIO'?'SERVICIO':'UNIDAD'}:row)}))}
+  function selectMachine(index,machineId){const machine=catalog.machines.find(item=>String(item.machine_id)===String(machineId));itemChange(index,'machine_id',machineId);itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null);setMachineSearch(current=>({...current,[index]:machine?`${machine.asset_code} · ${machine.name}`:''}));loadMachineParts(machineId)}
+  function searchMachine(index,value,towerId){
+    setMachineSearch(current=>({...current,[index]:value}))
+    const machine=catalog.machines.find(item=>String(item.tower_id)===String(towerId)&&(`${item.asset_code} · ${item.name}`.toLowerCase()===value.trim().toLowerCase()||item.asset_code?.toLowerCase()===value.trim().toLowerCase()||item.name?.toLowerCase()===value.trim().toLowerCase()))
+    if(machine)selectMachine(index,String(machine.machine_id))
+    else {itemChange(index,'machine_id','');itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null)}
+  }
+  function selectType(index,type){setMachineSearch(current=>({...current,[index]:''}));setForm(f=>({...f,items:f.items.map((row,i)=>i===index?{...row,item_type:type,tower_id:null,machine_id:null,spare_part_id:null,supplier_id:null,unit:type==='SERVICIO'?'SERVICIO':'UNIDAD'}:row)}))}
   async function generate(event){
     event.preventDefault();if(submitting.current)return
     const action=event.nativeEvent.submitter?.value
@@ -149,8 +156,8 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     {form.items.map((item,index)=><section className="request-detail" key={index}><div className="request-toolbar"><strong>Ítem {index+1}</strong><button type="button" className="secondary-action" disabled={form.items.length===1} onClick={()=>change('items',form.items.filter((_,i)=>i!==index))}>Quitar ítem</button></div><div className="motor-form-grid">
       <label>Tipo de pedido<select value={item.item_type||'MATERIAL'} onChange={e=>selectType(index,e.target.value)}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option></select></label>
       {item.item_type!=='SERVICIO'&&<>
-        <label>Torre<select value={item.tower_id||''} onChange={e=>{itemChange(index,'tower_id',e.target.value);itemChange(index,'machine_id','');itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null)}}><option value="">Selecciona una torre</option>{catalog.towers.map(t=><option key={t.tower_id} value={t.tower_id}>{t.plant_name} · {t.name}</option>)}</select></label>
-        <label>Máquina<select value={item.machine_id||''} disabled={!item.tower_id} onChange={e=>selectMachine(index,e.target.value)}><option value="">Selecciona una máquina</option>{catalog.machines.filter(m=>String(m.tower_id)===String(item.tower_id)).map(m=><option key={m.machine_id} value={m.machine_id}>{m.asset_code} · {m.name}</option>)}</select></label>
+        <label>Torre<select value={item.tower_id||''} onChange={e=>{setMachineSearch(current=>({...current,[index]:''}));itemChange(index,'tower_id',e.target.value);itemChange(index,'machine_id','');itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null)}}><option value="">Selecciona una torre</option>{catalog.towers.map(t=><option key={t.tower_id} value={t.tower_id}>{t.plant_name} · {t.name}</option>)}</select></label>
+        <label>Máquina<input list={`requisition-machine-${index}`} disabled={!item.tower_id} value={machineSearch[index] ?? (catalog.machines.find(m=>String(m.machine_id)===String(item.machine_id)) ? `${catalog.machines.find(m=>String(m.machine_id)===String(item.machine_id)).asset_code} · ${catalog.machines.find(m=>String(m.machine_id)===String(item.machine_id)).name}` : '')} placeholder={item.tower_id?'Escribe código o nombre de máquina':'Selecciona primero una torre'} onChange={e=>searchMachine(index,e.target.value,item.tower_id)} /><datalist id={`requisition-machine-${index}`}>{catalog.machines.filter(m=>String(m.tower_id)===String(item.tower_id)).map(m=><option key={m.machine_id} value={`${m.asset_code} · ${m.name}`} />)}</datalist></label>
         {item.machine_id?<SparePartCombobox parts={(machineParts[item.machine_id]||[]).map(p=>({...p,active:true}))} value={item.spare_part_id||''} onChange={id=>id?usePart(index,id):(itemChange(index,'spare_part_id',null),itemChange(index,'supplier_id',null))} />:<p className="full-field field-help">Selecciona una máquina para buscar sus repuestos específicos.</p>}
         <label className="full-field">Otros repuestos del inventario<select value="" onChange={e=>usePart(index,e.target.value)}><option value="">Selecciona un repuesto general</option>{catalog.parts.filter(p=>!(machineParts[item.machine_id]||[]).some(mp=>mp.spare_part_id===p.spare_part_id)).map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>
         {item.spare_part_id&&<label>Proveedor del repuesto<select value={item.supplier_id||''} onChange={e=>itemChange(index,'supplier_id',e.target.value)}><option value="">Selecciona un proveedor</option>{(partSuppliers[item.spare_part_id]||[]).map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.supplier_name}{s.preferred_supplier?' · Preferido':''}</option>)}</select><span className="field-help">Solo se muestran proveedores asociados a este repuesto.</span></label>}
