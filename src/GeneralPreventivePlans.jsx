@@ -33,6 +33,12 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
       setForm(null); await onSaved(); setMessage(hourly ? `Plan general guardado. ${operatingHoursNotice}` : 'Plan general guardado. Se publicará una sola orden por fecha programada.')
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
+  async function remove(plan) {
+    if (busy || !window.confirm('¿Eliminar este plan general? Solo se puede eliminar si todavía no tiene órdenes publicadas ni historial.')) return
+    setBusy(true); setError(''); setMessage('')
+    try { await request(`/preventivos/planes/${plan.id}`, {method:'DELETE'}); setForm(null); await onSaved(); setMessage('Plan general eliminado.') }
+    catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
   return <section className="general-preventive-plans">
     <h2>Actividades generales</h2>
     <p>Selecciona las máquinas que abarca el trabajo. El calendario y las alertas mostrarán una sola actividad; la duración corresponde al trabajo completo.</p>
@@ -40,7 +46,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     {isAdmin && !form && <button className="primary-action" disabled={!general.some(a => a.active)} onClick={() => edit()}>Asignar actividad general</button>}
     {!general.length && <p>Crea una actividad con alcance «General para varias máquinas» en Actividades y frecuencias.</p>}
     <div className="table-scroll"><table><thead><tr><th>Actividad</th><th>Máquinas incluidas</th><th>Próximo vencimiento</th><th>Inicio / duración total</th><th>Estado</th>{isAdmin && <th>Acciones</th>}</tr></thead><tbody>
-      {plans.map(plan => { const a = activities.find(a => a.id === plan.activity_id); return <tr key={plan.id}><td>{a?.name}{plan.route && <small> · {plan.route}</small>}</td><td>{plan.coverage_mode === 'ALL' ? `Todos los activos${plan.excluded_machine_ids?.length ? ` · ${plan.excluded_machine_ids.length} excluidos` : ''}` : plan.machine_ids.length}</td><td>{frequencyLabel(effectiveFrequency(plan,a))}<br/>{needsOperatingHours(plan,a)?'Consultar Horómetros y avisos':plan.next_due}</td><td>{plan.start_time.slice(0,5)} · {a?.duration_minutes} min</td><td>{plan.active ? 'Activo' : 'Inactivo'}</td>{isAdmin && <td><button disabled={busy} onClick={() => edit(plan)}>Editar selección</button></td>}</tr> })}
+      {plans.map(plan => { const a = activities.find(a => a.id === plan.activity_id); return <tr key={plan.id}><td>{a?.name}{plan.route && <small> · {plan.route}</small>}</td><td>{plan.coverage_mode === 'ALL' ? `Todos los activos${plan.excluded_machine_ids?.length ? ` · ${plan.excluded_machine_ids.length} excluidos` : ''}` : plan.machine_ids.length}</td><td>{frequencyLabel(effectiveFrequency(plan,a))}<br/>{needsOperatingHours(plan,a)?'Consultar Horómetros y avisos':plan.next_due}</td><td>{plan.start_time.slice(0,5)} · {a?.duration_minutes} min</td><td>{plan.active ? 'Activo' : 'Inactivo'}</td>{isAdmin && <td><button disabled={busy} onClick={() => edit(plan)}>Editar selección</button><button className="danger" disabled={busy} onClick={() => remove(plan)}>Eliminar</button></td>}</tr> })}
     </tbody></table></div>
     {form && <form className="general-plan-editor" onSubmit={save}><fieldset disabled={busy}>
       <h3>{editing ? 'Editar plan general' : 'Asignar actividad general'}</h3>
@@ -67,7 +73,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
       </tr>)}</tbody></table></div>
       <label className="checkbox-field"><input type="checkbox" checked={form.active} onChange={e => change('active', e.target.checked)}/>Plan activo</label>
       <p>Los cambios de selección se aplican a futuras órdenes. Las órdenes publicadas conservan sus máquinas originales.</p>
-      <div className="modal-actions"><button type="button" onClick={() => setForm(null)}>Cancelar</button><button className="primary-action" disabled={form.coverage_mode === 'SELECTED' && !form.machine_ids.length}>{busy ? 'Guardando…' : 'Guardar plan general'}</button></div>
+      <div className="modal-actions"><button type="button" onClick={() => setForm(null)}>Cancelar</button>{editing && <button type="button" className="danger" disabled={busy} onClick={() => remove(plans.find(plan => plan.id === editing))}>Eliminar plan</button>}<button className="primary-action" disabled={form.coverage_mode === 'SELECTED' && !form.machine_ids.length}>{busy ? 'Guardando…' : 'Guardar plan general'}</button></div>
     </fieldset></form>}
   </section>
 }

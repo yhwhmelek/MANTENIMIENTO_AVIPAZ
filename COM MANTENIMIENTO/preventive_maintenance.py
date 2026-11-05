@@ -403,6 +403,18 @@ def register_preventive(app, connect, active_user, admin_user):
     def update_plan(plan_id: int, data: PlanWrite, usuario_id: int = Depends(admin_user)):
         return transaction(lambda cursor: save_plan(cursor, data, usuario_id, plan_id))
 
+    @app.delete('/preventivos/planes/{plan_id}')
+    def delete_plan(plan_id: int, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            row = cursor.execute('SELECT PlanId FROM dbo.PreventivePlans WITH (UPDLOCK,HOLDLOCK) WHERE PlanId=?', plan_id).fetchone()
+            if not row:
+                raise HTTPException(404, 'Plan no encontrado')
+            if cursor.execute('SELECT TOP 1 OccurrenceId FROM dbo.PreventiveOccurrences WHERE PlanId=?', plan_id).fetchone() or cursor.execute('SELECT TOP 1 OccurrenceId FROM dbo.PreventiveHourOccurrences WHERE PlanId=?', plan_id).fetchone():
+                raise HTTPException(409, 'Este plan ya tiene historial u órdenes publicadas. Desactívalo desde Editar para conservar el historial.')
+            cursor.execute('DELETE FROM dbo.PreventivePlans WHERE PlanId=?', plan_id)
+            return None
+        return transaction(operation)
+
     def due(cursor, week):
         cat = catalogs(cursor)
         acts = {a['id']: a for a in cat['activities']}
