@@ -6,8 +6,8 @@ export function comparePlanningThenPriority(a,b){
   return Number(plannedA)-Number(plannedB)||compareActivities(a,b)
 }
 
-export function filterPrioritizedActivities(rows,{level='',type='',plantId='',towerId=''}){
-  return rows.filter(row=>row.status!=='CERRADA')
+export function filterPrioritizedActivities(rows,{level='',type='',plantId='',towerId='',status}={}){
+  return rows.filter(row=>status===undefined ? row.status!=='CERRADA' : (!status||row.status===status))
     .filter(row=>(!level||(row.priority?.level||'SIN_VALIDAR')===level)
       &&(!type||row.request_data.maintenance_type===type)
       &&(row.request_data.preventive?.machines?.length ? row.request_data.preventive.machines : [row.request_data]).some(location =>

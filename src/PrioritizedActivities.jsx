@@ -4,17 +4,18 @@ import {PriorityBadge,levels,conditions} from './RequestPriority'
 import {filterPrioritizedActivities} from './prioritizedActivityFilter'
 import PrioritizedActivitiesPrint from './PrioritizedActivitiesPrint'
 import PriorityWorkflow from './PriorityWorkflow'
+import RequestPhotos from './RequestPhotos'
 
 const typeLabel={MEJORA_TECNICA:'Mejora técnica',CORRECTIVO:'Correctivo',PREVENTIVO:'Preventivo'}
 
 export default function PrioritizedActivities({rows,plants,towers,plantFilter,setPlantFilter,statusFilter,apiUrl,token,onOpen,onEdit,canEdit,isAdmin,onSaved,busy}){
-  const [level,setLevel]=useState(''),[type,setType]=useState(''),[towerId,setTowerId]=useState('')
+  const [level,setLevel]=useState(''),[type,setType]=useState(''),[towerId,setTowerId]=useState(''),[activityStatus,setActivityStatus]=useState(statusFilter||'')
   const [report,setReport]=useState(null),[printBusy,setPrintBusy]=useState(false),[printError,setPrintError]=useState('')
   const [planningRow,setPlanningRow]=useState(null)
   const printAbort=useRef(null)
   const planningDialog=useRef(null)
-  const scope=filterPrioritizedActivities(rows,{plantId:plantFilter,towerId})
-  const sorted=filterPrioritizedActivities(rows,{level,type,plantId:plantFilter,towerId})
+  const scope=filterPrioritizedActivities(rows,{plantId:plantFilter,towerId,status:activityStatus})
+  const sorted=filterPrioritizedActivities(rows,{level,type,plantId:plantFilter,towerId,status:activityStatus})
   const availableTowers=towers.filter(t=>!plantFilter||String(t.plant_id)===String(plantFilter))
 
   useEffect(()=>()=>printAbort.current?.abort(),[])
@@ -97,6 +98,7 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
     <p>Ante peligro inminente o exigencia legal, controla la condición de inmediato según los procedimientos de seguridad aplicables, sin esperar la programación.</p>
     <div className="request-toolbar">{Object.entries(levels).map(([key,label])=><span key={key} className={`priority-badge priority-${key}`}>{label}: {scope.filter(r=>r.priority?.level===key).length}</span>)}<span>Sin validar: {scope.filter(r=>!r.priority).length}</span></div>
     <div className="request-toolbar">
+      <label>Estado<select value={activityStatus} onChange={e=>setActivityStatus(e.target.value)}><option value="">Todos</option><option value="PENDIENTE">Pendiente</option><option value="EN_PROCESO">En proceso</option><option value="POR_RECIBIR">Por recibir</option><option value="CERRADA">Cerrada</option></select></label>
       <label>Planta<select value={plantFilter} onChange={e=>{setPlantFilter(e.target.value);setTowerId('')}}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>
       <label>Torre<select value={towerId} onChange={e=>setTowerId(e.target.value)}><option value="">Todas</option><option value="SIN_TORRE">Sin torre</option>{availableTowers.map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>
       <label>Prioridad<select value={level} onChange={e=>setLevel(e.target.value)}><option value="">Todas</option>{Object.entries(levels).map(([key,label])=><option key={key} value={key}>{label}</option>)}<option value="SIN_VALIDAR">Sin validar</option></select></label>
@@ -104,6 +106,7 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
       <button type="button" disabled={!sorted.length||printBusy} onClick={printPdf}>{printBusy?'Preparando fotos…':'Imprimir / guardar PDF'}</button>
     </div>
     {printError&&<p role="status">{printError}</p>}
+    <div className="request-activity-photo-list">{sorted.filter(row=>row.request_data.machine_id||row.request_data.image_path||row.request_data.image_paths?.length).map(row=><div className="request-line" key={`foto-${row.id}`}><strong>Solicitud #{row.id}</strong><RequestPhotos apiUrl={apiUrl} token={token} work={row}/></div>)}</div>
     <p role="status">{sorted.length} actividades con los filtros seleccionados.</p>
     <div className="table-scroll"><table className="prioritized-activities-table"><colgroup><col style={{width:'11%'}}/><col style={{width:'13%'}}/><col style={{width:'22%'}}/><col style={{width:'13%'}}/><col style={{width:'11%'}}/><col style={{width:'11%'}}/><col style={{width:'19%'}}/></colgroup><thead><tr><th>Acción</th><th>Orden / solicitud</th><th>Actividad</th><th>Prioridad oficial</th><th>N / I / C validados</th><th>Estado</th><th>Programación</th></tr></thead><tbody>{sorted.map((row,index)=>{const r=row.request_data,v=r.priority_validation?.factors,p=r.planning;return <tr key={row.id}><td><button disabled={busy} onClick={()=>onOpen(row.id)}>Ver actividad</button>{isAdmin&&<button type="button" className="secondary-action" disabled={busy||row.status!=='PENDIENTE'||!r.priority_validation} title={row.status!=='PENDIENTE'?'La programación se bloquea después de iniciar':!r.priority_validation?'Primero valida la prioridad':'Editar fecha, duración y responsable'} onClick={()=>setPlanningRow(row)}>{p?'Editar programación':'Programar'}</button>}{r.maintenance_type==='MEJORA_TECNICA'&&<button className="secondary-action" disabled={busy||!canEdit||row.status!=='PENDIENTE'} title={!canEdit?'Solo el personal de mantenimiento puede modificar':row.status!=='PENDIENTE'?'Solo se modifican solicitudes pendientes':'Modificar solicitud'} onClick={()=>onEdit(row.id)}>Modificar</button>}</td><td>{index+1}. #{row.id}<br/>{row.requested_at ? String(row.requested_at).replace('T',' ').slice(0,16) : 'Sin fecha registrada'}</td><td>{typeLabel[r.maintenance_type]||r.maintenance_type}<br/>{r.target_area||r.machine_name}<br/>{[r.plant_name,r.tower_name].filter(Boolean).join(' / ')}<br/>{r.description}</td><td><PriorityBadge priority={row.priority}/>{row.priority?.escalated&&<p>C = 4: mínimo ALTO</p>}</td><td>{v?`${v.n} / ${v.i} / ${v.c}`:'Sin validar'}</td><td>{row.status==='POR_RECIBIR'?'Pendiente de aceptación':row.status==='EN_PROCESO'?'En proceso':'Pendiente'}</td><td>{p?<>{p.responsible}<br/>{conditions[p.condition]}<br/>{p.starts_at?.replace('T',' ')||'Sin fecha'}<br/>{p.notes}</>:'Por programar'}</td></tr>})}</tbody></table></div>
     {!sorted.length&&<p>No hay actividades con estos filtros.</p>}
