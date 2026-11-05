@@ -1,7 +1,7 @@
 import AuthenticatedPhoto from './AuthenticatedPhoto'
 import MachinePhoto from './MachinePhoto'
 
-export default function RequestPhotos({apiUrl, token, work, singlePhoto=false}) {
+export default function RequestPhotos({apiUrl, token, work, singlePhoto=true}) {
   const data = work.request_data
   const allPaths = data.image_paths?.length ? data.image_paths : data.image_path ? [data.image_path] : []
   const paths = singlePhoto ? allPaths.slice(0, 1) : allPaths
