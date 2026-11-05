@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import RequisitionHistory from './RequisitionHistory'
+import SparePartCombobox from './SparePartCombobox'
 import signatureImage from './firma_correo.jpg'
 
 const newItem = () => ({ item_type:'MATERIAL',description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
@@ -150,7 +151,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
       {item.item_type!=='SERVICIO'&&<>
         <label>Torre<select value={item.tower_id||''} onChange={e=>{itemChange(index,'tower_id',e.target.value);itemChange(index,'machine_id','');itemChange(index,'spare_part_id',null);itemChange(index,'supplier_id',null)}}><option value="">Selecciona una torre</option>{catalog.towers.map(t=><option key={t.tower_id} value={t.tower_id}>{t.plant_name} · {t.name}</option>)}</select></label>
         <label>Máquina<select value={item.machine_id||''} disabled={!item.tower_id} onChange={e=>selectMachine(index,e.target.value)}><option value="">Selecciona una máquina</option>{catalog.machines.filter(m=>String(m.tower_id)===String(item.tower_id)).map(m=><option key={m.machine_id} value={m.machine_id}>{m.asset_code} · {m.name}</option>)}</select></label>
-        <label className="full-field">Repuesto de la máquina<select value="" disabled={!item.machine_id} onChange={e=>usePart(index,e.target.value)}><option value="">{item.machine_id?'Selecciona un repuesto específico':'Selecciona una máquina para ver sus repuestos'}</option>{(machineParts[item.machine_id]||[]).map(p=><option key={`machine-${p.machine_spare_part_id}`} value={p.spare_part_id}>{p.internal_code} · {p.description}{p.element_name?` · ${p.element_name}`:''}</option>)}</select></label>
+        {item.machine_id?<SparePartCombobox parts={(machineParts[item.machine_id]||[]).map(p=>({...p,active:true}))} value={item.spare_part_id||''} onChange={id=>id?usePart(index,id):(itemChange(index,'spare_part_id',null),itemChange(index,'supplier_id',null))} />:<p className="full-field field-help">Selecciona una máquina para buscar sus repuestos específicos.</p>}
         <label className="full-field">Otros repuestos del inventario<select value="" onChange={e=>usePart(index,e.target.value)}><option value="">Selecciona un repuesto general</option>{catalog.parts.filter(p=>!(machineParts[item.machine_id]||[]).some(mp=>mp.spare_part_id===p.spare_part_id)).map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>
         {item.spare_part_id&&<label>Proveedor del repuesto<select value={item.supplier_id||''} onChange={e=>itemChange(index,'supplier_id',e.target.value)}><option value="">Selecciona un proveedor</option>{(partSuppliers[item.spare_part_id]||[]).map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.supplier_name}{s.preferred_supplier?' · Preferido':''}</option>)}</select><span className="field-help">Solo se muestran proveedores asociados a este repuesto.</span></label>}
       </>}
