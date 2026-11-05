@@ -411,3 +411,6 @@ body>.schedule-report-document{display:none}
 .selected-machine-photo .request-photo-thumbnail { max-width: 280px; }
 .selected-machine-photo .request-machine-photo, .selected-machine-photo img { width: 260px; max-width: 100%; }
 .selected-machine-photo img { height: 180px; }
+
+/* La vista operativa conserva solo trabajos asignados; la tabla general vive en Buscar solicitudes. */
+.workspace-pending .maintenance-requests-table { display: none; }
