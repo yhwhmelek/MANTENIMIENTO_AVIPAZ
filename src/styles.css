@@ -419,3 +419,10 @@ body>.schedule-report-document{display:none}
 .request-activity-photo-item .request-photo-thumbnail { width: 100%; max-width: none; }
 .request-activity-photo-item .request-machine-photo { width: 100%; height: 140px; }
 .request-activity-photo-item .request-machine-photo img { width: 100%; height: 140px; object-fit: contain; }
+.prioritized-activities-table:not(.prioritized-activities-table-with-photos) { display: none; }
+.activity-table-with-photos .activity-photo-cell { vertical-align: middle; }
+.activity-table-with-photos .request-alert-photos { display: block; }
+.activity-table-with-photos .request-photo-thumbnail { width: 100%; max-width: 120px; }
+.activity-table-with-photos .request-photo-thumbnail figcaption { font-size: 11px; }
+.activity-table-with-photos .request-machine-photo { width: 112px; height: 82px; }
+.activity-table-with-photos .request-machine-photo img { width: 112px; height: 82px; object-fit: contain; }
