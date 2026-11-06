@@ -288,6 +288,22 @@ class SparePartSupplierResponse(SparePartSupplierWrite):
     supplier_code: str | None = None
 
 
+class ConsumableSupplierWrite(BaseModel):
+    supplier_id: int
+    supplier_item_number: str | None = Field(default=None, max_length=100)
+    current_price: Decimal | None = Field(default=None, ge=0)
+    lead_time_days: int | None = Field(default=None, ge=0, le=3650)
+    preferred_supplier: bool = False
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class ConsumableSupplierResponse(ConsumableSupplierWrite):
+    consumable_supplier_id: int
+    consumable_id: int
+    supplier_name: str
+    supplier_code: str | None = None
+
+
 seguridad_bearer = HTTPBearer()
 
 
@@ -1907,6 +1923,103 @@ def eliminar_consumible(consumable_id: int, usuario_id: int = Depends(obtener_ad
         raise
     except (pyodbc.Error, RuntimeError):
         raise HTTPException(status_code=503, detail="No se pudo desactivar el consumible")
+
+
+def convertir_proveedor_consumible(item):
+    return ConsumableSupplierResponse(
+        consumable_supplier_id=item.ConsumableSupplierId,
+        consumable_id=item.ConsumableId,
+        supplier_id=item.SupplierId,
+        supplier_item_number=item.SupplierItemNumber,
+        current_price=item.CurrentPrice,
+        lead_time_days=item.LeadTimeDays,
+        preferred_supplier=bool(item.PreferredSupplier),
+        notes=item.Notes,
+        supplier_name=item.SupplierName,
+        supplier_code=item.SupplierCode,
+    )
+
+
+@app.get("/consumibles/{consumable_id}/proveedores", response_model=list[ConsumableSupplierResponse])
+def listar_proveedores_consumible(consumable_id: int, usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            rows = conexion.cursor().execute(
+                '''SELECT cs.ConsumableSupplierId, cs.ConsumableId, cs.SupplierId,
+                          cs.SupplierItemNumber, cs.CurrentPrice, cs.LeadTimeDays,
+                          cs.PreferredSupplier, cs.Notes, s.Name AS SupplierName, s.SupplierCode
+                   FROM dbo.ConsumableSuppliers cs
+                   INNER JOIN dbo.Suppliers s ON s.SupplierId=cs.SupplierId
+                   WHERE cs.ConsumableId=? ORDER BY cs.PreferredSupplier DESC, s.Name''', consumable_id
+            ).fetchall()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(503, 'No se pudieron consultar los proveedores del consumible')
+    return [convertir_proveedor_consumible(row) for row in rows]
+
+
+@app.post("/consumibles/{consumable_id}/proveedores", response_model=ConsumableSupplierResponse, status_code=status.HTTP_201_CREATED)
+def agregar_proveedor_consumible(consumable_id: int, datos: ConsumableSupplierWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if not cursor.execute('SELECT ConsumableId FROM dbo.Consumables WHERE ConsumableId=?', consumable_id).fetchone():
+                raise HTTPException(404, 'Consumible no encontrado')
+            if cursor.execute('SELECT ConsumableSupplierId FROM dbo.ConsumableSuppliers WHERE ConsumableId=? AND SupplierId=?', consumable_id, datos.supplier_id).fetchone():
+                raise HTTPException(409, 'Este proveedor ya esta asociado al consumible')
+            if not cursor.execute('SELECT SupplierId FROM dbo.Suppliers WHERE SupplierId=? AND Active=1', datos.supplier_id).fetchone():
+                raise HTTPException(422, 'El proveedor seleccionado no existe o esta inactivo')
+            if datos.preferred_supplier:
+                cursor.execute('UPDATE dbo.ConsumableSuppliers SET PreferredSupplier=0 WHERE ConsumableId=?', consumable_id)
+            relation_id = cursor.execute('''INSERT INTO dbo.ConsumableSuppliers
+                (ConsumableId,SupplierId,SupplierItemNumber,CurrentPrice,LeadTimeDays,PreferredSupplier,Notes)
+                OUTPUT INSERTED.ConsumableSupplierId VALUES (?,?,?,?,?,?,?)''', consumable_id, datos.supplier_id,
+                datos.supplier_item_number, datos.current_price, datos.lead_time_days, datos.preferred_supplier, datos.notes).fetchone()[0]
+            row = cursor.execute('''SELECT cs.ConsumableSupplierId, cs.ConsumableId, cs.SupplierId,
+                cs.SupplierItemNumber, cs.CurrentPrice, cs.LeadTimeDays, cs.PreferredSupplier, cs.Notes,
+                s.Name AS SupplierName, s.SupplierCode FROM dbo.ConsumableSuppliers cs
+                INNER JOIN dbo.Suppliers s ON s.SupplierId=cs.SupplierId WHERE cs.ConsumableSupplierId=?''', relation_id).fetchone()
+            conexion.commit()
+    except HTTPException: raise
+    except pyodbc.IntegrityError: raise HTTPException(422, 'El consumible o proveedor seleccionado no existe')
+    except (pyodbc.Error, RuntimeError): raise HTTPException(503, 'No se pudo asociar el proveedor')
+    return convertir_proveedor_consumible(row)
+
+
+@app.put("/consumibles/{consumable_id}/proveedores/{relation_id}", response_model=ConsumableSupplierResponse)
+def actualizar_proveedor_consumible(consumable_id: int, relation_id: int, datos: ConsumableSupplierWrite, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute('SELECT ConsumableSupplierId FROM dbo.ConsumableSuppliers WHERE ConsumableId=? AND SupplierId=? AND ConsumableSupplierId<>?', consumable_id, datos.supplier_id, relation_id).fetchone():
+                raise HTTPException(409, 'Este proveedor ya esta asociado al consumible')
+            if not cursor.execute('SELECT SupplierId FROM dbo.Suppliers WHERE SupplierId=? AND Active=1', datos.supplier_id).fetchone():
+                raise HTTPException(422, 'El proveedor seleccionado no existe o esta inactivo')
+            if datos.preferred_supplier:
+                cursor.execute('UPDATE dbo.ConsumableSuppliers SET PreferredSupplier=0 WHERE ConsumableId=?', consumable_id)
+            cursor.execute('''UPDATE dbo.ConsumableSuppliers SET SupplierId=?,SupplierItemNumber=?,CurrentPrice=?,LeadTimeDays=?,PreferredSupplier=?,Notes=?
+                WHERE ConsumableSupplierId=? AND ConsumableId=?''', datos.supplier_id, datos.supplier_item_number, datos.current_price,
+                datos.lead_time_days, datos.preferred_supplier, datos.notes, relation_id, consumable_id)
+            if cursor.rowcount == 0: raise HTTPException(404, 'Relacion no encontrada')
+            row = cursor.execute('''SELECT cs.ConsumableSupplierId, cs.ConsumableId, cs.SupplierId,
+                cs.SupplierItemNumber, cs.CurrentPrice, cs.LeadTimeDays, cs.PreferredSupplier, cs.Notes,
+                s.Name AS SupplierName, s.SupplierCode FROM dbo.ConsumableSuppliers cs
+                INNER JOIN dbo.Suppliers s ON s.SupplierId=cs.SupplierId WHERE cs.ConsumableSupplierId=?''', relation_id).fetchone()
+            conexion.commit()
+    except HTTPException: raise
+    except (pyodbc.Error, RuntimeError): raise HTTPException(503, 'No se pudo actualizar la relacion')
+    return convertir_proveedor_consumible(row)
+
+
+@app.delete("/consumibles/{consumable_id}/proveedores/{relation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def quitar_proveedor_consumible(consumable_id: int, relation_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute('DELETE FROM dbo.ConsumableSuppliers WHERE ConsumableSupplierId=? AND ConsumableId=?', relation_id, consumable_id)
+            if cursor.rowcount == 0: raise HTTPException(404, 'Relacion no encontrada')
+            conexion.commit()
+    except HTTPException: raise
+    except (pyodbc.Error, RuntimeError): raise HTTPException(503, 'No se pudo quitar la relacion')
 
 
 @app.get("/repuestos/{spare_part_id}", response_model=SparePartResponse)

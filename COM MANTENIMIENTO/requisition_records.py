@@ -84,6 +84,8 @@ def register_requisition_records(app, connect, active_user, admin_user):
         consumables = [item for item in requisition.items if item.item_type == 'CONSUMIBLE']
         if any(item.consumable_id is None for item in consumables):
             raise HTTPException(422, 'Selecciona un consumible del catálogo')
+        if any(item.supplier_id is None for item in consumables):
+            raise HTTPException(422, 'Selecciona un proveedor asociado al consumible')
         ids = [item.consumable_id for item in consumables]
         if not ids:
             return
@@ -93,6 +95,15 @@ def register_requisition_records(app, connect, active_user, admin_user):
         ).fetchall()
         if len(found) != len(set(ids)):
             raise HTTPException(422, 'Selecciona únicamente consumibles activos del catálogo')
+        for item in consumables:
+            relation = cursor.execute(
+                '''SELECT 1 FROM dbo.ConsumableSuppliers cs
+                   INNER JOIN dbo.Consumables c ON c.ConsumableId=cs.ConsumableId AND c.Active=1
+                   INNER JOIN dbo.Suppliers s ON s.SupplierId=cs.SupplierId AND s.Active=1
+                   WHERE cs.ConsumableId=? AND cs.SupplierId=?''', item.consumable_id, item.supplier_id
+            ).fetchone()
+            if relation is None:
+                raise HTTPException(422, 'Selecciona un proveedor asociado al consumible')
 
     def transact(operation):
         try:
