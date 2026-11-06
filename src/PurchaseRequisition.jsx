@@ -16,12 +16,12 @@ const fileBase64 = file => new Promise((resolve,reject)=>{
 })
 const today = () => {const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 
-export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
-  const [form,setForm]=useState({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[newItem()]})
+export default function PurchaseRequisition({ apiUrl, token, currentUser, initialRequestType='MATERIAL' }) {
+  const [form,setForm]=useState({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[{...newItem(),item_type:initialRequestType}]})
   const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[],towers:[]})
   const [machineParts,setMachineParts]=useState({})
   const [partSuppliers,setPartSuppliers]=useState({})
-  const [requestType,setRequestType]=useState('MATERIAL')
+  const [requestType,setRequestType]=useState(initialRequestType)
   const [selectedTower,setSelectedTower]=useState('')
   const [selectedMachine,setSelectedMachine]=useState('')
   const [machineSearch,setMachineSearch]=useState('')
@@ -96,8 +96,8 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
   }
   function newRequisition(){
     setEditing(null);saved.current=null;setMailDraft(null);setError('');setMessage('')
-    setForm({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[newItem()]})
-    setRequestType('MATERIAL');setSelectedTower('');setSelectedMachine('');setMachineSearch('')
+    setForm({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[{...newItem(),item_type:initialRequestType}]})
+    setRequestType(initialRequestType);setSelectedTower('');setSelectedMachine('');setMachineSearch('')
   }
   function change(key,value){setForm(f=>({...f,[key]:value}))}
   function itemChange(index,key,value){setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,[key]:value}:item)}))}
@@ -158,7 +158,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser }) {
     }catch(err){setError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   return <>
-    <div className="page-heading"><div><p className="eyebrow">ADQUISICIONES</p><h1>Requisición de compra</h1><p>Guarda el pedido, consulta su historial y confirma la llegada para ingresar la compra al inventario.</p></div></div>
+    <div className="page-heading"><div><p className="eyebrow">{initialRequestType==='CONSUMIBLE'?'ENERGÍA / CONSUMIBLES':'ADQUISICIONES'}</p><h1>{initialRequestType==='CONSUMIBLE'?'Energía y consumibles':'Requisición de compra'}</h1><p>{initialRequestType==='CONSUMIBLE'?'Registra GLP, diésel, gasolina, energía eléctrica, agua y otros consumibles.':'Guarda el pedido, consulta su historial y confirma la llegada para ingresar la compra al inventario.'}</p></div></div>
     <p>La requisición queda pendiente hasta que un administrador confirme la recepción con las cantidades y precios reales. Puedes incluir hasta 11 ítems.</p>
     {catalogError&&<p role="status">{catalogError}</p>}
     <div ref={editor}/>
