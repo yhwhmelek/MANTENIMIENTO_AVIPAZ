@@ -426,3 +426,5 @@ body>.schedule-report-document{display:none}
 .activity-table-with-photos .request-photo-thumbnail figcaption { font-size: 11px; }
 .activity-table-with-photos .request-machine-photo { width: 112px; height: 82px; }
 .activity-table-with-photos .request-machine-photo img { width: 112px; height: 82px; object-fit: contain; }
+.activity-dates-cell { font-size: 12px; line-height: 1.45; }
+.activity-dates-cell div + div { margin-top: 4px; }
