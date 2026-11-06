@@ -21,7 +21,7 @@ class RequisitionEdit(TextModel):
 
 
 class ReceivedItem(TextModel):
-    item_type: Literal['MATERIAL', 'SERVICIO'] = 'MATERIAL'
+    item_type: Literal['MATERIAL', 'SERVICIO', 'CONSUMIBLE'] = 'MATERIAL'
     spare_part_id: int | None = Field(default=None, gt=0)
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     unit_cost: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
@@ -29,9 +29,9 @@ class ReceivedItem(TextModel):
     @model_validator(mode='after')
     def stock_reference(self):
         if self.item_type == 'MATERIAL' and self.spare_part_id is None:
-            raise ValueError('Selecciona un repuesto para el material o clasifica el item como servicio')
-        if self.item_type == 'SERVICIO' and self.spare_part_id is not None:
-            raise ValueError('Un servicio no debe vincularse a un repuesto')
+            raise ValueError('Selecciona un repuesto para el material o clasifica el item como servicio o consumible')
+        if self.item_type != 'MATERIAL' and self.spare_part_id is not None:
+            raise ValueError('Un servicio o consumible no debe vincularse a un repuesto')
         return self
 
 
@@ -179,9 +179,9 @@ def register_requisition_records(app, connect, active_user, admin_user):
                 raise HTTPException(422, 'Selecciona un proveedor activo')
             purchases = []
             for index, item in enumerate(data.items):
-                if requisition.items[index].item_type == 'SERVICIO' and item.item_type != 'SERVICIO':
-                    raise HTTPException(422, f'Item {index+1}: el servicio no ingresa al inventario')
-                if item.item_type == 'SERVICIO':
+                if requisition.items[index].item_type != 'MATERIAL' and item.item_type != requisition.items[index].item_type:
+                    raise HTTPException(422, f'Item {index+1}: conserva el tipo {requisition.items[index].item_type.lower()} de la requisicion')
+                if item.item_type != 'MATERIAL':
                     purchases.append(None)
                     continue
                 part = cursor.execute('SELECT UnitOfMeasure FROM dbo.SpareParts WITH (HOLDLOCK) WHERE SparePartId=? AND Active=1', item.spare_part_id).fetchone()

@@ -77,6 +77,19 @@ class RecordsTests(unittest.TestCase):
         self.assertEqual(saved['items'][0]['item_type'], 'SERVICIO')
         self.connection.commit.assert_called_once()
 
+    def test_consumable_receipt_records_cost_without_inventory(self):
+        self.requisition.items[0] = self.requisition.items[0].model_copy(update={
+            'item_type': 'CONSUMIBLE', 'description': 'GLP', 'unit': 'kg'})
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            (self.requisition.model_dump_json(), None, None), (1,)]
+        data = self.receipt.model_dump()
+        data['items'] = [dict(item_type='CONSUMIBLE', quantity=25, unit_cost='1.20')]
+        result = self.endpoint('/requisiciones-compra/{record_id}/recibir')(7,ReceiptWrite(**data),user=2)
+        self.assertEqual(result['purchase_ids'], [None])
+        sql = ' '.join(call.args[0] for call in self.cursor.execute.call_args_list)
+        self.assertNotIn('dbo.SparePartPurchases', sql)
+        self.assertEqual(json.loads(self.cursor.execute.call_args.args[2])['items'][0]['item_type'], 'CONSUMIBLE')
+
     def test_mixed_receipt_keeps_item_purchase_alignment(self):
         self.requisition.items.append(self.requisition.items[0].model_copy(update={'item_type':'SERVICIO', 'description':'Instalación'}))
         self.cursor.execute.return_value.fetchone.side_effect = [

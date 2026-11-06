@@ -95,7 +95,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         attachment={filename,content_base64:dataUrl.split(',')[1]}
       }
       setUploadStage(sendEmail?'Guardando recepción y enviando confirmación…':'Guardando recepción…')
-      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,items:receipt.items.map(item=>({...item,spare_part_id:item.item_type==='SERVICIO'?null:item.spare_part_id})),invoice:attachment,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc)}:null})})
+      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,items:receipt.items.map(item=>({...item,spare_part_id:item.item_type==='MATERIAL'?item.spare_part_id:null})),invoice:attachment,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc)}:null})})
       const data=await r.json();if(!r.ok)throw new Error(requestValidationError(data))
       setSelected(null);setRefresh(v=>v+1)
       setShowMail(false)
@@ -138,8 +138,8 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         <ImageAttachment label="Adjuntar factura (opcional: PDF o foto, máximo 10 MB)" key={selected.id} accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={e=>{setInvoice(e.target.files?.[0]||null);setError('')}} help="" />
         <label>Moneda *<input required pattern="[A-Z]{3}" maxLength={3} value={receipt.currency} onChange={e=>change('currency',e.target.value.toUpperCase())}/></label>
       </div>{receipt.items.map((item,i)=><div className="request-detail" key={i}><strong>{selected.requisition.items[i].description} · Unidad: {selected.requisition.items[i].unit}</strong><div className="motor-form-grid">
-        <label>Tipo de recepcion<select value={item.item_type||'MATERIAL'} disabled={selected.requisition.items[i].item_type==='SERVICIO'} onChange={e=>setReceipt(r=>({...r,items:r.items.map((row,n)=>n===i?{...row,item_type:e.target.value,spare_part_id:''}:row)}))}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option></select></label>
-        {item.item_type!=='SERVICIO'&&<label>Repuesto de inventario *<select required value={item.spare_part_id} onChange={e=>itemChange(i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{catalog.parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description} ({p.unit_of_measure})</option>)}</select></label>}
+        <label>Tipo de recepción<select value={item.item_type||'MATERIAL'} disabled={selected.requisition.items[i].item_type!=='MATERIAL'} onChange={e=>setReceipt(r=>({...r,items:r.items.map((row,n)=>n===i?{...row,item_type:e.target.value,spare_part_id:''}:row)}))}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option><option value="CONSUMIBLE">Energía / consumible (sin inventario)</option></select></label>
+        {item.item_type==='MATERIAL'&&<label>Repuesto de inventario *<select required value={item.spare_part_id} onChange={e=>itemChange(i,'spare_part_id',e.target.value)}><option value="">Selecciona</option>{catalog.parts.map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description} ({p.unit_of_measure})</option>)}</select></label>}
         <label>Cantidad recibida *<input required type="number" min="0.01" max="99999999.99" step="0.01" value={item.quantity} onChange={e=>itemChange(i,'quantity',e.target.value)}/></label>
         <label>Precio unitario *<input required type="number" min="0" step="0.0001" value={item.unit_cost} onChange={e=>itemChange(i,'unit_cost',e.target.value)}/></label>
       </div></div>)}
@@ -151,7 +151,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         <p>Firma del correo:</p><img src={signatureImage} alt="Firma de Mantenimiento AVIPAZ" style={{width:800,maxWidth:'100%',height:'auto'}}/>
       </section>}
       <div className="modal-actions"><button className="primary-action" type="submit" value="save">{busy?'Procesando…':'Aceptar'}</button>{showMail?<><button className="primary-action" type="submit" value="email">Aceptar y enviar correo de confirmación</button><button type="button" className="secondary-action" onClick={()=>setShowMail(false)}>Ocultar correo</button></>:<button type="button" className="secondary-action" onClick={()=>setShowMail(true)}>Aceptar y enviar correo…</button>}</div>
-      <p>Ambas opciones guardan la recepcion y la factura adjunta. Solo los materiales actualizan el inventario; los servicios registran su cantidad y costo sin exigir repuesto.</p></fieldset></form>}
+      <p>Ambas opciones guardan la recepción y la factura adjunta. Solo los materiales actualizan el inventario; los servicios y consumibles registran su cantidad y costo sin exigir repuesto.</p></fieldset></form>}
       <button type="button" disabled={busy} onClick={()=>setSelected(null)}>Cerrar detalle</button>
     </section>}
   </section>

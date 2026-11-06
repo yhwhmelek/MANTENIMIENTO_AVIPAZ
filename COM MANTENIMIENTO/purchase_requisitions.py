@@ -25,7 +25,7 @@ class TextModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
 
 class RequisitionItem(TextModel):
-    item_type: Literal['MATERIAL', 'SERVICIO'] = 'MATERIAL'
+    item_type: Literal['MATERIAL', 'SERVICIO', 'CONSUMIBLE'] = 'MATERIAL'
     spare_part_id: int | None = Field(default=None, gt=0)
     tower_id: int | None = Field(default=None, gt=0)
     machine_id: int | None = Field(default=None, gt=0)
@@ -37,10 +37,10 @@ class RequisitionItem(TextModel):
 
     @model_validator(mode='after')
     def service_without_stock(self):
-        if self.item_type == 'SERVICIO' and self.spare_part_id is not None:
-            raise ValueError('Un servicio no debe vincularse a un repuesto')
-        if self.item_type == 'SERVICIO' and any(value is not None for value in (self.tower_id, self.machine_id, self.supplier_id)):
-            raise ValueError('Un servicio no debe vincularse a torre, maquina o proveedor de repuesto')
+        if self.item_type != 'MATERIAL' and self.spare_part_id is not None:
+            raise ValueError('Un servicio o consumible no debe vincularse a un repuesto')
+        if self.item_type != 'MATERIAL' and any(value is not None for value in (self.tower_id, self.machine_id, self.supplier_id)):
+            raise ValueError('Un servicio o consumible no debe vincularse a torre, maquina o proveedor de repuesto')
         return self
 
 class RequisitionWrite(TextModel):

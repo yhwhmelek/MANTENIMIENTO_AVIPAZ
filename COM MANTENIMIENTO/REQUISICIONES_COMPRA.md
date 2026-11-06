@@ -27,4 +27,8 @@ La recepción es única y completa: no admite entregas parciales sucesivas. Las 
 
 Las compras conservan en sus notas el número de requisición y de ítem. La requisición conserva los identificadores de compra, el administrador y los datos de recepción. Las anulaciones posteriores se gestionan en el historial de compras existente y no reabren automáticamente la requisición.
 
+## Energía y consumibles
+
+El tipo de requisición **Energía / consumibles** permite registrar GLP, diésel, gasolina, energía eléctrica, agua y otros consumibles que no ingresan al inventario de repuestos. Cada ítem conserva su descripción, cantidad, unidad y especificaciones; al confirmar la recepción se registra el costo sin crear existencias ni movimientos de stock.
+
 ## Referencia del generador de documentos
