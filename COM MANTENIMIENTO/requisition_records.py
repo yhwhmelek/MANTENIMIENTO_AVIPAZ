@@ -80,6 +80,20 @@ class ReceiptWrite(TextModel):
 
 
 def register_requisition_records(app, connect, active_user, admin_user):
+    def validate_consumables(cursor, requisition):
+        consumables = [item for item in requisition.items if item.item_type == 'CONSUMIBLE']
+        if any(item.consumable_id is None for item in consumables):
+            raise HTTPException(422, 'Selecciona un consumible del catálogo')
+        ids = [item.consumable_id for item in consumables]
+        if not ids:
+            return
+        placeholders = ','.join('?' for _ in ids)
+        found = cursor.execute(
+            f'SELECT ConsumableId FROM dbo.Consumables WHERE Active=1 AND ConsumableId IN ({placeholders})', *ids
+        ).fetchall()
+        if len(found) != len(set(ids)):
+            raise HTTPException(422, 'Selecciona únicamente consumibles activos del catálogo')
+
     def transact(operation):
         try:
             with closing(connect()) as connection:
@@ -104,6 +118,7 @@ def register_requisition_records(app, connect, active_user, admin_user):
     @app.post('/requisiciones-compra', status_code=201)
     def create(data: RequisitionWrite, user: int = Depends(active_user)):
         def operation(cursor):
+            validate_consumables(cursor, data)
             row = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.PurchaseRequisitions
                 (Payload,CreatedBy) VALUES (?,?); SELECT CAST(SCOPE_IDENTITY() AS int);''',
                 data.model_dump_json(), user).fetchone()
@@ -118,6 +133,7 @@ def register_requisition_records(app, connect, active_user, admin_user):
             if original != data.original:
                 raise HTTPException(409, 'La requisicion cambio desde que la abriste. Actualiza el historial y vuelve a editar.')
             receipt = json.loads(row[2]) if row[2] else None
+            validate_consumables(cursor, data.requisition)
             if receipt is not None:
                 # Conserva la correspondencia entre los items recibidos y sus compras.
                 receipt.setdefault('requisition_at_receipt', original.model_dump(mode='json'))

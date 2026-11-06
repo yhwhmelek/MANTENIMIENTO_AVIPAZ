@@ -27,6 +27,7 @@ class TextModel(BaseModel):
 class RequisitionItem(TextModel):
     item_type: Literal['MATERIAL', 'SERVICIO', 'CONSUMIBLE'] = 'MATERIAL'
     spare_part_id: int | None = Field(default=None, gt=0)
+    consumable_id: int | None = Field(default=None, gt=0)
     tower_id: int | None = Field(default=None, gt=0)
     machine_id: int | None = Field(default=None, gt=0)
     supplier_id: int | None = Field(default=None, gt=0)
@@ -41,6 +42,8 @@ class RequisitionItem(TextModel):
             raise ValueError('Un servicio o consumible no debe vincularse a un repuesto')
         if self.item_type != 'MATERIAL' and any(value is not None for value in (self.tower_id, self.machine_id, self.supplier_id)):
             raise ValueError('Un servicio o consumible no debe vincularse a torre, maquina o proveedor de repuesto')
+        if self.item_type != 'CONSUMIBLE' and self.consumable_id is not None:
+            raise ValueError('El consumible solo puede vincularse a un item tipo CONSUMIBLE')
         return self
 
 class RequisitionWrite(TextModel):

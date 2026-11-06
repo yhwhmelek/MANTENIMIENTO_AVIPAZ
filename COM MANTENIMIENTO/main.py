@@ -242,6 +242,19 @@ class SparePartCategoryWrite(BaseModel):
     description: str | None = Field(default=None, max_length=255)
 
 
+class ConsumableBase(BaseModel):
+    internal_code: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=160)
+    unit_of_measure: str = Field(min_length=1, max_length=20)
+    description: str | None = Field(default=None, max_length=500)
+    active: bool = True
+
+
+class ConsumableResponse(ConsumableBase):
+    consumable_id: int
+    created_at: datetime
+
+
 class SupplierBase(BaseModel):
     supplier_code: str | None = Field(default=None, max_length=50)
     name: str = Field(min_length=1, max_length=200)
@@ -1815,6 +1828,85 @@ def eliminar_categoria_repuesto(
         raise
     except (pyodbc.Error, RuntimeError):
         raise HTTPException(status_code=503, detail="No se pudo eliminar la categoria")
+
+
+def convertir_consumible(consumible):
+    return ConsumableResponse(
+        consumable_id=consumible.ConsumableId,
+        internal_code=consumible.InternalCode,
+        name=consumible.Name,
+        unit_of_measure=consumible.UnitOfMeasure,
+        description=consumible.Description,
+        active=bool(consumible.Active),
+        created_at=consumible.CreatedAt,
+    )
+
+
+@app.get("/consumibles", response_model=list[ConsumableResponse])
+def listar_consumibles(usuario_id: int = Depends(obtener_usuario_activo)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            rows = conexion.cursor().execute(
+                "SELECT ConsumableId, InternalCode, Name, UnitOfMeasure, Description, Active, CreatedAt FROM dbo.Consumables ORDER BY Name"
+            ).fetchall()
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo consultar la lista de consumibles")
+    return [convertir_consumible(row) for row in rows]
+
+
+@app.post("/consumibles", response_model=ConsumableResponse, status_code=status.HTTP_201_CREATED)
+def crear_consumible(datos: ConsumableBase, usuario_id: int = Depends(obtener_admin_actual)):
+    values = (datos.internal_code.strip(), datos.name.strip(), datos.unit_of_measure.strip(), datos.description.strip() if datos.description else None, datos.active)
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute("SELECT ConsumableId FROM dbo.Consumables WHERE LOWER(InternalCode)=LOWER(?)", values[0]).fetchone():
+                raise HTTPException(status_code=409, detail="Ya existe un consumible con ese código")
+            row = cursor.execute("""INSERT INTO dbo.Consumables (InternalCode,Name,UnitOfMeasure,Description,Active)
+                OUTPUT INSERTED.ConsumableId, INSERTED.InternalCode, INSERTED.Name, INSERTED.UnitOfMeasure, INSERTED.Description, INSERTED.Active, INSERTED.CreatedAt
+                VALUES (?,?,?,?,?)""", *values).fetchone()
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo crear el consumible")
+    return convertir_consumible(row)
+
+
+@app.put("/consumibles/{consumable_id}", response_model=ConsumableResponse)
+def actualizar_consumible(consumable_id: int, datos: ConsumableBase, usuario_id: int = Depends(obtener_admin_actual)):
+    values = (datos.internal_code.strip(), datos.name.strip(), datos.unit_of_measure.strip(), datos.description.strip() if datos.description else None, datos.active)
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            if cursor.execute("SELECT ConsumableId FROM dbo.Consumables WHERE LOWER(InternalCode)=LOWER(?) AND ConsumableId<>?", values[0], consumable_id).fetchone():
+                raise HTTPException(status_code=409, detail="Ya existe un consumible con ese código")
+            row = cursor.execute("""UPDATE dbo.Consumables SET InternalCode=?,Name=?,UnitOfMeasure=?,Description=?,Active=?
+                OUTPUT INSERTED.ConsumableId, INSERTED.InternalCode, INSERTED.Name, INSERTED.UnitOfMeasure, INSERTED.Description, INSERTED.Active, INSERTED.CreatedAt
+                WHERE ConsumableId=?""", *values, consumable_id).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Consumible no encontrado")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo actualizar el consumible")
+    return convertir_consumible(row)
+
+
+@app.delete("/consumibles/{consumable_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_consumible(consumable_id: int, usuario_id: int = Depends(obtener_admin_actual)):
+    try:
+        with closing(obtener_conexion()) as conexion:
+            cursor = conexion.cursor()
+            cursor.execute("UPDATE dbo.Consumables SET Active=0 WHERE ConsumableId=?", consumable_id)
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Consumible no encontrado")
+            conexion.commit()
+    except HTTPException:
+        raise
+    except (pyodbc.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail="No se pudo desactivar el consumible")
 
 
 @app.get("/repuestos/{spare_part_id}", response_model=SparePartResponse)

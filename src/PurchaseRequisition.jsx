@@ -3,8 +3,7 @@ import RequisitionHistory from './RequisitionHistory'
 import SparePartCombobox from './SparePartCombobox'
 import signatureImage from './firma_correo.jpg'
 
-const newItem = () => ({ item_type:'MATERIAL',description:'',quantity:'1',unit:'UNIDAD',specifications:'' })
-const consumableOptions = ['GLP','Diésel','Gasolina','Energía eléctrica','Agua','Otro consumible']
+const newItem = () => ({ item_type:'MATERIAL',description:'',quantity:'1',unit:'UNIDAD',specifications:'',consumable_id:null })
 const DEFAULT_MAIL_TO = 'adquisiciones@avipaz.ec'
 const DEFAULT_MAIL_CC = 'compras@avipaz.ec, mantenimientosamanga@avipaz.ec'
 const fileBase64 = file => new Promise((resolve,reject)=>{
@@ -18,7 +17,7 @@ const today = () => {const d=new Date();return `${d.getFullYear()}-${String(d.ge
 
 export default function PurchaseRequisition({ apiUrl, token, currentUser, initialRequestType='MATERIAL' }) {
   const [form,setForm]=useState({department:'Mantenimiento',supplier:'',requested_on:today(),delivery_on:'',urgent:false,machine_codes:'',observations:'',requester:currentUser.nombre_completo || currentUser.nombre,items:[{...newItem(),item_type:initialRequestType}]})
-  const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[],towers:[]})
+  const [catalog,setCatalog]=useState({parts:[],suppliers:[],machines:[],towers:[],consumables:[]})
   const [machineParts,setMachineParts]=useState({})
   const [partSuppliers,setPartSuppliers]=useState({})
   const [requestType,setRequestType]=useState(initialRequestType)
@@ -76,17 +75,17 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser, initia
   }
   useEffect(()=>{
     const controller=new AbortController()
-    Promise.all(['/repuestos','/proveedores','/maquinas','/torres'].map(async path=>{
+    Promise.all(['/repuestos','/proveedores','/maquinas','/torres','/consumibles'].map(async path=>{
       const response=await fetch(`${apiUrl}${path}`,{headers:{Authorization:`Bearer ${token}`},signal:controller.signal})
       if(!response.ok)throw new Error('No se pudieron cargar los catálogos. Puedes completar los datos manualmente.')
       return response.json()
-    })).then(([parts,suppliers,machines,towers])=>setCatalog({parts:parts.filter(p=>p.active),suppliers:suppliers.filter(p=>p.active),machines,towers}))
+    })).then(([parts,suppliers,machines,towers,consumables])=>setCatalog({parts:parts.filter(p=>p.active),suppliers:suppliers.filter(p=>p.active),machines,towers,consumables:consumables.filter(item=>item.active)}))
       .catch(err=>{if(err.name!=='AbortError')setCatalogError(err.message)})
     return()=>controller.abort()
   },[apiUrl,token])
   function editRequisition(row){
     if(submitting.current)return
-    setEditing(row);setForm({...row.requisition,delivery_on:row.requisition.delivery_on||'',items:row.requisition.items.map(i=>({...i}))})
+    setEditing(row);setForm({...row.requisition,delivery_on:row.requisition.delivery_on||'',items:row.requisition.items.map(i=>({...i,consumable_id:i.consumable_id||null}))})
     const first=row.requisition.items[0]||{}
     setRequestType(first.item_type||'MATERIAL');setSelectedTower(first.tower_id?String(first.tower_id):'');setSelectedMachine(first.machine_id?String(first.machine_id):'')
     const machine=catalog.machines.find(item=>String(item.machine_id)===String(first.machine_id));setMachineSearch(machine?`${machine.asset_code} · ${machine.name}`:'')
@@ -106,6 +105,11 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser, initia
     if(!part)return
     loadPartSuppliers(part.spare_part_id)
     setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,spare_part_id:part.spare_part_id,description:part.description.slice(0,160),unit:part.unit_of_measure,specifications:[part.internal_code,part.brand,part.model,part.part_number].filter(Boolean).join(' · ').slice(0,500)}:item)}))
+  }
+  function useConsumable(index,id){
+    const consumable=catalog.consumables.find(item=>String(item.consumable_id)===String(id))
+    if(!consumable)return
+    setForm(f=>({...f,items:f.items.map((item,i)=>i===index?{...item,consumable_id:consumable.consumable_id,description:consumable.name,unit:consumable.unit_of_measure,specifications:consumable.description||''}:item)}))
   }
   async function loadMachineParts(machineId){
     if(!machineId||machineParts[machineId])return
@@ -128,7 +132,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser, initia
   }
   function selectRequestType(type){
     setRequestType(type);setSelectedTower('');setSelectedMachine('');setMachineSearch('')
-    setForm(current=>({...current,items:current.items.map(item=>({...item,item_type:type,tower_id:null,machine_id:null,spare_part_id:null,supplier_id:null,unit:type==='SERVICIO'?'SERVICIO':'UNIDAD'}))}))
+    setForm(current=>({...current,items:current.items.map(item=>({...item,item_type:type,tower_id:null,machine_id:null,spare_part_id:null,supplier_id:null,consumable_id:null,unit:type==='SERVICIO'?'SERVICIO':'UNIDAD'}))}))
   }
   async function generate(event){
     event.preventDefault();if(submitting.current)return
@@ -137,7 +141,7 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser, initia
     try{
       const contextMachine=catalog.machines.find(machine=>String(machine.machine_id)===String(selectedMachine))
       const supplierNames=[...new Set(form.items.map(item=>(partSuppliers[item.spare_part_id]||[]).find(s=>String(s.supplier_id)===String(item.supplier_id))?.supplier_name).filter(Boolean))]
-      const payload={...form,supplier:requestType==='MATERIAL'?(supplierNames.length===1?supplierNames[0]:supplierNames.length>1?'Varios proveedores':''):form.supplier,machine_codes:contextMachine?.asset_code||'',delivery_on:form.urgent?null:form.delivery_on||null,items:form.items.map(item=>({...item,item_type:requestType,tower_id:requestType==='MATERIAL'&&selectedTower?Number(selectedTower):null,machine_id:requestType==='MATERIAL'&&selectedMachine?Number(selectedMachine):null,spare_part_id:requestType==='MATERIAL'?item.spare_part_id:null,supplier_id:requestType==='MATERIAL'?item.supplier_id:null,unit:requestType==='SERVICIO'?item.unit||'SERVICIO':item.unit}))}
+      const payload={...form,supplier:requestType==='MATERIAL'?(supplierNames.length===1?supplierNames[0]:supplierNames.length>1?'Varios proveedores':''):form.supplier,machine_codes:contextMachine?.asset_code||'',delivery_on:form.urgent?null:form.delivery_on||null,items:form.items.map(item=>({...item,item_type:requestType,tower_id:requestType==='MATERIAL'&&selectedTower?Number(selectedTower):null,machine_id:requestType==='MATERIAL'&&selectedMachine?Number(selectedMachine):null,spare_part_id:requestType==='MATERIAL'?item.spare_part_id:null,supplier_id:requestType==='MATERIAL'?item.supplier_id:null,consumable_id:requestType==='CONSUMIBLE'?item.consumable_id:null,unit:requestType==='SERVICIO'?item.unit||'SERVICIO':item.unit}))}
       const fingerprint=JSON.stringify(payload)
       let id=saved.current?.fingerprint===fingerprint?saved.current.id:null
       if(!id){
@@ -180,9 +184,9 @@ export default function PurchaseRequisition({ apiUrl, token, currentUser, initia
         <label className="full-field">Otros repuestos del inventario<select value="" onChange={e=>usePart(index,e.target.value)}><option value="">Selecciona un repuesto general</option>{catalog.parts.filter(p=>!(machineParts[selectedMachine]||[]).some(mp=>mp.spare_part_id===p.spare_part_id)).map(p=><option key={p.spare_part_id} value={p.spare_part_id}>{p.internal_code} · {p.description}</option>)}</select></label>
         {item.spare_part_id&&<label>Proveedor del repuesto<select value={item.supplier_id||''} onChange={e=>itemChange(index,'supplier_id',e.target.value)}><option value="">Selecciona un proveedor</option>{(partSuppliers[item.spare_part_id]||[]).map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.supplier_name}{s.preferred_supplier?' · Preferido':''}</option>)}</select><span className="field-help">Solo se muestran proveedores asociados a este repuesto.</span></label>}
       </>}
-      {requestType==='SERVICIO'?<label className="full-field">Descripción del servicio *<textarea rows={2} required maxLength={160} value={item.description} onChange={e=>itemChange(index,'description',e.target.value)}/></label>:requestType==='CONSUMIBLE'?<label className="full-field">Consumible / descripción *<input list={`consumable-options-${index}`} required maxLength={160} value={item.description} onChange={e=>itemChange(index,'description',e.target.value)}/><datalist id={`consumable-options-${index}`}>{consumableOptions.map(option=><option key={option} value={option}/>)}</datalist><span className="field-help">Ejemplos: GLP, diésel, gasolina, energía eléctrica o agua.</span></label>:<p className="full-field field-help"><strong>Repuesto seleccionado:</strong> {item.description||'Selecciona un repuesto propio de la máquina o del inventario.'}</p>}
+      {requestType==='SERVICIO'?<label className="full-field">Descripción del servicio *<textarea rows={2} required maxLength={160} value={item.description} onChange={e=>itemChange(index,'description',e.target.value)}/></label>:requestType==='CONSUMIBLE'?<><label className="full-field">Consumible del catálogo *<select required value={item.consumable_id||''} onChange={e=>useConsumable(index,e.target.value)}><option value="">Selecciona un consumible registrado</option>{catalog.consumables.map(consumable=><option key={consumable.consumable_id} value={consumable.consumable_id}>{consumable.internal_code} · {consumable.name} ({consumable.unit_of_measure})</option>)}</select></label><p className="full-field field-help"><strong>Consumible seleccionado:</strong> {item.description||'Selecciona un consumible del catálogo.'}</p></>:<p className="full-field field-help"><strong>Repuesto seleccionado:</strong> {item.description||'Selecciona un repuesto propio de la máquina o del inventario.'}</p>}
       <label>Cantidad *<input required type="number" min="0.01" max="99999999.99" step="0.01" value={item.quantity} onChange={e=>itemChange(index,'quantity',e.target.value)}/></label>
-      {(requestType==='SERVICIO'||requestType==='CONSUMIBLE')&&<><label>Unidad *<input required maxLength={20} placeholder={requestType==='CONSUMIBLE'?'kg, gal, kWh, m³…':'SERVICIO'} value={item.unit} onChange={e=>itemChange(index,'unit',e.target.value)}/></label><label className="full-field">Especificaciones (opcional)<textarea rows={3} maxLength={500} value={item.specifications} onChange={e=>itemChange(index,'specifications',e.target.value)}/></label></>}
+      {requestType==='SERVICIO'&&<><label>Unidad *<input required maxLength={20} placeholder="SERVICIO" value={item.unit} onChange={e=>itemChange(index,'unit',e.target.value)}/></label><label className="full-field">Especificaciones (opcional)<textarea rows={3} maxLength={500} value={item.specifications} onChange={e=>itemChange(index,'specifications',e.target.value)}/></label></>}
     </div></section>)}
     <div className="request-toolbar"><button className="secondary-action" type="button" disabled={form.items.length>=11} onClick={()=>change('items',[...form.items,{...newItem(),item_type:requestType,unit:requestType==='SERVICIO'?'SERVICIO':'UNIDAD'}])}>Añadir ítem ({form.items.length}/11)</button></div>
     <div className="motor-form-grid"><label className="full-field">Observaciones (opcional)<textarea rows={3} maxLength={1000} value={form.observations} onChange={e=>change('observations',e.target.value)}/></label></div>
