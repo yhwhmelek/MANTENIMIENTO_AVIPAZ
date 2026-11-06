@@ -152,6 +152,22 @@ def register_requisition_records(app, connect, active_user, admin_user):
                          receipt=json.loads(r[5]) if r[5] else None) for r in rows]
         return transact(operation)
 
+    @app.delete('/requisiciones-compra/{record_id}')
+    def delete(record_id: int, user: int = Depends(admin_user)):
+        def operation(cursor):
+            row = get_record(cursor, record_id, lock=True)
+            receipt = json.loads(row[2]) if row[2] else None
+            purchase_ids = sorted({int(value) for value in (receipt or {}).get('purchase_ids', []) if value})
+            if purchase_ids:
+                placeholders = ','.join('?' for _ in purchase_ids)
+                cursor.execute(f'DELETE FROM dbo.SparePartPurchases WHERE SparePartPurchaseId IN ({placeholders})', *purchase_ids)
+            cursor.execute('DELETE FROM dbo.PurchaseRequisitionInvoices WHERE RequisitionId=?', record_id)
+            cursor.execute('DELETE FROM dbo.PurchaseRequisitions WHERE RequisitionId=?', record_id)
+            if cursor.rowcount == 0:
+                raise HTTPException(404, 'Requisicion no encontrada')
+            return {'id': record_id, 'deleted_purchase_ids': purchase_ids}
+        return transact(operation)
+
     @app.get('/requisiciones-compra/pendientes')
     def pending(user: int = Depends(admin_user)):
         return transact(lambda cursor: {'count': cursor.execute(

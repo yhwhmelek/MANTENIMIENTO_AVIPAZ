@@ -78,6 +78,12 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
       a.href=url;a.download=`Requisicion_${row.id}.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000)
     }catch(e){setError(e.message)}finally{setBusy(false)}
   }
+  async function deleteRequisition(row){
+    if(!window.confirm(`¿Eliminar definitivamente la requisición #${row.id}, su flujo, factura y compras generadas? Esta acción no se puede deshacer.`))return
+    setBusy(true);setError('');setMessage('')
+    try{const response=await fetch(`${apiUrl}/requisiciones-compra/${row.id}`,{method:'DELETE',headers});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||'No se pudo eliminar la requisición.');setRows(items=>items.filter(item=>item.id!==row.id));if(selected?.id===row.id){setSelected(null);setReceipt(null)}setMessage(`Requisición #${row.id} eliminada junto con su flujo.`);window.dispatchEvent(new Event('requisitions-updated'));window.dispatchEvent(new Event('stock-updated'))}
+    catch(e){setError(e.message)}finally{setBusy(false)}
+  }
   async function receive(e){
     e.preventDefault();if(submitting.current)return
     const sendEmail=e.nativeEvent.submitter?.value==='email'
@@ -117,7 +123,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
   return <section className="request-detail"><h2>Requisiciones guardadas</h2><button type="button" disabled={busy} onClick={()=>setRefresh(v=>v+1)}>Actualizar historial</button>
     <label className="checkbox-field"><input type="checkbox" checked={pendingOnly} onChange={e=>setPendingOnly(e.target.checked)}/> Mostrar solo pendientes de llegada ({rows.filter(row=>row.status==='PENDIENTE').length})</label>
     {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
-    <div className="table-scroll"><table><thead><tr><th>Número</th><th>Fecha</th><th>Solicitante</th><th>Proveedor</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleRows.map(row=><tr key={row.id}><td>#{row.id}</td><td>{row.requisition.requested_on}</td><td>{row.requisition.requester}</td><td>{row.requisition.supplier||'Por definir'}</td><td>{row.status==='RECIBIDA'?'Recibida':'Pendiente de recepción'}</td><td>{isAdmin&&<button disabled={busy||editingBusy} onClick={()=>{setSelected(null);onEdit(row)}}>Editar</button>} <button disabled={busy} onClick={()=>open(row)}>Ver detalle</button> <button disabled={busy} onClick={()=>excel(row)}>Excel</button></td></tr>)}</tbody></table></div>
+    <div className="table-scroll"><table><thead><tr><th>Número</th><th>Fecha</th><th>Solicitante</th><th>Proveedor</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleRows.map(row=><tr key={row.id}><td>#{row.id}</td><td>{row.requisition.requested_on}</td><td>{row.requisition.requester}</td><td>{row.requisition.supplier||'Por definir'}</td><td>{row.status==='RECIBIDA'?'Recibida':'Pendiente de recepción'}</td><td>{isAdmin&&<button disabled={busy||editingBusy} onClick={()=>{setSelected(null);onEdit(row)}}>Editar</button>} <button disabled={busy} onClick={()=>open(row)}>Ver detalle</button> <button disabled={busy} onClick={()=>excel(row)}>Excel</button>{isAdmin&&<button className="danger" disabled={busy||editingBusy} onClick={()=>deleteRequisition(row)}>Eliminar</button>}</td></tr>)}</tbody></table></div>
     {!visibleRows.length&&!error&&<p>{pendingOnly?'No hay requisiciones pendientes de llegada.':'No hay requisiciones guardadas.'}</p>}
     {selected&&<section className="request-detail"><h3>Requisición #{selected.id}</h3><p>{selected.requisition.department} · {selected.requisition.requester} · Entrega: {selected.requisition.urgent?'Urgente':selected.requisition.delivery_on}</p><p>Máquinas: {selected.requisition.machine_codes||'No aplica'}</p><p>{selected.requisition.observations}</p>
       {selected.requisition.items.map((item,i)=><p key={i}><strong>{i+1}. {item.description}</strong> · {item.quantity} {item.unit}<br/>{item.specifications}</p>)}
@@ -152,7 +158,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
       </section>}
       <div className="modal-actions"><button className="primary-action" type="submit" value="save">{busy?'Procesando…':'Aceptar'}</button>{showMail?<><button className="primary-action" type="submit" value="email">Aceptar y enviar correo de confirmación</button><button type="button" className="secondary-action" onClick={()=>setShowMail(false)}>Ocultar correo</button></>:<button type="button" className="secondary-action" onClick={()=>setShowMail(true)}>Aceptar y enviar correo…</button>}</div>
       <p>Ambas opciones guardan la recepción y la factura adjunta. Solo los materiales actualizan el inventario; los servicios y consumibles registran su cantidad y costo sin exigir repuesto.</p></fieldset></form>}
-      <button type="button" disabled={busy} onClick={()=>setSelected(null)}>Cerrar detalle</button>
+      {isAdmin&&<button type="button" className="danger" disabled={busy||editingBusy} onClick={()=>deleteRequisition(selected)}>Eliminar requisición y flujo</button>} <button type="button" disabled={busy} onClick={()=>setSelected(null)}>Cerrar detalle</button>
     </section>}
   </section>
 }

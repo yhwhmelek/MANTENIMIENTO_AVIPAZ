@@ -29,7 +29,7 @@ class RecordsTests(unittest.TestCase):
     def test_permissions(self):
         for route in self.app.routes:
             if hasattr(route, 'dependant'):
-                expected = self.admin if 'PUT' in route.methods or route.path.endswith(('/recibir','/pendientes')) else self.active
+                expected = self.admin if 'PUT' in route.methods or 'DELETE' in route.methods or route.path.endswith(('/recibir','/pendientes')) else self.active
                 self.assertIn(expected, [d.call for d in route.dependant.dependencies])
 
     def test_save_preserves_payload_without_purchase(self):
@@ -60,6 +60,16 @@ class RecordsTests(unittest.TestCase):
         self.assertEqual(self.cursor.execute.call_count,1)
         self.connection.rollback.assert_called_once()
         self.connection.commit.assert_not_called()
+
+    def test_admin_can_delete_requisition_flow(self):
+        self.cursor.execute.return_value.fetchone.return_value = (self.requisition.model_dump_json(), None, None)
+        self.cursor.rowcount = 1
+        result = self.endpoint('/requisiciones-compra/{record_id}', 'DELETE')(7, user=2)
+        self.assertEqual(result['id'], 7)
+        sql = ' '.join(call.args[0] for call in self.cursor.execute.call_args_list)
+        self.assertIn('DELETE FROM dbo.PurchaseRequisitionInvoices', sql)
+        self.assertIn('DELETE FROM dbo.PurchaseRequisitions', sql)
+        self.connection.commit.assert_called_once()
 
     def test_service_receipt_records_cost_without_inventory(self):
         self.requisition.items[0].item_type = 'SERVICIO'
