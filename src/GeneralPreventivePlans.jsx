@@ -20,7 +20,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     setError(''); setMessage(''); setSearch(''); setPlant(''); setEditing(plan?.id || null)
     if (plan) { const {id, next_due, ...value} = plan; setForm(structuredClone({...value, coverage_mode:value.coverage_mode || 'SELECTED', excluded_machine_ids:value.excluded_machine_ids || []})); return }
     const first = general.find(a => a.active)
-    setForm({hour_base:0,hour_bases:{},first_service_done:false,scope:'GENERAL', activity_id:first?.id || '', machine_id:null, machine_ids:[], coverage_mode:'ALL', excluded_machine_ids:[], element_id:null,
+    setForm({hour_base:0,hour_bases:{},first_service_done:false,scope:'GENERAL', activity_id:first?.id || '', machine_id:null, machine_ids:[], coverage_mode:'ALL', excluded_machine_ids:first?.excluded_machine_ids || [], element_id:null,
       first_due:today(), start_time:first?.start_time || '08:00', frequency_override:null, override_reason:'', route:'', points:[], active:true, revision:0})
   }
   async function save(event) {
@@ -51,7 +51,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     {form && <form className="general-plan-editor" onSubmit={save}><fieldset disabled={busy}>
       <h3>{editing ? 'Editar plan general' : 'Asignar actividad general'}</h3>
       <div className="motor-form-grid">
-        <label>Actividad general<select required disabled={!!editing} value={form.activity_id} onChange={e => { const a = general.find(a => a.id === Number(e.target.value)); setForm(current => ({...current, activity_id:a?.id || '', start_time:a?.start_time || '08:00'})) }}>
+        <label>Actividad general<select required disabled={!!editing} value={form.activity_id} onChange={e => { const a = general.find(a => a.id === Number(e.target.value)); setForm(current => ({...current, activity_id:a?.id || '', start_time:a?.start_time || '08:00', excluded_machine_ids:a?.excluded_machine_ids || []})) }}>
           <option value="">Selecciona</option>{general.filter(a => a.active || a.id === form.activity_id).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></label>
         <label>{hourly ? 'Fecha de referencia del plan' : 'Primera intervención'}<input type="date" required disabled={!!editing} value={form.first_due} onChange={e => change('first_due', e.target.value)}/></label>

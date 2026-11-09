@@ -60,6 +60,7 @@ class ActivityWrite(StrictModel):
     factors: NIC
     reference: str = Field(default='', max_length=500)
     requires_shutdown: bool = False
+    excluded_machine_ids: list[int] = Field(default_factory=list, max_length=5000)
     active: bool = True
     revision: int = Field(default=0, ge=0)
 
@@ -67,6 +68,10 @@ class ActivityWrite(StrictModel):
     def local_time(self):
         if self.start_time.tzinfo:
             raise ValueError('Utiliza la hora local de Ecuador')
+        if any(machine_id <= 0 for machine_id in self.excluded_machine_ids) or len(set(self.excluded_machine_ids)) != len(self.excluded_machine_ids):
+            raise ValueError('Revisa las máquinas excluidas de la actividad general')
+        if self.scope != 'GENERAL' and self.excluded_machine_ids:
+            raise ValueError('Las máquinas excluidas solo aplican a actividades generales')
         return self
 
 
