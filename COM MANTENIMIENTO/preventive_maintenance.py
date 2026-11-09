@@ -355,6 +355,70 @@ def register_preventive(app, connect, active_user, admin_user):
     def update_activity(activity_id: int, data: ActivityWrite, usuario_id: int = Depends(admin_user)):
         return transaction(lambda cursor: save_activity(cursor, data, usuario_id, activity_id))
 
+    @app.delete('/preventivos/actividades/{activity_id}')
+    def delete_activity(activity_id: int, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            if not cursor.execute(
+                'SELECT ActivityId FROM dbo.PreventiveActivities WITH (UPDLOCK,HOLDLOCK) WHERE ActivityId=?',
+                activity_id,
+            ).fetchone():
+                raise HTTPException(404, 'Actividad no encontrada')
+            plan_rows = cursor.execute(
+                'SELECT PlanId FROM dbo.PreventivePlans WITH (UPDLOCK,HOLDLOCK) WHERE ActivityId=?',
+                activity_id,
+            ).fetchall()
+            plan_ids = [row[0] for row in plan_rows]
+            request_ids = set()
+            event_ids = set()
+            for plan_id in plan_ids:
+                request_ids.update(row[0] for row in cursor.execute(
+                    'SELECT RequestId FROM dbo.PreventiveOccurrences WHERE PlanId=?', plan_id
+                ).fetchall())
+                request_ids.update(row[0] for row in cursor.execute(
+                    'SELECT RequestId FROM dbo.PreventiveHourOccurrences WHERE PlanId=?', plan_id
+                ).fetchall())
+            if request_ids:
+                placeholders = ','.join('?' for _ in request_ids)
+                event_ids.update(row[0] for row in cursor.execute(
+                    f'SELECT MaintenanceEventId FROM dbo.MaintenanceRequests WHERE RequestId IN ({placeholders}) AND MaintenanceEventId IS NOT NULL',
+                    *request_ids,
+                ).fetchall())
+                cursor.execute(
+                    f'DELETE FROM dbo.PreventiveSchedule WHERE RequestId IN ({placeholders})',
+                    *request_ids,
+                )
+                cursor.execute(
+                    f'DELETE FROM dbo.PreventiveOccurrences WHERE RequestId IN ({placeholders})',
+                    *request_ids,
+                )
+                cursor.execute(
+                    f'DELETE FROM dbo.PreventiveHourOccurrences WHERE RequestId IN ({placeholders})',
+                    *request_ids,
+                )
+                cursor.execute(
+                    f'DELETE FROM dbo.MaintenanceRequests WHERE RequestId IN ({placeholders})',
+                    *request_ids,
+                )
+            if event_ids:
+                placeholders = ','.join('?' for _ in event_ids)
+                cursor.execute(
+                    f'DELETE FROM dbo.MaintenancePartsUsed WHERE MaintenanceEventId IN ({placeholders})',
+                    *event_ids,
+                )
+                cursor.execute(
+                    f'DELETE FROM dbo.MaintenanceEvents WHERE MaintenanceEventId IN ({placeholders})',
+                    *event_ids,
+                )
+            if plan_ids:
+                placeholders = ','.join('?' for _ in plan_ids)
+                cursor.execute(
+                    f'DELETE FROM dbo.PreventivePlans WHERE PlanId IN ({placeholders})',
+                    *plan_ids,
+                )
+            cursor.execute('DELETE FROM dbo.PreventiveActivities WHERE ActivityId=?', activity_id)
+            return {'id': activity_id, 'deleted_plans': len(plan_ids), 'deleted_orders': len(request_ids)}
+        return transaction(operation)
+
     def save_plan(cursor, data, user, plan_id=None):
         activity = cursor.execute('SELECT Data FROM dbo.PreventiveActivities WITH (HOLDLOCK) WHERE ActivityId=?', data.activity_id).fetchone()
         if not activity or (data.active and not json.loads(activity[0])['active']):
