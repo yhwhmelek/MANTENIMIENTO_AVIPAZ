@@ -18,8 +18,11 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
   const [contractors,setContractors]=useState([])
   const opened=useRef(false)
   const r=row.request_data,improvement=r.maintenance_type==='MEJORA_TECNICA'
+  const favorableImprovement=!improvement||['PROCEDE','CON_MODIFICACIONES'].includes(r.priority_validation?.technical_review?.feasibility)
+  const planningBlockedMessage=improvement&&!favorableImprovement?'Primero registra una evaluación técnica favorable: «Procede» o «Procede con modificaciones».':''
   async function start(kind){
     setError('')
+    if(kind==='plan'&&planningBlockedMessage){setError(planningBlockedMessage);return}
     if(kind==='plan'&&!contractors.length){
       setBusy(true)
       try{const external=await request('/contratistas');setContractors(external.filter(item=>item.active))}catch(err){setError(err.message);setBusy(false);return}
@@ -48,7 +51,8 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
   useEffect(()=>{if(initialMode&&!opened.current){opened.current=true;start(initialMode)}},[initialMode,row.id])
   return <section className="request-detail">{!compact&&<PrioritySummary row={row}/>}
     {showParts&&<SparePartPlanningPicker request={request} requestMachineId={r.machine_id} initial={form.requested_parts||[]} onChange={parts=>change('requested_parts',parts)} onClose={()=>setShowParts(false)}/>}
-    {!compact&&isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&!mode&&<div className="request-toolbar"><button type="button" disabled={busy} onClick={()=>start('evaluate')}>{r.priority_validation?'Reevaluar prioridad':'Validar prioridad y evaluar'}</button><button type="button" disabled={busy||!r.priority_validation} onClick={()=>start('plan')}>Programar actividad</button></div>}
+    {!compact&&isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&!mode&&<div className="request-toolbar"><button type="button" disabled={busy} onClick={()=>start('evaluate')}>{r.priority_validation?'Reevaluar prioridad':'Validar prioridad y evaluar'}</button><button type="button" disabled={busy||!r.priority_validation||Boolean(planningBlockedMessage)} title={planningBlockedMessage||'Programar actividad'} onClick={()=>start('plan')}>Programar actividad</button></div>}
+    {!mode&&planningBlockedMessage&&<p role="status">{planningBlockedMessage}</p>}
     {error&&<p role="alert">{error}</p>}
     {mode&&<form onSubmit={save}><fieldset disabled={busy} className="request-fields"><h3>{mode==='evaluate'?'Evaluación oficial de Mantenimiento':'Programación de la actividad'}</h3>
       {mode==='evaluate'?<><p>Confirma o ajusta los factores. Los datos originales del solicitante se conservan.</p><NICFields value={form.factors} onChange={value=>change('factors',value)}/>

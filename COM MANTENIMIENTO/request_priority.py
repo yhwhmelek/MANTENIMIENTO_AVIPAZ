@@ -135,7 +135,7 @@ def require_validated(data):
         raise HTTPException(409, 'Mantenimiento debe validar N, I y C antes de ejecutar o entregar el trabajo')
     review = validation.get('technical_review')
     if data['maintenance_type'] == 'MEJORA_TECNICA' and (not review or review['feasibility'] not in ('PROCEDE', 'CON_MODIFICACIONES')):
-        raise HTTPException(409, 'La mejora requiere una evaluacion tecnica favorable antes de ejecutarse')
+        raise HTTPException(409, 'No se puede programar ni ejecutar la mejora: registra una evaluacion tecnica favorable (Procede o Procede con modificaciones)')
 
 
 def require_planned(data):

@@ -18,6 +18,7 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
   const scope=filterPrioritizedActivities(rows,{plantId:plantFilter,towerId,status:activityStatus})
   const [dateOrder,setDateOrder]=useState('latest')
   const filtered=filterPrioritizedActivities(rows,{level,type,plantId:plantFilter,towerId,status:activityStatus})
+  const canPlanRow=row=>row.request_data.maintenance_type!=='MEJORA_TECNICA'||['PROCEDE','CON_MODIFICACIONES'].includes(row.request_data.priority_validation?.technical_review?.feasibility)
   const sorted=[...filtered].sort((a,b)=>{
     const difference=latestActivityDate(a)-latestActivityDate(b)
     return (dateOrder==='oldest'?difference:-difference)||a.id-b.id
