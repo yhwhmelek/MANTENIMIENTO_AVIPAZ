@@ -88,6 +88,7 @@ class PlanWrite(StrictModel):
     scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
     machine_id: int | None = Field(default=None, gt=0)
     machine_ids: list[int] = Field(default_factory=list, max_length=5000)
+    plant_id: int | None = Field(default=None, gt=0)
     coverage_mode: Literal['SELECTED', 'ALL'] = 'SELECTED'
     excluded_machine_ids: list[int] = Field(default_factory=list, max_length=5000)
     hour_base: Decimal = Field(default=Decimal('0'), ge=0, le=999999999, decimal_places=2)
@@ -105,15 +106,19 @@ class PlanWrite(StrictModel):
 
     @model_validator(mode='after')
     def valid(self):
-        if any(not key.isdigit() or key != str(int(key)) or int(key) not in self.machine_ids or not value.is_finite() or value < 0 or value > 999999999 or value.as_tuple().exponent < -2 for key,value in self.hour_bases.items()):
+        if any(not key.isdigit() or key != str(int(key)) or (self.plant_id is None and int(key) not in self.machine_ids) or not value.is_finite() or value < 0 or value > 999999999 or value.as_tuple().exponent < -2 for key,value in self.hour_bases.items()):
             raise ValueError('Revisa los horómetros de referencia de las máquinas seleccionadas')
         if self.scope == 'GENERAL':
             if self.machine_id is not None or self.element_id is not None or self.points:
                 raise ValueError('El plan general usa una lista de máquinas, sin elemento ni puntos individuales')
-            if self.coverage_mode == 'SELECTED' and (not self.machine_ids or any(i <= 0 for i in self.machine_ids) or len(set(self.machine_ids)) != len(self.machine_ids)):
+            if self.plant_id is not None and self.machine_ids:
+                raise ValueError('El plan general por planta no debe incluir maquinas individuales')
+            if self.plant_id is None and self.coverage_mode == 'SELECTED' and (not self.machine_ids or any(i <= 0 for i in self.machine_ids) or len(set(self.machine_ids)) != len(self.machine_ids)):
                 raise ValueError('Selecciona máquinas válidas sin repetir')
-            if self.coverage_mode == 'ALL' and (self.machine_ids or any(i <= 0 for i in self.excluded_machine_ids) or len(set(self.excluded_machine_ids)) != len(self.excluded_machine_ids)):
+            if self.plant_id is None and self.coverage_mode == 'ALL' and (self.machine_ids or any(i <= 0 for i in self.excluded_machine_ids) or len(set(self.excluded_machine_ids)) != len(self.excluded_machine_ids)):
                 raise ValueError('Para todos los activos usa solo exclusiones')
+            if self.plant_id is not None and self.excluded_machine_ids:
+                raise ValueError('El plan por planta no debe incluir exclusiones de maquinas')
             if set(self.machine_ids) & set(self.excluded_machine_ids):
                 raise ValueError('Un activo no puede estar incluido y excluido a la vez')
         elif self.machine_id is None or self.machine_ids:
@@ -190,6 +195,7 @@ def due_cycles(plan, activity, week):
     current = date.fromisoformat(plan['next_due'])
     anchor = date.fromisoformat(plan['first_due']).day
     result = []
+    scheduled_dates = set()
     # Saltar ciclos atrasados sin marcarlos realizados; conservar su intervalo en la orden.
     while current <= end:
         if len(result) >= 8:
@@ -200,7 +206,12 @@ def due_cycles(plan, activity, week):
         while following <= scheduled:
             following = next_due(following, frequency, anchor)
             skipped += 1
-        result.append(dict(due=current.isoformat(), scheduled=scheduled.isoformat(), next_due=following.isoformat(), skipped=skipped))
+        # Un vencimiento atrasado puede avanzar varios ciclos antes de la
+        # semana visible. Todos esos ciclos se normalizan al lunes; publicar
+        # cada uno produciría varios checklists con la misma fecha.
+        if scheduled not in scheduled_dates:
+            result.append(dict(due=current.isoformat(), scheduled=scheduled.isoformat(), next_due=following.isoformat(), skipped=skipped))
+            scheduled_dates.add(scheduled)
         current = following
     return result
 
@@ -243,7 +254,12 @@ def general_coverage(cursor, machine_ids):
 
 
 def general_machine_ids(cursor, plan):
-    """Resolve live coverage for all-assets plans; old selected plans stay compatible."""
+    """Resolve plant coverage; old all-assets plans stay compatible until migrated."""
+    if plan.get('plant_id'):
+        rows = cursor.execute('''SELECT m.MachineId FROM dbo.Machines m
+            JOIN dbo.Towers t ON t.TowerId=m.TowerId
+            WHERE t.PlantId=? AND m.Status<>'FUERA_SERVICIO' ''', plan['plant_id']).fetchall()
+        return [row[0] for row in rows]
     if plan.get('coverage_mode', 'SELECTED') != 'ALL':
         return list(plan.get('machine_ids', []))
     rows = cursor.execute("SELECT m.MachineId FROM dbo.Machines m WHERE m.Status<>'FUERA_SERVICIO'").fetchall()

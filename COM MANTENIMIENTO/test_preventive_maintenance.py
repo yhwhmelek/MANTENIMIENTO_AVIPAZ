@@ -40,6 +40,7 @@ class RecurrenceTests(unittest.TestCase):
         self.assertEqual(cycles[0]['due'],'2020-01-01')
         self.assertGreater(cycles[0]['skipped'],2000)
         self.assertEqual(cycles[0]['scheduled'],'2026-09-28')
+        self.assertEqual(len({cycle['scheduled'] for cycle in cycles}),len(cycles))
 
     def test_override_frequency(self):
         p={'next_due':'2026-09-28','first_due':'2026-09-28','frequency_override':{'unit':'MESES','every':1}}

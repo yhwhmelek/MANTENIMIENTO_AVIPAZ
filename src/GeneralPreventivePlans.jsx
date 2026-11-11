@@ -12,24 +12,25 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const general = activities.filter(a => a.scope === 'GENERAL')
+  const plants = [...new Map(machines.filter(m => m.plant_id).map(m => [m.plant_id, m.plant_name])).entries()]
   const activity = general.find(a => a.id === Number(form?.activity_id))
   const hourly = needsOperatingHours(form, activity)
   const shown = machines.filter(m => (!plant || String(m.plant_id) === plant) && `${m.asset_code} ${m.name} ${m.tower_name || ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const change = (key, value) => setForm(current => ({...current, [key]:value}))
   function edit(plan) {
     setError(''); setMessage(''); setSearch(''); setPlant(''); setEditing(plan?.id || null)
-    if (plan) { const {id, next_due, ...value} = plan; setForm(structuredClone({...value, coverage_mode:value.coverage_mode || 'SELECTED', excluded_machine_ids:value.excluded_machine_ids || []})); return }
+    if (plan) { const {id, next_due, ...value} = plan; const plantIds=[...new Set(machines.filter(m => value.machine_ids?.includes(m.machine_id)).map(m => m.plant_id))]; const plant_id=value.plant_id|| (plantIds.length===1?plantIds[0]:''); setForm(structuredClone({...value,plant_id,coverage_mode:value.coverage_mode||'SELECTED',excluded_machine_ids:value.excluded_machine_ids||[]})); return }
     const first = general.find(a => a.active)
-    setForm({hour_base:0,hour_bases:{},first_service_done:false,scope:'GENERAL', activity_id:first?.id || '', machine_id:null, machine_ids:[], coverage_mode:'ALL', excluded_machine_ids:first?.excluded_machine_ids || [], element_id:null,
+    setForm({hour_base:0,hour_bases:{},first_service_done:false,scope:'GENERAL', activity_id:first?.id || '', machine_id:null, machine_ids:[], plant_id:plants[0]?.[0] || '', coverage_mode:'PLANT', excluded_machine_ids:[], element_id:null,
       first_due:today(), start_time:first?.start_time || '08:00', frequency_override:null, override_reason:'', route:'', points:[], active:true, revision:0})
   }
   async function save(event) {
     event.preventDefault()
     if (busy) return
-    if (form.coverage_mode === 'SELECTED' && !form.machine_ids.length) { setError('Selecciona al menos una máquina.'); return }
+    if (!form.plant_id) { setError('Selecciona una planta.'); return }
     setBusy(true); setError(''); setMessage('')
     try {
-      await request(`/preventivos/planes${editing ? `/${editing}` : ''}`, {method:editing ? 'PUT' : 'POST', body:JSON.stringify({...form,machine_ids:form.coverage_mode === 'ALL' ? [] : form.machine_ids,excluded_machine_ids:form.coverage_mode === 'ALL' ? form.excluded_machine_ids : [],hour_bases:Object.fromEntries(Object.entries(form.hour_bases||{}).filter(([id])=>form.machine_ids.includes(Number(id))))})})
+      await request(`/preventivos/planes${editing ? `/${editing}` : ''}`, {method:editing ? 'PUT' : 'POST', body:JSON.stringify({...form,plant_id:Number(form.plant_id)||null,machine_ids:[],excluded_machine_ids:[],coverage_mode:'PLANT',hour_bases:Object.fromEntries(Object.entries(form.hour_bases||{}).filter(([id])=>machines.some(m=>String(m.machine_id)===id&&String(m.plant_id)===String(form.plant_id))))})})
       setForm(null); await onSaved(); setMessage(hourly ? `Plan general guardado. ${operatingHoursNotice}` : 'Plan general guardado. Se publicará una sola orden por fecha programada.')
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -61,19 +62,19 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
       {activity && <p>Duración total sugerida: <strong>{activity.duration_minutes} minutos</strong>. Se configura en la actividad, junto con su frecuencia.</p>}
       {activity && <p>Frecuencia: <strong>{frequencyLabel(effectiveFrequency(form, activity))}</strong></p>}
       {hourly && <><p role="status">{operatingHoursNotice}</p><label className="checkbox-field"><input type="checkbox" checked={!!form.first_service_done} onChange={e=>change('first_service_done',e.target.checked)}/>El primer cambio ya fue realizado; las referencias corresponden al último cambio</label></>}
-      <label>Aplicación del mantenimiento<select value={form.coverage_mode} onChange={e => change('coverage_mode', e.target.value)}><option value="ALL">Todos los activos (recomendado)</option><option value="SELECTED">Solo activos seleccionados</option></select></label>
-      <p>{form.coverage_mode === 'ALL' ? 'El plan se aplicará automáticamente a los activos actuales y a los nuevos activos. Marca únicamente las excepciones.' : 'Marca las máquinas que corresponden; por ejemplo, las que tienen elementos móviles para el engrase general.'}</p>
+      <label>Planta del mantenimiento<select required value={form.plant_id} onChange={e => change('plant_id', e.target.value)}><option value="">Selecciona una planta</option>{plants.map(([id,name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+      <p>Se generará una actividad general independiente para la planta seleccionada. Las máquinas activas de la planta se incluirán automáticamente.</p>
       <div className="request-toolbar"><label>Buscar máquina<input value={search} onChange={e => setSearch(e.target.value)} placeholder="Código, nombre o torre"/></label><label>Planta<select value={plant} onChange={e => setPlant(e.target.value)}><option value="">Todas</option>{[...new Map(machines.filter(m => m.plant_id).map(m => [m.plant_id, m.plant_name])).entries()].map(([id,name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        {form.coverage_mode === 'SELECTED' ? <><button type="button" onClick={() => change('machine_ids', [...new Set([...form.machine_ids, ...shown.filter(m => m.status !== 'FUERA_SERVICIO').map(m => m.machine_id)])])}>Seleccionar todas las visibles</button><button type="button" onClick={() => change('machine_ids', form.machine_ids.filter(id => !shown.some(m => m.machine_id === id)))}>Quitar selección visible</button></> : <button type="button" onClick={() => change('excluded_machine_ids', form.excluded_machine_ids.filter(id => !shown.some(m => m.machine_id === id)))}>Quitar exclusiones visibles</button>}
+        <span role="status">La selección se realiza por planta.</span>
       </div>
-      <p role="status">{form.coverage_mode === 'ALL' ? `${form.excluded_machine_ids.length} exclusiones · ${shown.length} visibles` : `${form.machine_ids.length} máquinas seleccionadas · ${shown.length} visibles`}</p>
+      <p role="status">{form.plant_id ? `${machines.filter(m => String(m.plant_id) === String(form.plant_id) && m.status !== 'FUERA_SERVICIO').length} máquinas activas en la planta seleccionada` : 'Selecciona una planta'}</p>
       <div className="general-machine-list table-scroll"><table><thead><tr><th>Incluir</th><th>Código</th><th>Máquina</th><th>Planta / torre</th>{hourly&&<th>Referencia acumulada (h)</th>}</tr></thead><tbody>{shown.map(m => <tr key={m.machine_id}>
-        <td><input type="checkbox" aria-label={`${form.coverage_mode === 'ALL' ? 'Excluir' : 'Incluir'} ${m.asset_code} ${m.name}`} checked={form.coverage_mode === 'ALL' ? form.excluded_machine_ids.includes(m.machine_id) : form.machine_ids.includes(m.machine_id)} disabled={m.status === 'FUERA_SERVICIO' && form.coverage_mode !== 'ALL' && !form.machine_ids.includes(m.machine_id)} onChange={e => form.coverage_mode === 'ALL' ? change('excluded_machine_ids', e.target.checked ? [...form.excluded_machine_ids, m.machine_id] : form.excluded_machine_ids.filter(id => id !== m.machine_id)) : change('machine_ids', e.target.checked ? [...form.machine_ids, m.machine_id] : form.machine_ids.filter(id => id !== m.machine_id))}/></td>
-        <td>{m.asset_code}</td><td>{m.name}{m.status === 'FUERA_SERVICIO' && ' · Fuera de servicio'}</td><td>{m.plant_name} / {m.tower_name}</td>{hourly&&<td><input aria-label={`Referencia de ${m.name}`} type="number" min="0" max="999999999" step="0.01" disabled={!form.machine_ids.includes(m.machine_id)} value={form.hour_bases?.[m.machine_id]??0} onChange={e=>change('hour_bases',{...form.hour_bases,[m.machine_id]:e.target.value||0})}/></td>}
+        <td>{String(m.plant_id) === String(form.plant_id) && m.status !== 'FUERA_SERVICIO' ? 'Incluida automáticamente' : 'No incluida'}</td>
+        <td>{m.asset_code}</td><td>{m.name}{m.status === 'FUERA_SERVICIO' && ' · Fuera de servicio'}</td><td>{m.plant_name} / {m.tower_name}</td>{hourly&&<td><input aria-label={`Referencia de ${m.name}`} type="number" min="0" max="999999999" step="0.01" disabled={String(m.plant_id)!==String(form.plant_id)||m.status==='FUERA_SERVICIO'} value={form.hour_bases?.[m.machine_id]??0} onChange={e=>change('hour_bases',{...form.hour_bases,[m.machine_id]:e.target.value||0})}/></td>}
       </tr>)}</tbody></table></div>
       <label className="checkbox-field"><input type="checkbox" checked={form.active} onChange={e => change('active', e.target.checked)}/>Plan activo</label>
       <p>Los cambios de selección se aplican a futuras órdenes. Las órdenes publicadas conservan sus máquinas originales.</p>
-      <div className="modal-actions"><button type="button" onClick={() => setForm(null)}>Cancelar</button>{editing && <button type="button" className="danger" disabled={busy} onClick={() => remove(plans.find(plan => plan.id === editing))}>Eliminar plan</button>}<button className="primary-action" disabled={form.coverage_mode === 'SELECTED' && !form.machine_ids.length}>{busy ? 'Guardando…' : 'Guardar plan general'}</button></div>
+      <div className="modal-actions"><button type="button" onClick={() => setForm(null)}>Cancelar</button>{editing && <button type="button" className="danger" disabled={busy} onClick={() => remove(plans.find(plan => plan.id === editing))}>Eliminar plan</button>}<button className="primary-action" disabled={!form.plant_id}>{busy ? 'Guardando…' : 'Guardar plan general'}</button></div>
     </fieldset></form>}
   </section>
 }

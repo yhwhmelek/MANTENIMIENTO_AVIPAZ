@@ -31,6 +31,18 @@ uvicorn main:app --reload
 
 Documentacion interactiva: http://127.0.0.1:8000/docs
 
+## Migrar planes generales a plantas
+
+Después de actualizar el backend, ejecuta una vez:
+
+```powershell
+python migrate_general_plans_by_plant.py
+```
+
+La migración convierte los planes generales antiguos en planes por planta. Si
+un plan ya tiene órdenes o historial, lo conserva desactivado y crea planes
+nuevos para los próximos ciclos; las órdenes existentes no se modifican.
+
 ## Data por tipo de elemento
 
 Antes de iniciar esta version, ejecuta `migrations/001_element_type_data.sql`

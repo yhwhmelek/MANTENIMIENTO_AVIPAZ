@@ -91,7 +91,9 @@ def hour_states(cursor, catalog):
         activity = activities[plan['activity_id']]
         frequency = plan.get('frequency_override') or activity['frequency']
         if plan.get('scope') == 'GENERAL':
-            if plan.get('coverage_mode', 'SELECTED') == 'ALL':
+            if plan.get('plant_id'):
+                machine_ids = [row[0] for row in cursor.execute("SELECT m.MachineId FROM dbo.Machines m JOIN dbo.Towers t ON t.TowerId=m.TowerId WHERE t.PlantId=? AND m.Status<>'FUERA_SERVICIO'", plan['plant_id']).fetchall()]
+            elif plan.get('coverage_mode', 'SELECTED') == 'ALL':
                 excluded = set(plan.get('excluded_machine_ids', []))
                 machine_ids = [row[0] for row in cursor.execute("SELECT m.MachineId FROM dbo.Machines m WHERE m.Status<>'FUERA_SERVICIO'").fetchall() if row[0] not in excluded]
             else:
