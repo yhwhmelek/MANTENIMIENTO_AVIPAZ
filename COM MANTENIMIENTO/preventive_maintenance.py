@@ -569,6 +569,7 @@ def register_preventive(app, connect, active_user, admin_user):
             actor = stamp(cursor, usuario_id)
             generated = []
             published_cycles = set()
+            published_targets = set()
             for entry in candidates:
                 p, a = entry['plan'], entry['activity']
                 general = p.get('scope') == 'GENERAL'
@@ -579,6 +580,18 @@ def register_preventive(app, connect, active_user, admin_user):
                 # de candidatos entregue duplicados en una sola transacción.
                 cycle_key = (p['id'], entry['due'])
                 if not hour_targets and cycle_key in published_cycles:
+                    continue
+                if general:
+                    target = (
+                        a['id'], 'GENERAL', p.get('plant_id'),
+                        tuple(sorted(p.get('machine_ids', []))) if p.get('plant_id') is None else (),
+                        entry['due'],
+                    )
+                else:
+                    target = (a['id'], 'SPECIFIC', p.get('machine_id'), p.get('element_id'), entry['due'])
+                # Defensive protection for duplicate plans already present in
+                # the database. Only the first equivalent plan can publish.
+                if not hour_targets and target in published_targets:
                     continue
                 if not hour_targets and cursor.execute(
                     'SELECT TOP 1 RequestId FROM dbo.PreventiveOccurrences WHERE PlanId=? AND DueDate=?',
@@ -635,6 +648,7 @@ def register_preventive(app, connect, active_user, admin_user):
                 if not hour_targets:
                     cursor.execute('UPDATE dbo.PreventivePlans SET NextDue=?,Revision=Revision+1 WHERE PlanId=?', date.fromisoformat(entry['next_due']), p['id'])
                     published_cycles.add(cycle_key)
+                    published_targets.add(target)
                 generated.append(request_id)
             return dict(request_ids=generated)
         return transaction(operation)
