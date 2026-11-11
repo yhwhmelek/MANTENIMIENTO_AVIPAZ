@@ -310,7 +310,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <div className="full-field"><h4>Preevaluación de prioridad del solicitante</h4><p>Opcional: completa solo los factores que conozcas o deja todos sin valorar. No se requiere diagnóstico técnico. Mantenimiento definirá la prioridad oficial.</p><NICFields required={false} value={form.preevaluation} onChange={value=>change('preevaluation',value)}/></div>
           <label className="checkbox-field"><input type="checkbox" disabled={form.maintenance_type!=='CORRECTIVO'} checked={form.failure} onChange={e=>change('failure',e.target.checked)}/> Es una falla del equipo (para MTBF)</label>
           <label className="checkbox-field"><input type="checkbox" checked={form.equipment_stopped} onChange={e=>change('equipment_stopped',e.target.checked)}/> El equipo está parado actualmente</label>
-          <Field label="Inicio real de parada" type="datetime-local" name="stopped_at" required={form.equipment_stopped} value={form.stopped_at} onChange={change}/>
+          {form.equipment_stopped&&<Field label="Inicio real de parada" type="datetime-local" name="stopped_at" required value={form.stopped_at} onChange={change}/>} 
           <Field label="Horómetro al solicitar (h, si existe)" type="number" min="0" step="0.01" name="hour_meter" value={form.hour_meter} onChange={change}/>
 
 

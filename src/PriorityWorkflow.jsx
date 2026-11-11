@@ -37,9 +37,13 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
     try{
       const {responsible_role,...planForm}=form
       const payload=mode==='plan'?{...planForm,assigned_user_id:form.assignment_type==='USER'?Number(form.assigned_user_id):null,contractor_id:form.assignment_type==='CONTRACTOR'?Number(form.contractor_id):null,resources:form.resources.trim()||'N/A',permits:form.permits.trim()||'N/A',window:form.window.trim()||'N/A',notes:form.notes.trim()||'N/A',starts_at:form.starts_at||null,estimated_duration_days:Number(form.estimated_duration_days),estimated_duration_minutes:Number(form.estimated_duration_minutes),requested_parts:(form.requested_parts||[]).map(part=>({machine_spare_part_id:Number(part.machine_spare_part_id),quantity:String(part.quantity)}))}:form
-      await request(`/solicitudes-mantenimiento/${row.id}/${mode==='plan'?'programar':'evaluar'}`,{method:'POST',body:JSON.stringify(payload)})
+      const controller=new AbortController()
+      const timeout=window.setTimeout(()=>controller.abort(),30000)
+      try{
+        await request(`/solicitudes-mantenimiento/${row.id}/${mode==='plan'?'programar':'evaluar'}`,{method:'POST',body:JSON.stringify(payload),signal:controller.signal})
+      } finally { window.clearTimeout(timeout) }
       setMode('');onSaved?.()
-    }catch(err){setError(err.message)}finally{setBusy(false)}
+    }catch(err){setError(err.name==='AbortError'?'El servidor tardó demasiado en responder. Verifica la conexión y vuelve a intentarlo.':err.message)}finally{setBusy(false)}
   }
   useEffect(()=>{if(initialMode&&!opened.current){opened.current=true;start(initialMode)}},[initialMode,row.id])
   return <section className="request-detail">{!compact&&<PrioritySummary row={row}/>}

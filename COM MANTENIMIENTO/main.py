@@ -325,10 +325,15 @@ def obtener_conexion() -> pyodbc.Connection:
     if driver_18 not in drivers_instalados and driver_17 in drivers_instalados:
         cadena_conexion = cadena_conexion.replace(driver_18, driver_17)
 
-    return pyodbc.connect(
+    connection = pyodbc.connect(
         cadena_conexion,
         timeout=5,
     )
+    # El timeout de pyodbc.connect solo cubre el inicio de sesión. Sin este
+    # límite, un bloqueo SQL puede dejar el botón de guardar en "Guardando"
+    # indefinidamente.
+    connection.timeout = 30
+    return connection
 
 
 def crear_token(usuario_id: int, rol: str) -> str:
