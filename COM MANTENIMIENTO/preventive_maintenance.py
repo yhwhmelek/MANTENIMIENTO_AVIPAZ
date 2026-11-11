@@ -89,7 +89,7 @@ class PlanWrite(StrictModel):
     machine_id: int | None = Field(default=None, gt=0)
     machine_ids: list[int] = Field(default_factory=list, max_length=5000)
     plant_id: int | None = Field(default=None, gt=0)
-    coverage_mode: Literal['SELECTED', 'ALL'] = 'SELECTED'
+    coverage_mode: Literal['SELECTED', 'ALL', 'PLANT'] = 'SELECTED'
     excluded_machine_ids: list[int] = Field(default_factory=list, max_length=5000)
     hour_base: Decimal = Field(default=Decimal('0'), ge=0, le=999999999, decimal_places=2)
     hour_bases: dict[str, Decimal] = Field(default_factory=dict, max_length=5000)
@@ -537,10 +537,23 @@ def register_preventive(app, connect, active_user, admin_user):
             candidates = [x for x in due(cursor, data.week) if x['plan']['id'] in selected]
             actor = stamp(cursor, usuario_id)
             generated = []
+            published_cycles = set()
             for entry in candidates:
                 p, a = entry['plan'], entry['activity']
                 general = p.get('scope') == 'GENERAL'
                 hour_targets = entry.get('hour_targets', [])
+                # Idempotencia defensiva: los planes antiguos pudieron dejar
+                # varios candidatos para el mismo ciclo visible. No crear dos
+                # órdenes para el mismo plan y vencimiento, aunque el cálculo
+                # de candidatos entregue duplicados en una sola transacción.
+                cycle_key = (p['id'], entry['due'])
+                if not hour_targets and cycle_key in published_cycles:
+                    continue
+                if not hour_targets and cursor.execute(
+                    'SELECT TOP 1 RequestId FROM dbo.PreventiveOccurrences WHERE PlanId=? AND DueDate=?',
+                    p['id'], date.fromisoformat(entry['due'])
+                ).fetchone():
+                    continue
                 coverage_ids = [t['machine_id'] for t in hour_targets] if hour_targets else general_machine_ids(cursor, p)
                 coverage = general_coverage(cursor, coverage_ids) if general else []
                 if general:
@@ -590,6 +603,7 @@ def register_preventive(app, connect, active_user, admin_user):
                 cursor.execute('INSERT INTO dbo.PreventiveSchedule(RequestId,ScheduledDate,CreatedBy,CreatedAt) VALUES(?,?,?,?)', request_id, date.fromisoformat(entry['scheduled']), usuario_id, now())
                 if not hour_targets:
                     cursor.execute('UPDATE dbo.PreventivePlans SET NextDue=?,Revision=Revision+1 WHERE PlanId=?', date.fromisoformat(entry['next_due']), p['id'])
+                    published_cycles.add(cycle_key)
                 generated.append(request_id)
             return dict(request_ids=generated)
         return transaction(operation)
