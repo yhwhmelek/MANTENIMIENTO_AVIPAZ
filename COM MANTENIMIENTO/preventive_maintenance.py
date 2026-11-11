@@ -461,6 +461,37 @@ def register_preventive(app, connect, active_user, admin_user):
         if data.scope == 'SPECIFIC' and activity_data['kind'] == 'ENGRASE' and not data.points:
             raise HTTPException(422, 'Agrega los puntos de engrase con su identificación')
         payload = data.model_dump(mode='json', exclude={'revision'})
+        if not plan_id and data.active:
+            # Un plan equivale a una fuente de generación. Sin esta
+            # comprobación dos planes equivalentes podían publicar dos
+            # solicitudes preventivas para el mismo vencimiento.
+            candidates = cursor.execute(
+                'SELECT PlanId,Data FROM dbo.PreventivePlans WITH (UPDLOCK,HOLDLOCK) WHERE ActivityId=?',
+                data.activity_id,
+            ).fetchall()
+            for existing_id, raw in candidates:
+                existing = json.loads(raw)
+                if not existing.get('active') or existing.get('scope', 'SPECIFIC') != data.scope:
+                    continue
+                if data.scope == 'SPECIFIC':
+                    same_target = (
+                        existing.get('machine_id') == data.machine_id
+                        and existing.get('element_id') == data.element_id
+                    )
+                else:
+                    # Los planes generales se separan por planta. Para una
+                    # selección manual, la cobertura también debe coincidir.
+                    same_plant = existing.get('plant_id') == data.plant_id
+                    same_coverage = (
+                        data.plant_id is not None
+                        or set(existing.get('machine_ids', [])) == set(data.machine_ids)
+                    )
+                    same_target = same_plant and same_coverage
+                if same_target:
+                    raise HTTPException(
+                        409,
+                        f'Ya existe el plan preventivo equivalente (#{existing_id}). Edita ese plan o desactívalo antes de crear otro.',
+                    )
         if plan_id:
             old = cursor.execute('SELECT Data,Revision FROM dbo.PreventivePlans WITH (UPDLOCK,HOLDLOCK) WHERE PlanId=?', plan_id).fetchone()
             if not old:

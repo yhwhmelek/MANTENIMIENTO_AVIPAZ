@@ -36,6 +36,8 @@ class GeneralPreventiveTests(unittest.TestCase):
         result.fetchall.return_value = []
         if sql.startswith('SELECT ActivityId,Data'):
             result.fetchall.return_value = [(1,json.dumps(self.activity),1)]
+        elif sql.startswith('SELECT PlanId,Data FROM dbo.PreventivePlans WITH'):
+            result.fetchall.return_value = []
         elif sql.startswith('SELECT PlanId,Data'):
             result.fetchall.return_value = [(1,json.dumps(self.plan),1,self.next_due)]
         elif sql.startswith('SELECT TOP 1 o.OccurrenceId'):
@@ -99,6 +101,20 @@ class GeneralPreventiveTests(unittest.TestCase):
         result = self.endpoint('/preventivos/planes')(PlanWrite(**self.plan), usuario_id=1)
         self.assertEqual(result, {'id':1})
         self.conn.commit.assert_called_once()
+
+    def test_duplicate_general_plan_is_rejected(self):
+        existing = json.dumps(self.plan)
+        self.cursor.execute.side_effect = self.query
+        original = self.query
+        def duplicate_query(sql, *args):
+            result = original(sql, *args)
+            if sql.startswith('SELECT PlanId,Data FROM dbo.PreventivePlans WITH'):
+                result.fetchall.return_value = [(7, existing)]
+            return result
+        self.cursor.execute.side_effect = duplicate_query
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/preventivos/planes')(PlanWrite(**self.plan), usuario_id=1)
+        self.assertEqual(error.exception.status_code, 409)
 
     def test_hourly_general_plan_does_not_publish_from_its_reference_date(self):
         self.activity['frequency'] = {'every':2500, 'unit':'HORAS'}
