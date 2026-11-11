@@ -63,8 +63,14 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const alertWork = isAdmin ? safeRows.filter(work=>['PENDIENTE','EN_PROCESO','POR_RECIBIR'].includes(work.status)) : [...new Map([...assignedWork, ...(!isTechnician ? pendingReceipts : [])].map(work=>[work.id,work])).values()]
   async function request(path,options={}) {
     const response=await fetch(`${apiUrl}${path}`,{...options,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}})
-    const data=await response.json().catch(()=>({}))
-    if (!response.ok) throw new Error(requestValidationError(data))
+    const raw=await response.text()
+    let data={}
+    try{data=raw?JSON.parse(raw):{}}catch{data={detail:raw}}
+    if (!response.ok) {
+      const detail=requestValidationError(data)
+      const fallback=`El servidor rechazó la operación (${response.status} ${response.statusText}).`
+      throw new Error(detail==='No se pudo procesar la solicitud.'?fallback:detail)
+    }
     return data
   }
   useEffect(()=>{

@@ -12,7 +12,7 @@ const labels = {
 }
 
 export function requestValidationError(data) {
-  if (typeof data.detail === 'string') return data.detail
+  if (typeof data.detail === 'string' && data.detail.trim()) return data.detail
   if (!Array.isArray(data.detail)) return 'No se pudo procesar la solicitud.'
   return data.detail.map(error => {
     const path = (error.loc || []).filter(part => part !== 'body')
