@@ -407,6 +407,39 @@ def decode(row, user_names=None):
     return decorate(row)
 
 
+def preventive_request_key(row):
+    """Identidad lógica de una orden preventiva para evitar mostrar copias activas."""
+    data = row.get('request_data') or {}
+    preventive = data.get('preventive')
+    if not isinstance(preventive, dict):
+        return None
+    scope = preventive.get('scope', 'SPECIFIC')
+    if scope == 'GENERAL':
+        target = data.get('plant_id') or data.get('plant_name') or ''
+        return ('PREVENTIVO', preventive.get('activity_id'), scope, target, preventive.get('route') or '', preventive.get('due'))
+    return (
+        'PREVENTIVO', preventive.get('activity_id'), scope,
+        data.get('machine_id'), preventive.get('element_id'), preventive.get('route') or '', preventive.get('due'),
+    )
+
+
+def hide_active_preventive_duplicates(rows):
+    """Conserva una sola copia abierta; el historial cerrado no se altera."""
+    kept = []
+    seen = set()
+    for row in sorted(rows, key=lambda item: item['id']):
+        if row.get('status') == 'CERRADA':
+            kept.append(row)
+            continue
+        key = preventive_request_key(row)
+        if key is not None:
+            if key in seen:
+                continue
+            seen.add(key)
+        kept.append(row)
+    return kept
+
+
 def part_stock(cursor, part_id):
     # Misma fecha de corte que las alertas; bloquea el repuesto durante el consumo.
     part = cursor.execute('SELECT InternalCode, Description, UnitOfMeasure FROM dbo.SpareParts WITH (UPDLOCK, HOLDLOCK) WHERE SparePartId=? AND Active=1', part_id).fetchone()
@@ -513,7 +546,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 cursor.execute("SELECT Id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios")
                 names = {user_id: name for user_id, name in cursor.fetchall()}
                 role = cursor.execute('SELECT Rol,PlantId FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
-                decoded = [decode(row, names) for row in rows]
+                decoded = hide_active_preventive_duplicates([decode(row, names) for row in rows])
                 if role:
                     route_request_alerts(decoded, role[0], role[1])
                 if role and role[0] == 'OPERADOR':
