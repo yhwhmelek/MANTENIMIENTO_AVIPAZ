@@ -559,13 +559,17 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
         try:
             with closing(connect()) as connection:
                 cursor = connection.cursor()
-                cursor.execute(SELECT + ' ORDER BY r.RequestId DESC')
+                role = cursor.execute('SELECT Rol,PlantId FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
+                if not role:
+                    return []
+                active_only = role[0] in ('MECANICO', 'ELECTRICO', 'TECNICO')
+                status_filter = " WHERE r.Status IN ('PENDIENTE','EN_PROCESO','POR_RECIBIR')" if active_only else ''
+                cursor.execute(SELECT + status_filter + ' ORDER BY r.RequestId DESC')
                 rows = records(cursor)
                 if not rows:
                     return []
                 cursor.execute("SELECT Id, COALESCE(NULLIF(LTRIM(RTRIM(CONCAT(Nombres, ' ', Apellidos))), ''), Nombre) FROM dbo.Usuarios")
                 names = {user_id: name for user_id, name in cursor.fetchall()}
-                role = cursor.execute('SELECT Rol,PlantId FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone()
                 decoded = hide_active_preventive_duplicates([decode(row, names) for row in rows])
                 if role:
                     route_request_alerts(decoded, role[0], role[1])
