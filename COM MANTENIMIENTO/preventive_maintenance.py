@@ -300,6 +300,26 @@ def register_preventive(app, connect, active_user, admin_user):
         plans = serialized(cursor.execute('SELECT PlanId,Data,Revision,NextDue FROM dbo.PreventivePlans ORDER BY PlanId').fetchall(), True)
         return dict(activities=activities, plans=plans)
 
+    def repair_orphan_occurrences(cursor):
+        """Releases preventive cycles left behind by an old flow deletion."""
+        orphaned = cursor.execute('''SELECT o.PlanId,o.DueDate,o.RequestId
+            FROM dbo.PreventiveOccurrences o
+            LEFT JOIN dbo.MaintenanceRequests r ON r.RequestId=o.RequestId
+            WHERE r.RequestId IS NULL''').fetchall()
+        for plan_id, due_date, request_id in orphaned:
+            cursor.execute('DELETE FROM dbo.PreventiveSchedule WHERE RequestId=?', request_id)
+            cursor.execute('DELETE FROM dbo.PreventiveOccurrences WHERE RequestId=?', request_id)
+            cursor.execute('''UPDATE dbo.PreventivePlans
+                SET NextDue=?,Revision=Revision+1
+                WHERE PlanId=? AND NextDue>?''', due_date, plan_id, due_date)
+        orphaned_hours = cursor.execute('''SELECT h.PlanId,h.RequestId
+            FROM dbo.PreventiveHourOccurrences h
+            LEFT JOIN dbo.MaintenanceRequests r ON r.RequestId=h.RequestId
+            WHERE r.RequestId IS NULL''').fetchall()
+        for plan_id, request_id in orphaned_hours:
+            cursor.execute('DELETE FROM dbo.PreventiveSchedule WHERE RequestId=?', request_id)
+            cursor.execute('DELETE FROM dbo.PreventiveHourOccurrences WHERE RequestId=?', request_id)
+
     @app.get('/preventivos/horometros')
     def hour_readings(usuario_id: int = Depends(active_user)):
         def operation(cursor):
@@ -555,12 +575,16 @@ def register_preventive(app, connect, active_user, admin_user):
 
     @app.get('/preventivos/proximos')
     def upcoming(week: date, usuario_id: int = Depends(admin_user)):
-        return transaction(lambda cursor: due(cursor, week))
+        def operation(cursor):
+            repair_orphan_occurrences(cursor)
+            return due(cursor, week)
+        return transaction(operation)
 
     @app.post('/preventivos/publicar')
     def publish(data: PublishWrite, usuario_id: int = Depends(admin_user)):
         def operation(cursor):
             week_open(cursor, data.week)
+            repair_orphan_occurrences(cursor)
             # Orden estable de bloqueo; generación repetida no duplica ocurrencias.
             selected = sorted(set(data.plan_ids))
             for plan_id in selected:

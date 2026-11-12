@@ -478,16 +478,36 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
 
     def delete_flow(cursor, request_id=None, event_id=None):
         if request_id is not None:
-            row = cursor.execute('SELECT MaintenanceEventId FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
+            row = cursor.execute('SELECT MaintenanceEventId,RequestData FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
             if row is None:
                 raise HTTPException(404, 'Solicitud no encontrada')
             event_id = row[0]
+            request_data = json.loads(row[1]) if len(row) > 1 and row[1] else {}
         else:
             row = cursor.execute('SELECT RequestId FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE MaintenanceEventId=?', event_id).fetchone()
             request_id = row[0] if row else None
+            request_data = {}
+            if request_id is not None:
+                request_row = cursor.execute('SELECT RequestData FROM dbo.MaintenanceRequests WITH (UPDLOCK,HOLDLOCK) WHERE RequestId=?', request_id).fetchone()
+                request_data = json.loads(request_row[0]) if request_row and request_row[0] else {}
         if event_id is not None:
             if not cursor.execute('SELECT MaintenanceEventId FROM dbo.MaintenanceEvents WITH (UPDLOCK,HOLDLOCK) WHERE MaintenanceEventId=?', event_id).fetchone():
                 raise HTTPException(404, 'Intervencion no encontrada')
+        preventive = request_data.get('preventive') or {}
+        if request_id is not None and preventive:
+            # Una orden preventiva eliminada debe liberar también su ciclo.
+            # De lo contrario PreventiveOccurrences conserva la fecha como
+            # publicada y el plan general nunca vuelve a aparecer para
+            # planificarla.
+            cursor.execute('DELETE FROM dbo.PreventiveSchedule WHERE RequestId=?', request_id)
+            cursor.execute('DELETE FROM dbo.PreventiveOccurrences WHERE RequestId=?', request_id)
+            cursor.execute('DELETE FROM dbo.PreventiveHourOccurrences WHERE RequestId=?', request_id)
+            due = preventive.get('due')
+            plan_id = preventive.get('plan_id')
+            if due and plan_id:
+                cursor.execute('''UPDATE dbo.PreventivePlans
+                    SET NextDue=?,Revision=Revision+1
+                    WHERE PlanId=? AND NextDue>?''', due, plan_id, due)
         if request_id is not None:
             cursor.execute('DELETE FROM dbo.MaintenanceRequests WHERE RequestId=?', request_id)
         if event_id is not None:
