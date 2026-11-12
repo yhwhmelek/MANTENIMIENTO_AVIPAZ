@@ -3,10 +3,11 @@ import {useEffect,useState} from 'react'
 
 export default function PreventiveChecklist({row,currentUser,request,onSaved}){
   const data=row.request_data.preventive
-  const [items,setItems]=useState(data.items),[participants,setParticipants]=useState(data.participants||[]),[revision,setRevision]=useState(data.revision)
+  const initialParticipants=data.participants?.length?data.participants:[{user_id:currentUser.id,minutes:'',name:currentUser.nombre_completo||currentUser.nombre}]
+  const [items,setItems]=useState(data.items),[participants,setParticipants]=useState(initialParticipants),[revision,setRevision]=useState(data.revision)
   const [users,setUsers]=useState([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[dirty,setDirty]=useState(false)
   const editable=row.status==='EN_PROCESO'&&Number(row.assigned_to)===Number(currentUser.id)
-  useEffect(()=>{if(!dirty){setItems(data.items);setParticipants(data.participants||[]);setRevision(data.revision)}},[data.revision,dirty])
+  useEffect(()=>{if(!dirty){setItems(data.items);setParticipants(data.participants?.length?data.participants:[{user_id:currentUser.id,minutes:'',name:currentUser.nombre_completo||currentUser.nombre}]);setRevision(data.revision)}},[data.revision,dirty,currentUser.id,currentUser.nombre_completo,currentUser.nombre])
   useEffect(()=>{if(editable)request('/preventivos/personal').then(setUsers).catch(e=>setError(e.message))},[editable])
   async function save(e){e.preventDefault();if(busy)return;setBusy(true);setError('');try{await request(`/preventivos/solicitudes/${row.id}/checklist`,{method:'PUT',body:JSON.stringify({revision,items:items.map(({key,status,notes})=>({key,status,notes})),participants:participants.map(p=>({user_id:Number(p.user_id),minutes:Number(p.minutes)}))})});setDirty(false);onSaved()}catch(e){setError(e.message)}finally{setBusy(false)}}
   function changePoint(index,key,value){setDirty(true);setItems(rows=>rows.map((r,i)=>i===index?{...r,[key]:value}:r))}
