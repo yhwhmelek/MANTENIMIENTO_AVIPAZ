@@ -15,6 +15,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
   const availableGeneral = general.filter(a => !a.plant_id || !form?.plant_id || String(a.plant_id) === String(form.plant_id))
   const plants = [...new Map(machines.filter(m => m.plant_id).map(m => [m.plant_id, m.plant_name])).entries()]
   const activity = availableGeneral.find(a => a.id === Number(form?.activity_id))
+  const activityExcluded = new Set(activity?.excluded_machine_ids || [])
   const hourly = needsOperatingHours(form, activity)
   const shown = machines.filter(m => (!plant || String(m.plant_id) === plant) && `${m.asset_code} ${m.name} ${m.tower_name || ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const change = (key, value) => setForm(current => ({...current, [key]:value}))
@@ -32,7 +33,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
     if (!form.plant_id) { setError('Selecciona una planta.'); return }
     setBusy(true); setError(''); setMessage('')
     try {
-      await request(`/preventivos/planes${editing ? `/${editing}` : ''}`, {method:editing ? 'PUT' : 'POST', body:JSON.stringify({...form,plant_id:Number(form.plant_id)||null,machine_ids:[],excluded_machine_ids:[],coverage_mode:'PLANT',hour_bases:Object.fromEntries(Object.entries(form.hour_bases||{}).filter(([id])=>machines.some(m=>String(m.machine_id)===id&&String(m.plant_id)===String(form.plant_id))))})})
+      await request(`/preventivos/planes${editing ? `/${editing}` : ''}`, {method:editing ? 'PUT' : 'POST', body:JSON.stringify({...form,plant_id:Number(form.plant_id)||null,machine_ids:[],excluded_machine_ids:activity?.excluded_machine_ids||[],coverage_mode:'PLANT',hour_bases:Object.fromEntries(Object.entries(form.hour_bases||{}).filter(([id])=>machines.some(m=>String(m.machine_id)===id&&String(m.plant_id)===String(form.plant_id))))})})
       setForm(null); await onSaved(); setMessage(hourly ? `Plan general guardado. ${operatingHoursNotice}` : 'Plan general guardado. Se publicará una sola orden por fecha programada.')
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -71,7 +72,7 @@ export default function GeneralPreventivePlans({activities, plans, machines, req
       </div>
       <p role="status">{form.plant_id ? `${machines.filter(m => String(m.plant_id) === String(form.plant_id) && m.status !== 'FUERA_SERVICIO').length} máquinas activas en la planta seleccionada` : 'Selecciona una planta'}</p>
       <div className="general-machine-list table-scroll"><table><thead><tr><th>Incluir</th><th>Código</th><th>Máquina</th><th>Planta / torre</th>{hourly&&<th>Referencia acumulada (h)</th>}</tr></thead><tbody>{shown.map(m => <tr key={m.machine_id}>
-        <td>{String(m.plant_id) === String(form.plant_id) && m.status !== 'FUERA_SERVICIO' ? 'Incluida automáticamente' : 'No incluida'}</td>
+        <td>{String(m.plant_id) !== String(form.plant_id) || m.status === 'FUERA_SERVICIO' ? 'No incluida' : activityExcluded.has(m.machine_id) ? 'Excluida por la actividad' : 'Incluida automáticamente'}</td>
         <td>{m.asset_code}</td><td>{m.name}{m.status === 'FUERA_SERVICIO' && ' · Fuera de servicio'}</td><td>{m.plant_name} / {m.tower_name}</td>{hourly&&<td><input aria-label={`Referencia de ${m.name}`} type="number" min="0" max="999999999" step="0.01" disabled={String(m.plant_id)!==String(form.plant_id)||m.status==='FUERA_SERVICIO'} value={form.hour_bases?.[m.machine_id]??0} onChange={e=>change('hour_bases',{...form.hour_bases,[m.machine_id]:e.target.value||0})}/></td>}
       </tr>)}</tbody></table></div>
       <label className="checkbox-field"><input type="checkbox" checked={form.active} onChange={e => change('active', e.target.checked)}/>Plan activo</label>

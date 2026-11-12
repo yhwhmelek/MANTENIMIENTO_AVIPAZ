@@ -109,6 +109,8 @@ class PlanWrite(StrictModel):
     def valid(self):
         if any(not key.isdigit() or key != str(int(key)) or (self.plant_id is None and int(key) not in self.machine_ids) or not value.is_finite() or value < 0 or value > 999999999 or value.as_tuple().exponent < -2 for key,value in self.hour_bases.items()):
             raise ValueError('Revisa los horómetros de referencia de las máquinas seleccionadas')
+        if any(i <= 0 for i in self.excluded_machine_ids) or len(set(self.excluded_machine_ids)) != len(self.excluded_machine_ids):
+            raise ValueError('Revisa las exclusiones de maquinas del plan general')
         if self.scope == 'GENERAL':
             if self.machine_id is not None or self.element_id is not None or self.points:
                 raise ValueError('El plan general usa una lista de máquinas, sin elemento ni puntos individuales')
@@ -116,10 +118,8 @@ class PlanWrite(StrictModel):
                 raise ValueError('El plan general por planta no debe incluir maquinas individuales')
             if self.plant_id is None and self.coverage_mode == 'SELECTED' and (not self.machine_ids or any(i <= 0 for i in self.machine_ids) or len(set(self.machine_ids)) != len(self.machine_ids)):
                 raise ValueError('Selecciona máquinas válidas sin repetir')
-            if self.plant_id is None and self.coverage_mode == 'ALL' and (self.machine_ids or any(i <= 0 for i in self.excluded_machine_ids) or len(set(self.excluded_machine_ids)) != len(self.excluded_machine_ids)):
+            if self.plant_id is None and self.coverage_mode == 'ALL' and self.machine_ids:
                 raise ValueError('Para todos los activos usa solo exclusiones')
-            if self.plant_id is not None and self.excluded_machine_ids:
-                raise ValueError('El plan por planta no debe incluir exclusiones de maquinas')
             if set(self.machine_ids) & set(self.excluded_machine_ids):
                 raise ValueError('Un activo no puede estar incluido y excluido a la vez')
         elif self.machine_id is None or self.machine_ids:
@@ -260,7 +260,8 @@ def general_machine_ids(cursor, plan):
         rows = cursor.execute('''SELECT m.MachineId FROM dbo.Machines m
             JOIN dbo.Towers t ON t.TowerId=m.TowerId
             WHERE t.PlantId=? AND m.Status<>'FUERA_SERVICIO' ''', plan['plant_id']).fetchall()
-        return [row[0] for row in rows]
+        excluded = set(plan.get('excluded_machine_ids', []))
+        return [row[0] for row in rows if row[0] not in excluded]
     if plan.get('coverage_mode', 'SELECTED') != 'ALL':
         return list(plan.get('machine_ids', []))
     rows = cursor.execute("SELECT m.MachineId FROM dbo.Machines m WHERE m.Status<>'FUERA_SERVICIO'").fetchall()
