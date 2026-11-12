@@ -52,6 +52,7 @@ class ActivityWrite(StrictModel):
     procedure: str = Field(min_length=1, max_length=4000)
     kind: Literal['GENERAL', 'ENGRASE', 'ACEITE', 'RODAMIENTOS', 'BOBINADO'] = 'GENERAL'
     scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
+    plant_id: int | None = Field(default=None, gt=0)
     start_time: time = time(8)
     frequency: Frequency
     group: Literal['MECANICO', 'ELECTRICO', 'TECNICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO']
@@ -373,6 +374,8 @@ def register_preventive(app, connect, active_user, admin_user):
 
     def save_activity(cursor, data, user, activity_id=None):
         payload = data.model_dump(mode='json', exclude={'revision'})
+        if payload['scope'] == 'GENERAL' and not payload.get('plant_id'):
+            raise HTTPException(422, 'Selecciona la planta de la actividad general')
         if activity_id:
             row = cursor.execute('SELECT Revision,Data FROM dbo.PreventiveActivities WITH (UPDLOCK,HOLDLOCK) WHERE ActivityId=?', activity_id).fetchone()
             if not row:
@@ -467,6 +470,8 @@ def register_preventive(app, connect, active_user, admin_user):
         activity_data = json.loads(activity[0])
         if activity_data.get('scope', 'SPECIFIC') != data.scope:
             raise HTTPException(422, 'El alcance del plan debe coincidir con la actividad')
+        if data.scope == 'GENERAL' and activity_data.get('plant_id') is not None and activity_data.get('plant_id') != data.plant_id:
+            raise HTTPException(422, 'La actividad general pertenece a otra planta')
         if data.scope == 'GENERAL' and data.active:
             general_coverage(cursor, general_machine_ids(cursor, data.model_dump(mode='json')))
         validate_ids = [data.machine_id] if data.scope == 'SPECIFIC' else [] if data.active else data.machine_ids
