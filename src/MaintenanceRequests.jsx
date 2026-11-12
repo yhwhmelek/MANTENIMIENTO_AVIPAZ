@@ -82,7 +82,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       try{const data=await request('/solicitudes-mantenimiento',{signal:controller.signal});setRows(Array.isArray(data)?data:[]);setError(Array.isArray(data)?'':'El servidor devolvió un formato inesperado para las solicitudes.');setLoaded(true)}
       catch(err){if(err.name!=='AbortError')setError(err.message)}finally{pending=false}
     }
-    refresh(); const timer=setInterval(refresh,30000);window.addEventListener('focus',refresh)
+    refresh(); const timer=setInterval(refresh,5000);window.addEventListener('focus',refresh)
     return()=>{controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh)}
   },[apiUrl,token,version,open,selected])
   useEffect(()=>{
