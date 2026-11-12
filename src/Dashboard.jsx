@@ -26,6 +26,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   const isAdmin = currentUser.rol === 'ADMIN'
   const isOperator = currentUser.rol === 'OPERADOR'
   const [requestsAlertSlot, setRequestsAlertSlot] = useState(null)
+  const [alertsOpen, setAlertsOpen] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [selectedSection, setSection] = useState(currentUser.rol === 'OPERADOR' ? 'requests' : 'machines')
   const section = isOperator ? 'requests' : selectedSection
@@ -453,11 +454,11 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       <div className="admin-user"><span>{currentUser.nombre_completo || currentUser.nombre} · {currentUser.rol}</span><button className="logout-button" onClick={() => setShowProfile(true)}>Mi perfil</button><button className="logout-button" onClick={onLogout}><LogOut size={17} /> Salir</button></div>
     </header>
     <div className="alerts-access-bar">
-    <AlertsCenter canPreventives={['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)} apiUrl={apiUrl} token={token} section={section} isOperator={isOperator} isAdmin={isAdmin} onRequestsSlot={setRequestsAlertSlot} onNavigate={setSection} />
+    <AlertsCenter canPreventives={['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)} apiUrl={apiUrl} token={token} section={section} isOperator={isOperator} isAdmin={isAdmin} onRequestsSlot={setRequestsAlertSlot} onNavigate={setSection} onOpenChange={setAlertsOpen} />
     </div>
 
     <section className="admin-content">
-      <MaintenanceRequests alertContainer={requestsAlertSlot} apiUrl={apiUrl} token={token} currentUser={currentUser} open={section === 'requests'} onOpen={() => { setMessage(''); setSection('requests') }} />
+      <MaintenanceRequests alertContainer={requestsAlertSlot} alertsOpen={alertsOpen} apiUrl={apiUrl} token={token} currentUser={currentUser} open={section === 'requests'} onOpen={() => { setMessage(''); setSection('requests') }} />
       {isAssetsSection && <nav className="spare-parts-nav" aria-label="Activos">
         <button aria-current={section === 'plant-structure' ? 'page' : undefined} onClick={() => { setMessage(''); setSection('plant-structure') }}>Plantas y torres</button>
         {[['machines', 'Máquinas'], ['machine-elements', 'Elementos de máquinas'], ['element-types', 'Tipos de elementos'], ['events', 'Intervenciones']].map(([value, label]) => <button key={value} aria-current={section === value ? 'page' : undefined} onClick={() => { setMessage(''); setHistoryMachineId(''); setSection(value) }}>{label}</button>)}

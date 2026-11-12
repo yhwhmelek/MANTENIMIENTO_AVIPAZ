@@ -34,7 +34,7 @@ const localInput = () => { const d = new Date(); return `${d.getFullYear()}-${St
 function Field({label,name,type='text',value,onChange,...props}) { return <label>{label}<input name={name} type={type} value={value ?? ''} onChange={e=>onChange(name,e.target.value)} {...props}/></label> }
 function Text({label,name,form,change,maxLength=1000,required=true,placeholder}) { return <label className="full-field">{label}{!required && ' (opcional)'}<textarea required={required} placeholder={placeholder ?? (required ? undefined : 'No aplica si se deja vacío')} rows={3} maxLength={maxLength} value={form[name] || ''} onChange={e=>change(name,e.target.value)}/></label> }
 
-export default function MaintenanceRequests({ apiUrl, token, currentUser, open, onOpen, alertContainer }) {
+export default function MaintenanceRequests({ apiUrl, token, currentUser, open, alertsOpen=false, onOpen, alertContainer }) {
   const [rows,setRows] = useState([]), [machines,setMachines] = useState([]), [parts,setParts] = useState([])
   const [plants,setPlants] = useState([]), [towers,setTowers] = useState([])
   const [error,setError] = useState(''), [formError,setFormError] = useState(''), [busy,setBusy] = useState(false)
@@ -74,7 +74,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     return data
   }
   useEffect(()=>{
-    if(!open||selected!==null)return
+    if((!open&&!alertsOpen)||selected!==null)return
     const controller=new AbortController(); let pending=false
     async function refresh(){
       if(pending || controller.signal.aborted)return
@@ -86,7 +86,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     }
     refresh(); const timer=setInterval(refresh,5000);window.addEventListener('focus',refresh)
     return()=>{controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh)}
-  },[apiUrl,token,version,open,selected])
+  },[apiUrl,token,version,open,alertsOpen,selected])
   useEffect(()=>{
     if(!open)return
     const controller=new AbortController();setCatalogReady(false)
