@@ -11,8 +11,9 @@ export function canExecuteWork(row, user) {
   const plan = row.request_data.planning
   if (!plan) return false
   if (plan.assignment_type === 'CONTRACTOR') return user.rol === 'ADMIN'
-  if (row.assigned_to != null) return Number(row.assigned_to) === Number(user.id)
-  const group = assignmentGroups[plan.assignment_type]
+  if (user.rol === 'ADMIN' && row.status === 'PENDIENTE') return true
+  if (row.assigned_to != null && Number(row.assigned_to) > 0) return Number(row.assigned_to) === Number(user.id)
+  const group = assignmentGroups[plan.assignment_type] || assignmentGroups[plan.responsible_role]
   if (group) return row.status === 'PENDIENTE' && group.roles.includes(user.rol)
   return plan.assigned_user_id != null && Number(plan.assigned_user_id) === Number(user.id)
 }

@@ -764,9 +764,9 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
             planning = original.get('planning', {})
             assigned_user_id = planning.get('assigned_user_id')
             contractor = planning.get('assignment_type') == 'CONTRACTOR'
-            group = ASSIGNMENT_GROUPS.get(planning.get('assignment_type'))
+            group = ASSIGNMENT_GROUPS.get(planning.get('assignment_type')) or ASSIGNMENT_GROUPS.get(planning.get('responsible_role'))
             role = cursor.execute('SELECT Rol FROM dbo.Usuarios WHERE Id=? AND Activo=1', usuario_id).fetchone() if contractor or group else None
-            allowed = (bool(role) and role[0] in group[1]) if group else ((bool(role) and role[0] == 'ADMIN') if contractor else assigned_user_id == usuario_id)
+            allowed = (bool(role) and (role[0] == 'ADMIN' or role[0] in group[1])) if group else ((bool(role) and role[0] == 'ADMIN') if contractor else assigned_user_id == usuario_id)
             if not allowed:
                 raise HTTPException(403, 'Solo el responsable asignado puede iniciar este trabajo')
             estimated = int(planning.get('estimated_duration_days', 0))*1440 + int(planning.get('estimated_duration_minutes', 0))
