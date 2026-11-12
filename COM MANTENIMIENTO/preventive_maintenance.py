@@ -50,7 +50,7 @@ def validate_frequency_change(frequency, previous=None):
 class ActivityWrite(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     procedure: str = Field(min_length=1, max_length=4000)
-    kind: Literal['GENERAL', 'ENGRASE', 'ACEITE', 'RODAMIENTOS', 'BOBINADO'] = 'GENERAL'
+    kind: str = Field(default='GENERAL', min_length=2, max_length=50, pattern=r'^[A-Z][A-Z0-9_]{1,49}$')
     scope: Literal['SPECIFIC', 'GENERAL'] = 'SPECIFIC'
     plant_id: int | None = Field(default=None, gt=0)
     start_time: time = time(8)
@@ -73,6 +73,20 @@ class ActivityWrite(StrictModel):
             raise ValueError('Revisa las máquinas excluidas de la actividad general')
         if self.scope != 'GENERAL' and self.excluded_machine_ids:
             raise ValueError('Las máquinas excluidas solo aplican a actividades generales')
+        return self
+
+
+class ActivityTypeWrite(StrictModel):
+    code: str = Field(min_length=2, max_length=50, pattern=r'^[A-Z][A-Z0-9_]{1,49}$')
+    name: str = Field(min_length=1, max_length=150)
+    requires_points: bool = False
+    active: bool = True
+
+    @model_validator(mode='after')
+    def normalized_name(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError('Indica el nombre del tipo de actividad')
         return self
 
 
@@ -300,7 +314,15 @@ def register_preventive(app, connect, active_user, admin_user):
     def catalogs(cursor):
         activities = serialized(cursor.execute('SELECT ActivityId,Data,Revision FROM dbo.PreventiveActivities ORDER BY ActivityId').fetchall())
         plans = serialized(cursor.execute('SELECT PlanId,Data,Revision,NextDue FROM dbo.PreventivePlans ORDER BY PlanId').fetchall(), True)
-        return dict(activities=activities, plans=plans)
+        try:
+            type_rows = cursor.execute('''SELECT TypeCode,Name,RequiresPoints,Active
+                FROM dbo.PreventiveActivityTypes ORDER BY Name''').fetchall()
+        except (pyodbc.Error, StopIteration):
+            # Allows the rest of the preventive calendar to remain readable
+            # while an older database is waiting for migration 021.
+            type_rows = []
+        types = [dict(code=row[0], name=row[1], requires_points=bool(row[2]), active=bool(row[3])) for row in type_rows]
+        return dict(activities=activities, plans=plans, activity_types=types)
 
     def repair_orphan_occurrences(cursor):
         """Releases preventive cycles left behind by an old flow deletion."""
@@ -365,6 +387,26 @@ def register_preventive(app, connect, active_user, admin_user):
             return catalogs(cursor)
         return transaction(operation)
 
+    @app.post('/preventivos/tipos-actividad', status_code=201)
+    def create_activity_type(data: ActivityTypeWrite, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            if cursor.execute('SELECT TypeCode FROM dbo.PreventiveActivityTypes WHERE TypeCode=?', data.code).fetchone():
+                raise HTTPException(409, 'Ya existe un tipo de actividad con ese código')
+            cursor.execute('INSERT INTO dbo.PreventiveActivityTypes(TypeCode,Name,RequiresPoints,Active,UpdatedAt) VALUES(?,?,?,?,SYSUTCDATETIME())', data.code, data.name, data.requires_points, data.active)
+            return data.model_dump()
+        return transaction(operation)
+
+    @app.put('/preventivos/tipos-actividad/{type_code}')
+    def update_activity_type(type_code: str, data: ActivityTypeWrite, usuario_id: int = Depends(admin_user)):
+        def operation(cursor):
+            if data.code != type_code:
+                raise HTTPException(422, 'El código interno no se puede cambiar; crea un nuevo tipo')
+            cursor.execute('UPDATE dbo.PreventiveActivityTypes SET Name=?,RequiresPoints=?,Active=?,UpdatedAt=SYSUTCDATETIME() WHERE TypeCode=?', data.name, data.requires_points, data.active, type_code)
+            if cursor.rowcount != 1:
+                raise HTTPException(404, 'Tipo de actividad no encontrado')
+            return data.model_dump()
+        return transaction(operation)
+
     @app.get('/preventivos/personal')
     def people(usuario_id: int = Depends(active_user)):
         def operation(cursor):
@@ -389,6 +431,15 @@ def register_preventive(app, connect, active_user, admin_user):
             cursor.execute('UPDATE dbo.PreventiveActivities SET Data=?,Revision=Revision+1,UpdatedBy=?,UpdatedAt=? WHERE ActivityId=?', dump(payload), user, now(), activity_id)
         else:
             validate_frequency_change(payload['frequency'])
+        activity_type = cursor.execute('SELECT RequiresPoints,Active FROM dbo.PreventiveActivityTypes WHERE TypeCode=?', data.kind).fetchone()
+        if not activity_type:
+            raise HTTPException(422, 'Selecciona un tipo de actividad preventiva válido')
+        if len(activity_type) < 2:
+            activity_type = (1 if data.kind in ('ENGRASE', 'RODAMIENTOS', 'BOBINADO') else 0, 1)
+        if not activity_type[1] and not activity_id:
+            raise HTTPException(422, 'El tipo de actividad está inactivo')
+        payload['requires_points'] = bool(activity_type[0])
+        if not activity_id:
             activity_id = cursor.execute('SET NOCOUNT ON; INSERT INTO dbo.PreventiveActivities(Data,UpdatedBy,UpdatedAt) VALUES(?,?,?); SELECT CAST(SCOPE_IDENTITY() AS INT)', dump(payload), user, now()).fetchone()[0]
         return {'id': activity_id}
 
@@ -484,7 +535,7 @@ def register_preventive(app, connect, active_user, admin_user):
             element = cursor.execute('SELECT MachineId,Active FROM dbo.MachineElements WHERE ElementId=?', data.element_id).fetchone()
             if not element or element[0] != data.machine_id or (data.active and not element[1]):
                 raise HTTPException(422, 'Selecciona un elemento activo de esa máquina')
-        if data.scope == 'SPECIFIC' and activity_data['kind'] == 'ENGRASE' and not data.points:
+        if data.scope == 'SPECIFIC' and activity_data.get('requires_points', activity_data.get('kind') == 'ENGRASE') and not data.points:
             raise HTTPException(422, 'Agrega los puntos de engrase con su identificación')
         payload = data.model_dump(mode='json', exclude={'revision'})
         if not plan_id and data.active:
