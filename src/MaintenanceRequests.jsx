@@ -79,8 +79,10 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     async function refresh(){
       if(pending || controller.signal.aborted)return
       pending=true
+      let timedOut=false
+      const timeout=setTimeout(()=>{timedOut=true;controller.abort()},15000)
       try{const data=await request('/solicitudes-mantenimiento',{signal:controller.signal});setRows(Array.isArray(data)?data:[]);setError(Array.isArray(data)?'':'El servidor devolvió un formato inesperado para las solicitudes.');setLoaded(true)}
-      catch(err){if(err.name!=='AbortError')setError(err.message)}finally{pending=false}
+      catch(err){if(err.name!=='AbortError'||timedOut){setError(timedOut?'La consulta de solicitudes tardó demasiado. Verifica el backend o la conexión.':err.message);setLoaded(true)}}finally{clearTimeout(timeout);pending=false}
     }
     refresh(); const timer=setInterval(refresh,5000);window.addEventListener('focus',refresh)
     return()=>{controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh)}
