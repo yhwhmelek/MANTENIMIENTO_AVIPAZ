@@ -74,7 +74,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     return data
   }
   useEffect(()=>{
-    if(!open)return
+    if(!open||selected!==null)return
     const controller=new AbortController(); let pending=false
     async function refresh(){
       if(pending || controller.signal.aborted)return
@@ -84,7 +84,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
     }
     refresh(); const timer=setInterval(refresh,30000);window.addEventListener('focus',refresh)
     return()=>{controller.abort();clearInterval(timer);window.removeEventListener('focus',refresh)}
-  },[apiUrl,token,version,open])
+  },[apiUrl,token,version,open,selected])
   useEffect(()=>{
     if(!open)return
     const controller=new AbortController();setCatalogReady(false)
