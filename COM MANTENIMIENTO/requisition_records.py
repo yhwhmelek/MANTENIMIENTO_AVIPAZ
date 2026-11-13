@@ -12,7 +12,7 @@ import pyodbc
 from fastapi import Depends, HTTPException, Response
 from pydantic import Field, model_validator
 from purchase_requisitions import TextModel, RequisitionWrite, generate_requisition, machine_locations
-from requisition_mail import MailContent, RequisitionMail, send_requisition
+from requisition_mail import MailAttachment, MailContent, RequisitionMail, send_requisition
 
 
 class RequisitionEdit(TextModel):
@@ -63,8 +63,18 @@ class InvoiceWrite(TextModel):
         return self
 
 
+class ConfirmationMailContent(MailContent):
+    attachments: list[MailAttachment] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode='after')
+    def attachment_total(self):
+        if sum(len(item.decoded()) for item in self.attachments) > 15 * 1024 * 1024:
+            raise ValueError('Los archivos adjuntos no pueden superar 15 MB en total')
+        return self
+
+
 class ReceiptWrite(TextModel):
-    confirmation: MailContent | None = None
+    confirmation: ConfirmationMailContent | None = None
     invoice: InvoiceWrite | None = None
     supplier_id: int = Field(gt=0)
     purchased_on: date

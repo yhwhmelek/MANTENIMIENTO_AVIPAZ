@@ -18,7 +18,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
   const [mail,setMail]=useState({to:'',cc:'',subject:'',body:''})
   const [showRequisitionMail,setShowRequisitionMail]=useState(false)
   const [requisitionMail,setRequisitionMail]=useState({to:DEFAULT_MAIL_TO,cc:DEFAULT_MAIL_CC,subject:'',body:''})
-  const [requisitionAttachments,setRequisitionAttachments]=useState([])
+  const [requisitionAttachments,setRequisitionAttachments]=useState([]),[confirmationAttachments,setConfirmationAttachments]=useState([])
   const [contacts,setContacts]=useState([]),[contactsError,setContactsError]=useState('')
   useEffect(()=>{
     if(!showMail&&!showRequisitionMail)return
@@ -44,6 +44,14 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     if(files.reduce((total,file)=>total+file.size,0)>15*1024*1024){setError('Los documentos adjuntos no pueden superar 15 MB en total.');return}
     setRequisitionAttachments(files);setError('')
   }
+  function addConfirmationAttachments(event){
+    const files=[...confirmationAttachments,...Array.from(event.target.files||[])]
+    event.target.value=''
+    if(files.length>10){setError('Puedes adjuntar hasta 10 documentos de confirmacion.');return}
+    if(files.some(file=>!file.size||file.size>5*1024*1024)){setError('Cada documento debe contener datos y pesar como maximo 5 MB.');return}
+    if(files.reduce((total,file)=>total+file.size,0)>15*1024*1024){setError('Los documentos de confirmacion no pueden superar 15 MB en total.');return}
+    setConfirmationAttachments(files);setError('')
+  }
   const visibleRows=pendingOnly?rows.filter(row=>row.status==='PENDIENTE'):rows
   const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'}
   useEffect(()=>{
@@ -55,8 +63,8 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     return()=>controller.abort()
   },[apiUrl,token,revision,refresh])
   function open(row){
-    setShowMail(false);setShowRequisitionMail(false);setMessage('');setRequisitionAttachments([])
-    setMail({to:'',cc:'',subject:`Confirmación de recepción · Requisición #${row.id}`,body:'Estimados,\n\nConfirmamos la recepción del material de la requisición indicada. Se incluyen los datos de la compra y la factura, si fue adjuntada.\n\nSaludos cordiales,'})
+    setShowMail(false);setShowRequisitionMail(false);setMessage('');setRequisitionAttachments([]);setConfirmationAttachments([])
+    setMail({to:DEFAULT_MAIL_TO,cc:DEFAULT_MAIL_CC,subject:`Confirmación de recepción · Requisición #${row.id}`,body:'Estimados,\n\nConfirmamos la recepción del material de la requisición indicada. Se incluyen los datos de la compra y la factura, si fue adjuntada.\n\nSaludos cordiales,'})
     setSelected(row);setError('');setInvoice(null)
     const d=new Date(),today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     setReceipt({supplier_id:catalog.suppliers.find(s=>s.name===row.requisition.supplier)?.supplier_id||'',purchased_on:today,document_number:'',currency:'USD',items:row.requisition.items.map(i=>({item_type:i.item_type||'MATERIAL',spare_part_id:i.spare_part_id||'',quantity:i.quantity,unit_cost:''}))})
@@ -109,7 +117,8 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         attachment={filename,content_base64:dataUrl.split(',')[1]}
       }
       setUploadStage(sendEmail?'Guardando recepción y enviando confirmación…':'Guardando recepción…')
-      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,items:receipt.items.map(item=>({...item,spare_part_id:item.item_type==='MATERIAL'?item.spare_part_id:null})),invoice:attachment,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc)}:null})})
+      const confirmationFiles=await Promise.all(confirmationAttachments.map(fileBase64))
+      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,items:receipt.items.map(item=>({...item,spare_part_id:item.item_type==='MATERIAL'?item.spare_part_id:null})),invoice:attachment,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc),attachments:confirmationFiles}:null})})
       const data=await r.json();if(!r.ok)throw new Error(requestValidationError(data))
       setSelected(null);setRefresh(v=>v+1)
       setShowMail(false)
@@ -162,7 +171,10 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         {contactsError&&<p role="alert">{contactsError}</p>}
         <div className="motor-form-grid">{[['to','Para *'],['cc','Copia (CC)']].map(([field,label])=><label key={field}>{label}<input value={mail[field]} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,[field]:e.target.value}))}/><select aria-label={`Añadir contacto a ${label}`} value="" onChange={e=>addRecipient(field,e.target.value)}><option value="">Añadir contacto…</option>{contacts.map((contact,i)=><option key={`${contact.email}-${i}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</select></label>)}
         <label className="full-field">Asunto *<input maxLength={200} value={mail.subject} onChange={e=>setMail(m=>({...m,subject:e.target.value}))}/></label>
-        <label className="full-field">Mensaje *<textarea rows={6} maxLength={10000} value={mail.body} onChange={e=>setMail(m=>({...m,body:e.target.value}))}/></label></div>
+        <label className="full-field">Mensaje *<textarea rows={6} maxLength={10000} value={mail.body} onChange={e=>setMail(m=>({...m,body:e.target.value}))}/></label>
+        <label className="full-field">Documentos de confirmación (opcional)<input type="file" multiple onChange={addConfirmationAttachments}/></label>
+        {!!confirmationAttachments.length&&<ul>{confirmationAttachments.map((file,index)=><li key={index}>{file.name} · {(file.size/1024/1024).toFixed(2)} MB <button type="button" className="secondary-action" onClick={()=>setConfirmationAttachments(files=>files.filter((_,i)=>i!==index))}>Quitar</button></li>)}</ul>}
+        </div>
         <p>Firma del correo:</p><img src={signatureImage} alt="Firma de Mantenimiento AVIPAZ" style={{width:800,maxWidth:'100%',height:'auto'}}/>
       </section>}
       <div className="modal-actions"><button className="primary-action" type="submit" value="save">{busy?'Procesando…':'Aceptar'}</button>{showMail?<><button className="primary-action" type="submit" value="email">Aceptar y enviar correo de confirmación</button><button type="button" className="secondary-action" onClick={()=>setShowMail(false)}>Ocultar correo</button></>:<button type="button" className="secondary-action" onClick={()=>setShowMail(true)}>Aceptar y enviar correo…</button>}</div>
