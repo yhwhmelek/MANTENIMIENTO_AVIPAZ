@@ -4,8 +4,8 @@ import SparePartCombobox from './SparePartCombobox'
 import signatureImage from './firma_correo.jpg'
 
 const newItem = () => ({ item_type:'MATERIAL',description:'',quantity:'1',unit:'UNIDAD',specifications:'',consumable_id:null })
-const DEFAULT_MAIL_TO = 'adquisiciones@avipaz.ec'
-const DEFAULT_MAIL_CC = 'compras@avipaz.ec, mantenimientosamanga@avipaz.ec'
+const DEFAULT_MAIL_TO = 'adquisiciones@avipaz.ec, compras@avipaz.ec, contabilidadgeneral@avipaz.ec, contabilidad2@avipaz.ec, epazmino@avipaz.ec'
+const DEFAULT_MAIL_CC = 'mantenimientosamanga@avipaz.ec'
 const fileBase64 = file => new Promise((resolve,reject)=>{
   const reader=new FileReader()
   reader.onload=()=>resolve({filename:file.name,content_base64:reader.result.split(',')[1]})

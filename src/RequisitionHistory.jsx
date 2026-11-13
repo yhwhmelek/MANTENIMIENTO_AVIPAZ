@@ -4,8 +4,8 @@ import {useEffect, useRef, useState} from 'react'
 import signatureImage from './firma_correo.jpg'
 import { requestValidationError } from './requestValidationError'
 
-const DEFAULT_MAIL_TO = 'adquisiciones@avipaz.ec'
-const DEFAULT_MAIL_CC = 'compras@avipaz.ec, mantenimientosamanga@avipaz.ec'
+const DEFAULT_MAIL_TO = 'adquisiciones@avipaz.ec, compras@avipaz.ec, contabilidadgeneral@avipaz.ec, contabilidad2@avipaz.ec, epazmino@avipaz.ec'
+const DEFAULT_MAIL_CC = 'mantenimientosamanga@avipaz.ec'
 const fileBase64 = file => new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({filename:file.name,content_base64:reader.result.split(',')[1]});reader.onerror=()=>reject(new Error(`No se pudo leer ${file.name}.`));reader.readAsDataURL(file)})
 
 export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revision,onEdit,editingBusy}){
@@ -35,6 +35,14 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
   function addRecipientToSaved(field,email){
     if(!email)return
     setRequisitionMail(current=>{const values=current[field].split(/[,;\s]+/).filter(Boolean);if(!values.some(value=>value.toLowerCase()===email.toLowerCase()))values.push(email);return {...current,[field]:values.join(', ')}})
+  }
+  function addRequisitionAttachments(event){
+    const files=[...requisitionAttachments,...Array.from(event.target.files||[])]
+    event.target.value=''
+    if(files.length>10){setError('Puedes adjuntar hasta 10 archivos de confirmación.');return}
+    if(files.some(file=>!file.size||file.size>5*1024*1024)){setError('Cada documento debe contener datos y pesar como máximo 5 MB.');return}
+    if(files.reduce((total,file)=>total+file.size,0)>15*1024*1024){setError('Los documentos adjuntos no pueden superar 15 MB en total.');return}
+    setRequisitionAttachments(files);setError('')
   }
   const visibleRows=pendingOnly?rows.filter(row=>row.status==='PENDIENTE'):rows
   const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'}
@@ -134,7 +142,8 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         <label>Copia (CC)<input value={requisitionMail.cc} onChange={e=>setRequisitionMail(m=>({...m,cc:e.target.value}))}/><select aria-label="Añadir contacto a Copia" value="" onChange={e=>addRecipientToSaved('cc',e.target.value)}><option value="">Añadir contacto a Copia…</option>{contacts.map((contact,i)=><option key={`${contact.email}-${i}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</select></label>
         <label className="full-field">Asunto *<input required maxLength={200} value={requisitionMail.subject} onChange={e=>setRequisitionMail(m=>({...m,subject:e.target.value}))}/></label>
         <label className="full-field">Mensaje *<textarea required rows={6} maxLength={10000} value={requisitionMail.body} onChange={e=>setRequisitionMail(m=>({...m,body:e.target.value}))}/></label>
-        <label className="full-field">Archivos adicionales (opcional)<input type="file" multiple onChange={e=>setRequisitionAttachments(Array.from(e.target.files||[]).slice(0,10))}/></label>
+        <label className="full-field">Documentos de confirmación (opcional)<input type="file" multiple onChange={addRequisitionAttachments}/></label>
+        {!!requisitionAttachments.length&&<ul>{requisitionAttachments.map((file,index)=><li key={`${file.name}-${index}`}>{file.name} · {(file.size/1024/1024).toFixed(2)} MB <button type="button" className="secondary-action" onClick={()=>setRequisitionAttachments(files=>files.filter((_,i)=>i!==index))}>Quitar</button></li>)}</ul>}
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>setShowRequisitionMail(false)}>Cancelar</button><button className="primary-action" disabled={busy}>{busy?'Enviando…':'Enviar correo con Excel'}</button></div></form>}
       {selected.receipt&&<><h3>Compra registrada</h3><p>Documento: {selected.receipt.document_number} · Fecha: {selected.receipt.purchased_on} · Administrador: {selected.received_by}</p>{selected.receipt.items.map((item,i)=><p key={i}>{(selected.receipt.requisition_at_receipt||selected.requisition).items[i]?.description||'Item recibido'}: {item.quantity} × {item.unit_cost} {selected.receipt.currency} · {selected.receipt.purchase_ids[i]?`Compra #${selected.receipt.purchase_ids[i]}`:'Servicio / actividad sin inventario'}</p>)}</>}
       {isAdmin&&selected.status==='PENDIENTE'&&<form onSubmit={receive}><fieldset disabled={busy} className="request-fields"><h3>Confirmar llegada y registrar compra</h3><p>Indica las cantidades efectivamente recibidas y el precio unitario. Esta confirmación cierra la requisición. Para productos nuevos, crea primero el repuesto en Inventario. Los servicios no se ingresan como existencias.</p><div className="motor-form-grid">
