@@ -12,10 +12,15 @@ function savedDuration(plan){
   return {days:0,minutes:60}
 }
 
+function SupplierField({form,suppliers,change}){
+  if(form?.assignment_type!=='CONTRACTOR')return null
+  return <label className="full-field">Proveedor del servicio (opcional)<select value={form.supplier_id||''} onChange={e=>change('supplier_id',e.target.value?Number(e.target.value):null)}><option value="">Sin proveedor asociado</option>{suppliers.map(item=><option key={item.supplier_id} value={item.supplier_id}>{item.name}{item.supplier_code?` · ${item.supplier_code}`:''}</option>)}</select><span className="field-help">Puede ser el mismo contratista o la empresa que emitirá la requisición del servicio.</span></label>
+}
+
 export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMode='',onCancel,compact=false}){
   const [mode,setMode]=useState(''),[form,setForm]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState('')
   const [showParts,setShowParts]=useState(false)
-  const [contractors,setContractors]=useState([])
+  const [contractors,setContractors]=useState([]),[suppliers,setSuppliers]=useState([])
   const opened=useRef(false)
   const r=row.request_data,improvement=r.maintenance_type==='MEJORA_TECNICA'
   const favorableImprovement=!improvement||['PROCEDE','CON_MODIFICACIONES'].includes(r.priority_validation?.technical_review?.feasibility)
@@ -25,21 +30,21 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
     if(kind==='plan'&&planningBlockedMessage){setError(planningBlockedMessage);return}
     if(kind==='plan'&&!contractors.length){
       setBusy(true)
-      try{const external=await request('/contratistas');setContractors(external.filter(item=>item.active))}catch(err){setError(err.message);setBusy(false);return}
+      try{const [external,providers]=await Promise.all([request('/contratistas'),request('/proveedores')]);setContractors(external.filter(item=>item.active));setSuppliers(providers.filter(item=>item.active))}catch(err){setError(err.message);setBusy(false);return}
       setBusy(false)
     }
     setMode(kind)
     const duration=savedDuration(r.planning)
     const assignmentType=r.planning?.assignment_type==='CONTRACTOR'?'CONTRACTOR':assignmentGroups[r.planning?.assignment_type]?r.planning.assignment_type:assignmentGroups[r.planning?.responsible_role]?r.planning.responsible_role:'MECANICO_ELECTRICO'
     setForm(kind==='evaluate'?{factors:{...(r.priority_validation?.factors||r.preevaluation||{})},justification:'',technical_review:improvement?(r.priority_validation?.technical_review||{...Object.fromEntries(Object.keys(checks).map(k=>[k,{answer:'',notes:''}])),feasibility:''}):null,expected_revision:r.priority_revision||0}
-      :{assignment_type:assignmentType,assigned_user_id:null,contractor_id:r.planning?.contractor_id||'',responsible:assignmentGroups[assignmentType]?.label||r.planning?.responsible||'',responsible_role:r.planning?.responsible_role||'',resources:r.planning?.resources||'',permits:r.planning?.permits||'',window:r.planning?.window||'',starts_at:r.planning?.starts_at?.slice(0,16)||localInput(),estimated_duration_days:duration.days,estimated_duration_minutes:duration.minutes,condition:r.planning?.condition||'ESPERA_RECURSOS',notes:r.planning?.notes||'',requested_parts:r.planning?.requested_parts||[],expected_revision:r.priority_revision||0})
+      :{assignment_type:assignmentType,assigned_user_id:null,contractor_id:r.planning?.contractor_id||'',supplier_id:r.planning?.supplier_id||'',responsible:assignmentGroups[assignmentType]?.label||r.planning?.responsible||'',responsible_role:r.planning?.responsible_role||'',resources:r.planning?.resources||'',permits:r.planning?.permits||'',window:r.planning?.window||'',starts_at:r.planning?.starts_at?.slice(0,16)||localInput(),estimated_duration_days:duration.days,estimated_duration_minutes:duration.minutes,condition:r.planning?.condition||'ESPERA_RECURSOS',notes:r.planning?.notes||'',requested_parts:r.planning?.requested_parts||[],expected_revision:r.priority_revision||0})
   }
   function change(key,value){setForm(f=>({...f,[key]:value}))}
   async function save(e){
     e.preventDefault();if(busy)return;setBusy(true);setError('')
     try{
       const {responsible_role,...planForm}=form
-      const payload=mode==='plan'?{...planForm,assigned_user_id:form.assignment_type==='USER'?Number(form.assigned_user_id):null,contractor_id:form.assignment_type==='CONTRACTOR'?Number(form.contractor_id):null,resources:form.resources.trim()||'N/A',permits:form.permits.trim()||'N/A',window:form.window.trim()||'N/A',notes:form.notes.trim()||'N/A',starts_at:form.starts_at||null,estimated_duration_days:Number(form.estimated_duration_days),estimated_duration_minutes:Number(form.estimated_duration_minutes),requested_parts:(form.requested_parts||[]).map(part=>({machine_spare_part_id:Number(part.machine_spare_part_id),quantity:String(part.quantity)}))}:form
+      const payload=mode==='plan'?{...planForm,assigned_user_id:form.assignment_type==='USER'?Number(form.assigned_user_id):null,contractor_id:form.assignment_type==='CONTRACTOR'?Number(form.contractor_id):null,supplier_id:form.assignment_type==='CONTRACTOR'&&form.supplier_id?Number(form.supplier_id):null,resources:form.resources.trim()||'N/A',permits:form.permits.trim()||'N/A',window:form.window.trim()||'N/A',notes:form.notes.trim()||'N/A',starts_at:form.starts_at||null,estimated_duration_days:Number(form.estimated_duration_days),estimated_duration_minutes:Number(form.estimated_duration_minutes),requested_parts:(form.requested_parts||[]).map(part=>({machine_spare_part_id:Number(part.machine_spare_part_id),quantity:String(part.quantity)}))}:form
       const controller=new AbortController()
       const timeout=window.setTimeout(()=>controller.abort(),30000)
       try{
@@ -49,7 +54,7 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
     }catch(err){setError(err.name==='AbortError'?'El servidor tardó demasiado en responder. Verifica la conexión y vuelve a intentarlo.':err.message)}finally{setBusy(false)}
   }
   useEffect(()=>{if(initialMode&&!opened.current){opened.current=true;start(initialMode)}},[initialMode,row.id])
-  return <section className="request-detail">{!compact&&<PrioritySummary row={row}/>}
+  return <section className="request-detail">{!compact&&<PrioritySummary row={row}/>}<SupplierField form={mode==='plan'?form:null} suppliers={suppliers} change={change}/>
     {showParts&&<SparePartPlanningPicker request={request} requestMachineId={r.machine_id} initial={form.requested_parts||[]} onChange={parts=>change('requested_parts',parts)} onClose={()=>setShowParts(false)}/>}
     {!compact&&isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&!mode&&<div className="request-toolbar"><button type="button" disabled={busy} onClick={()=>start('evaluate')}>{r.priority_validation?'Reevaluar prioridad':'Validar prioridad y evaluar'}</button><button type="button" disabled={busy||!r.priority_validation||Boolean(planningBlockedMessage)} title={planningBlockedMessage||'Programar actividad'} onClick={()=>start('plan')}>Programar actividad</button></div>}
     {!mode&&planningBlockedMessage&&<p role="status">{planningBlockedMessage}</p>}

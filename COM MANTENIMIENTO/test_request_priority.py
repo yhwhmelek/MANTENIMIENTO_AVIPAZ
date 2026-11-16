@@ -145,6 +145,14 @@ class PriorityTests(unittest.TestCase):
         self.assertEqual((saved['contractor_id'],saved['responsible'],saved['responsible_role']),(4,'Servicio externo','CONTRATISTA'))
         self.assertTrue(saved['review_required'])
 
+    def test_programming_can_associate_active_service_supplier(self):
+        self.original['priority_validation']={'factors':{'n':2,'i':2,'c':2}}
+        self.cursor.execute.return_value.fetchone.side_effect=[self.lock(),('Servicio externo','ELECTRICO'),('Proveedor servicio',),('Jefe',)]
+        data=self.plan(assignment_type='CONTRACTOR',assigned_user_id=None,contractor_id=4,supplier_id=8)
+        self.endpoint('programar')(1,data,usuario_id=9)
+        saved=json.loads(self.cursor.execute.call_args.args[1])['planning']
+        self.assertEqual((saved['supplier_id'],saved['supplier_name']),(8,'Proveedor servicio'))
+
     def test_programming_rejects_responsible_overlap_in_same_plant(self):
         self.original.update(plant_id=1,priority_validation={'factors':{'n':2,'i':2,'c':2}})
         conflict={'plant_id':1,'planning':{'assignment_type':'USER','assigned_user_id':9,

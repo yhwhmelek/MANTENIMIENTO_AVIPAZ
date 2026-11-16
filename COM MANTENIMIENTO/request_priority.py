@@ -57,6 +57,7 @@ class PlanningWrite(StrictModel):
     assignment_type: Literal['USER', 'CONTRACTOR', 'MECANICO', 'ELECTRICO', 'TECNICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO'] = 'USER'
     assigned_user_id: int | None = Field(default=None, gt=0)
     contractor_id: int | None = Field(default=None, gt=0)
+    supplier_id: int | None = Field(default=None, gt=0)
     responsible: str = Field(default='', max_length=150)
     resources: str = Field(default='N/A', min_length=1, max_length=1000)
     permits: str = Field(default='N/A', min_length=1, max_length=1000)
@@ -77,12 +78,14 @@ class PlanningWrite(StrictModel):
 
     @model_validator(mode='after')
     def dates(self):
-        if self.assignment_type in ASSIGNMENT_GROUPS and (self.assigned_user_id is not None or self.contractor_id is not None):
+        if self.assignment_type in ASSIGNMENT_GROUPS and (self.assigned_user_id is not None or self.contractor_id is not None or self.supplier_id is not None):
             raise ValueError('La asignación por grupo no permite seleccionar un usuario ni un contratista')
-        if self.assignment_type == 'USER' and (self.assigned_user_id is None or self.contractor_id is not None):
+        if self.assignment_type == 'USER' and (self.assigned_user_id is None or self.contractor_id is not None or self.supplier_id is not None):
             raise ValueError('Selecciona un usuario mecánico, eléctrico o técnico')
         if self.assignment_type == 'CONTRACTOR' and (self.contractor_id is None or self.assigned_user_id is not None):
             raise ValueError('Selecciona un contratista')
+        if self.assignment_type != 'CONTRACTOR' and self.supplier_id is not None:
+            raise ValueError('El proveedor de servicio solo aplica a contratistas')
         if self.starts_at and self.starts_at.tzinfo:
             raise ValueError('Usa la fecha y hora local de Ecuador')
         duration = self.estimated_duration_days * 1440 + self.estimated_duration_minutes
@@ -203,6 +206,11 @@ def register_priority(app, write, locked, admin_user, now):
                 planning['responsible'] = contractor[0]
                 planning['responsible_role'] = 'CONTRATISTA'
                 planning['contractor_specialty'] = contractor[1]
+                if data.supplier_id is not None:
+                    supplier = cursor.execute('SELECT Name FROM dbo.Suppliers WHERE SupplierId=? AND Active=1', data.supplier_id).fetchone()
+                    if not supplier:
+                        raise HTTPException(422, 'Selecciona un proveedor activo')
+                    planning['supplier_name'] = supplier[0]
             if request_row[2] == 'EN_PROCESO':
                 raise HTTPException(409, 'No se puede cambiar el ejecutor después de iniciar el trabajo')
             if planning.get('starts_at') and planning.get('ends_at'):
