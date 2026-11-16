@@ -115,6 +115,21 @@ def register_requisition_records(app, connect, active_user, admin_user):
             if relation is None:
                 raise HTTPException(422, 'Selecciona un proveedor asociado al consumible')
 
+    def validate_service_suppliers(cursor, requisition):
+        service_items = [item for item in requisition.items if item.item_type == 'SERVICIO']
+        if any(item.supplier_id is None for item in service_items):
+            raise HTTPException(422, 'Selecciona un proveedor para cada servicio')
+        supplier_ids = {item.supplier_id for item in service_items}
+        if not supplier_ids:
+            return
+        placeholders = ','.join('?' for _ in supplier_ids)
+        found = cursor.execute(
+            f'SELECT SupplierId FROM dbo.Suppliers WHERE Active=1 AND SupplierId IN ({placeholders})',
+            *supplier_ids
+        ).fetchall()
+        if len(found) != len(supplier_ids):
+            raise HTTPException(422, 'Selecciona únicamente proveedores activos para los servicios')
+
     def transact(operation):
         try:
             with closing(connect()) as connection:
@@ -140,6 +155,7 @@ def register_requisition_records(app, connect, active_user, admin_user):
     def create(data: RequisitionWrite, user: int = Depends(active_user)):
         def operation(cursor):
             validate_consumables(cursor, data)
+            validate_service_suppliers(cursor, data)
             row = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.PurchaseRequisitions
                 (Payload,CreatedBy) VALUES (?,?); SELECT CAST(SCOPE_IDENTITY() AS int);''',
                 data.model_dump_json(), user).fetchone()
@@ -155,6 +171,7 @@ def register_requisition_records(app, connect, active_user, admin_user):
                 raise HTTPException(409, 'La requisicion cambio desde que la abriste. Actualiza el historial y vuelve a editar.')
             receipt = json.loads(row[2]) if row[2] else None
             validate_consumables(cursor, data.requisition)
+            validate_service_suppliers(cursor, data.requisition)
             if receipt is not None:
                 # Conserva la correspondencia entre los items recibidos y sus compras.
                 receipt.setdefault('requisition_at_receipt', original.model_dump(mode='json'))

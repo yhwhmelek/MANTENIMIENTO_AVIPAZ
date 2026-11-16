@@ -42,8 +42,6 @@ class RequisitionItem(TextModel):
             raise ValueError('Un servicio o consumible no debe vincularse a un repuesto')
         if self.item_type != 'MATERIAL' and any(value is not None for value in (self.tower_id, self.machine_id)):
             raise ValueError('Un servicio o consumible no debe vincularse a torre o maquina')
-        if self.item_type == 'SERVICIO' and self.supplier_id is not None:
-            raise ValueError('Un servicio no debe vincularse a un proveedor de consumible o repuesto')
         if self.item_type != 'CONSUMIBLE' and self.consumable_id is not None:
             raise ValueError('El consumible solo puede vincularse a un item tipo CONSUMIBLE')
         return self
