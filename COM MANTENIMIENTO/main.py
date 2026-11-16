@@ -265,11 +265,16 @@ class SupplierBase(BaseModel):
     address: str | None = Field(default=None, max_length=300)
     active: bool = True
     notes: str | None = Field(default=None, max_length=500)
+    payment_method: str | None = Field(default=None, max_length=500)
+    credit_days: int | None = Field(default=None, ge=0, le=3650)
+    payment_method_image_data: str | None = Field(default=None, max_length=14_000_000, exclude=True)
+    remove_payment_method_image: bool = Field(default=False, exclude=True)
 
 
 class SupplierResponse(SupplierBase):
     supplier_id: int
     created_at: datetime
+    has_payment_method_image: bool = False
 
 
 class SparePartSupplierWrite(BaseModel):
@@ -496,6 +501,9 @@ def convertir_proveedor(proveedor) -> SupplierResponse:
         address=proveedor.Address,
         active=bool(proveedor.Active),
         notes=proveedor.Notes,
+        payment_method=proveedor.PaymentMethod,
+        credit_days=proveedor.CreditDays,
+        has_payment_method_image=bool(proveedor.PaymentMethodImagePath),
         created_at=proveedor.CreatedAt,
     )
 
@@ -555,6 +563,30 @@ def guardar_imagen_repuesto(internal_code: str, image_data: str | None) -> str |
     return str(ruta)
 
 
+def guardar_imagen_medio_pago(supplier_name: str, image_data: str | None) -> str | None:
+    if not image_data:
+        return None
+    coincidencia = re.fullmatch(r"data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)", image_data)
+    if not coincidencia:
+        raise HTTPException(status_code=422, detail="El medio de pago debe ser JPG, PNG o WEBP")
+    extension = {"jpeg": ".jpg", "png": ".png", "webp": ".webp"}[coincidencia.group(1)]
+    try:
+        contenido = base64.b64decode(coincidencia.group(2), validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=422, detail="La imagen del medio de pago no es valida")
+    if len(contenido) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="La imagen no puede superar 10 MB")
+    nombre_seguro = re.sub(r"[^A-Za-z0-9._-]", "_", supplier_name.strip())
+    carpeta = image_directory()
+    try:
+        carpeta.mkdir(parents=True, exist_ok=True)
+        ruta = carpeta / f"medio_pago_{nombre_seguro}_{uuid4().hex}{extension}"
+        ruta.write_bytes(contenido)
+    except OSError:
+        raise HTTPException(status_code=503, detail="No se pudo guardar la imagen del medio de pago")
+    return str(ruta)
+
+
 MOTOR_SELECT = """
     SELECT MotorId, AssetCode, Description, Brand, Model, SerialNumber,
            Area, Location, AssociatedEquipment, PowerKW, PowerHP,
@@ -576,7 +608,7 @@ SPARE_PART_SELECT = """
 
 SUPPLIER_SELECT = """
     SELECT SupplierId, SupplierCode, Name, RUC, ContactName, Phone, Email,
-           Address, Active, Notes, CreatedAt
+           Address, Active, Notes, PaymentMethod, CreditDays, PaymentMethodImagePath, CreatedAt
     FROM dbo.Suppliers
 """
 
@@ -2263,9 +2295,9 @@ def validar_proveedor_duplicado(cursor, datos: SupplierBase, supplier_id: int | 
 
 @app.post("/proveedores", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
 def crear_proveedor(datos: SupplierBase, usuario_id: int = Depends(obtener_usuario_activo)):
-    valores = datos.model_dump()
+    valores = datos.model_dump(exclude={"payment_method_image_data", "remove_payment_method_image"})
     valores["name"] = valores["name"].strip()
-    for campo in ("supplier_code", "ruc", "contact_name", "phone", "address", "notes"):
+    for campo in ("supplier_code", "ruc", "contact_name", "phone", "address", "notes", "payment_method"):
         valores[campo] = valores[campo].strip() if valores[campo] else None
     valores["email"] = str(valores["email"]) if valores["email"] else None
     try:
@@ -2277,14 +2309,17 @@ def crear_proveedor(datos: SupplierBase, usuario_id: int = Depends(obtener_usuar
                 SET NOCOUNT ON;
                 INSERT INTO dbo.Suppliers (
                     SupplierCode, Name, RUC, ContactName, Phone, Email,
-                    Address, Active, Notes
-                ) VALUES (?,?,?,?,?,?,?,?,?);
+                    Address, Active, Notes, PaymentMethod, CreditDays
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?);
                 SELECT CAST(SCOPE_IDENTITY() AS int)
                 """,
                 valores["supplier_code"], valores["name"], valores["ruc"],
                 valores["contact_name"], valores["phone"], valores["email"],
-                valores["address"], valores["active"], valores["notes"],
+                valores["address"], valores["active"], valores["notes"], valores["payment_method"], valores["credit_days"],
             ).fetchone()[0]
+            image_path = guardar_imagen_medio_pago(valores["name"], datos.payment_method_image_data)
+            if image_path:
+                cursor.execute("UPDATE dbo.Suppliers SET PaymentMethodImagePath=? WHERE SupplierId=?", image_path, supplier_id)
             proveedor = cursor.execute(
                 SUPPLIER_SELECT + " WHERE SupplierId = ?", supplier_id
             ).fetchone()
@@ -2302,9 +2337,9 @@ def actualizar_proveedor(
     datos: SupplierBase,
     usuario_id: int = Depends(obtener_admin_actual),
 ):
-    valores = datos.model_dump()
+    valores = datos.model_dump(exclude={"payment_method_image_data", "remove_payment_method_image"})
     valores["name"] = valores["name"].strip()
-    for campo in ("supplier_code", "ruc", "contact_name", "phone", "address", "notes"):
+    for campo in ("supplier_code", "ruc", "contact_name", "phone", "address", "notes", "payment_method"):
         valores[campo] = valores[campo].strip() if valores[campo] else None
     valores["email"] = str(valores["email"]) if valores["email"] else None
     try:
@@ -2314,15 +2349,20 @@ def actualizar_proveedor(
             cursor.execute(
                 """
                 UPDATE dbo.Suppliers SET SupplierCode=?, Name=?, RUC=?, ContactName=?,
-                    Phone=?, Email=?, Address=?, Active=?, Notes=?
+                    Phone=?, Email=?, Address=?, Active=?, Notes=?, PaymentMethod=?, CreditDays=?
                 WHERE SupplierId=?
                 """,
                 valores["supplier_code"], valores["name"], valores["ruc"],
                 valores["contact_name"], valores["phone"], valores["email"],
-                valores["address"], valores["active"], valores["notes"], supplier_id,
+                valores["address"], valores["active"], valores["notes"], valores["payment_method"], valores["credit_days"], supplier_id,
             )
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+            if datos.payment_method_image_data:
+                image_path = guardar_imagen_medio_pago(valores["name"], datos.payment_method_image_data)
+                cursor.execute("UPDATE dbo.Suppliers SET PaymentMethodImagePath=? WHERE SupplierId=?", image_path, supplier_id)
+            elif datos.remove_payment_method_image:
+                cursor.execute("UPDATE dbo.Suppliers SET PaymentMethodImagePath=NULL WHERE SupplierId=?", supplier_id)
             proveedor = cursor.execute(
                 SUPPLIER_SELECT + " WHERE SupplierId = ?", supplier_id
             ).fetchone()

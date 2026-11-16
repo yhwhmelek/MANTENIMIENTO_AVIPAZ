@@ -5,6 +5,7 @@ import mimetypes
 import re
 import smtplib
 import ssl
+from contextlib import closing
 from email.message import EmailMessage
 from email.utils import make_msgid
 from html import escape
@@ -14,6 +15,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from purchase_requisitions import RequisitionWrite, generate_requisition, machine_locations
+from image_storage import stored_image
 
 
 MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
@@ -83,6 +85,24 @@ class RequisitionMail(MailContent):
         return self
 
 
+def supplier_payment_details(requisition, connect):
+    if connect is None:
+        return []
+    supplier_ids = {item.supplier_id for item in requisition.items if item.supplier_id}
+    if not supplier_ids:
+        return []
+    placeholders = ','.join('?' for _ in supplier_ids)
+    try:
+        with closing(connect()) as connection:
+            rows = connection.cursor().execute(
+                f'''SELECT SupplierId, Name, PaymentMethod, CreditDays, PaymentMethodImagePath
+                    FROM dbo.Suppliers WHERE Active=1 AND SupplierId IN ({placeholders}) ORDER BY Name''',
+                *supplier_ids).fetchall()
+    except Exception as error:
+        raise HTTPException(503, 'No se pudo consultar la informacion de pago de los proveedores.') from error
+    return rows
+
+
 def send_requisition(data, connect=None, invoice=None):
     host = os.getenv('REQUISITION_SMTP_HOST', 'mail.avipaz.ec')
     user = os.getenv('REQUISITION_SMTP_USER', 'mantenimientosamanga@avipaz.ec')
@@ -98,13 +118,30 @@ def send_requisition(data, connect=None, invoice=None):
         if data.cc:
             message['Cc'] = ', '.join(data.cc)
         message['Subject'] = data.subject
-        message.set_content(data.body)
+        supplier_rows = supplier_payment_details(data.requisition, connect)
+        payment_lines = []
+        payment_images = []
+        for supplier_id, name, payment_method, credit_days, image_path in supplier_rows:
+            terms = []
+            if payment_method:
+                terms.append(f'Medio de pago: {payment_method}')
+            if credit_days is not None:
+                terms.append(f'Días de crédito: {credit_days}')
+            if terms:
+                payment_lines.append(f'{name}: ' + ' · '.join(terms))
+            image = stored_image(image_path)
+            if image:
+                payment_images.append((image, name))
+        body = data.body
+        if payment_lines:
+            body += '\n\nInformación de pago de proveedores:\n' + '\n'.join(payment_lines)
+        message.set_content(body)
         signature_path = Path(__file__).parent / 'templates' / 'firma_correo.jpg'
         if not signature_path.is_file():
             raise HTTPException(503, 'Falta la imagen de firma del correo en el servidor.')
         signature = signature_path.read_bytes()
         cid = make_msgid()
-        body_html = escape(data.body).replace('\n', '<br>')
+        body_html = escape(body).replace('\n', '<br>')
         message.add_alternative(
             f'<html><body><div>{body_html}</div><br>'
             f'<img src="cid:{cid[1:-1]}" width="800" style="max-width:100%;height:auto" '
@@ -126,6 +163,11 @@ def send_requisition(data, connect=None, invoice=None):
             maintype, subtype = mime_type.split('/', 1)
             message.add_attachment(attachment.decoded(), maintype=maintype, subtype=subtype,
                                    filename=attachment.filename)
+        for image, supplier_name in payment_images:
+            mime_type = mimetypes.guess_type(image.name)[0] or 'application/octet-stream'
+            maintype, subtype = mime_type.split('/', 1)
+            message.add_attachment(image.read_bytes(), maintype=maintype, subtype=subtype,
+                                   filename=image.name)
         with smtplib.SMTP_SSL(host, port, timeout=30, context=ssl.create_default_context()) as smtp:
             smtp.login(user, password)
             refused = smtp.send_message(message, from_addr=user, to_addrs=recipients)

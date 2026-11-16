@@ -279,6 +279,11 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
     const nullableFields = ['supplier_code', 'ruc', 'contact_name', 'phone', 'email', 'address', 'notes']
     const payload = { name: form.get('name')?.trim(), active: form.get('active') === 'on' }
     nullableFields.forEach((field) => { payload[field] = form.get(field)?.trim() || null })
+    payload.payment_method = form.get('payment_method')?.trim() || null
+    payload.credit_days = form.get('credit_days') === '' ? null : Number(form.get('credit_days'))
+    const paymentImage = form.get('payment_method_image')
+    if (paymentImage?.size) payload.payment_method_image_data = await imageToDataUrl(paymentImage)
+    payload.remove_payment_method_image = form.get('remove_payment_method_image') === 'on'
     setLoading(true)
     try {
       const response = await fetch(`${apiUrl}/proveedores${editingSupplier ? `/${editingSupplier.supplier_id}` : ''}`, {
@@ -528,6 +533,10 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <Field name="phone" label="Telefono" type="tel" value={editingSupplier?.phone} maxLength="50" />
         <Field name="email" label="Correo electronico" type="email" value={editingSupplier?.email} maxLength="150" />
         <Field name="address" label="Direccion" value={editingSupplier?.address} maxLength="300" />
+        <Field name="payment_method" label="Medio de pago (texto)" value={editingSupplier?.payment_method} maxLength="500" placeholder="Transferencia, cheque, efectivo..." />
+        <Field name="credit_days" label="Dias de credito" type="number" min="0" max="3650" step="1" value={editingSupplier?.credit_days ?? ''} />
+        <ImageAttachment label="Medio de pago (imagen opcional)" name="payment_method_image" help="JPG, PNG o WEBP. Maximo 10 MB. Se adjuntara al correo de requisicion." />
+        {editingSupplier?.has_payment_method_image && <label className="checkbox-field">Quitar imagen guardada<input name="remove_payment_method_image" type="checkbox" /></label>}
         <label className="checkbox-field">Estado activo<input name="active" type="checkbox" defaultChecked={editingSupplier?.active ?? true} /></label>
         <label className="full-field">Notas<textarea name="notes" defaultValue={editingSupplier?.notes || ''} maxLength="500" rows="3" /></label>
       </div><div className="modal-actions"><button type="button" className="secondary-action" onClick={() => setShowSupplierForm(false)}>Cancelar</button><button className="primary-action" disabled={loading}><Truck size={18} /> Guardar proveedor</button></div></form>
