@@ -1,5 +1,5 @@
 """Operating-hour readings and preventive thresholds; no conversion to wall-clock time."""
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from fastapi import HTTPException
 from pydantic import Field, model_validator
@@ -52,7 +52,10 @@ def latest_readings(cursor):
 def machine_threshold(plan, frequency, machine_id, reading, completed=None, open_request=None):
     baseline = Decimal(str(plan.get('hour_bases',{}).get(str(machine_id), plan.get('hour_base',0))))
     base = Decimal(str(completed)) if completed is not None else baseline
-    first = completed is None and not plan.get('first_service_done',False)
+    mode = plan.get('hour_modes',{}).get(str(machine_id), plan.get('hour_mode'))
+    if mode is None:
+        mode = 'EXISTENTE' if plan.get('first_service_done',False) else 'NUEVA'
+    first = completed is None and mode == 'NUEVA'
     target = base + Decimal(str((frequency.get('first_hours') or frequency['every']) if first else frequency['every']))
     advance = Decimal(str(frequency.get('advance_hours',0)))
     current = Decimal(str(reading['hours'])) if reading else None
@@ -79,9 +82,14 @@ def hour_states(cursor, catalog):
         FROM dbo.PreventiveHourOccurrences o JOIN dbo.MaintenanceRequests r ON r.RequestId=o.RequestId
         ORDER BY o.OccurrenceId''').fetchall()
     completed, opened = {}, {}
+    for plan in plans:
+        for item in plan.get('hour_history', []):
+            key = (plan['id'], item['machine_id'])
+            if key not in completed or item['service_date'] >= completed[key][0]:
+                completed[key] = (item['service_date'], item['service_hours'])
     for plan_id,machine_id,hours,request_id,status in history:
         if hours is not None:
-            completed[plan_id,machine_id] = hours
+            completed[plan_id,machine_id] = (date.max, hours)
         if status != 'CERRADA':
             opened[plan_id,machine_id] = request_id
     calendar_open = dict(cursor.execute('''SELECT o.PlanId,o.RequestId FROM dbo.PreventiveOccurrences o
@@ -100,7 +108,7 @@ def hour_states(cursor, catalog):
                 machine_ids = plan.get('machine_ids', [])
         else:
             machine_ids = [plan['machine_id']]
-        machines = [machine_threshold(plan,frequency,i,readings.get(i),completed.get((plan['id'],i)),opened.get((plan['id'],i)) or calendar_open.get(plan['id'])) for i in machine_ids]
+        machines = [machine_threshold(plan,frequency,i,readings.get(i),completed.get((plan['id'],i), (None, None))[1],opened.get((plan['id'],i)) or calendar_open.get(plan['id'])) for i in machine_ids]
         result.append(dict(plan_id=plan['id'], activity=activity['name'], group=activity['group'], frequency=frequency, machines=machines))
     return result
 

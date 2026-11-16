@@ -90,6 +90,13 @@ class ActivityTypeWrite(StrictModel):
         return self
 
 
+class HourServiceHistory(StrictModel):
+    machine_id: int = Field(gt=0)
+    service_hours: Decimal = Field(ge=0, le=999999999, decimal_places=2)
+    service_date: date
+    notes: str = Field(default='', max_length=500)
+
+
 class Point(StrictModel):
     name: str = Field(min_length=1, max_length=150)
     bearing_code: str = Field(default='', max_length=100)
@@ -108,6 +115,9 @@ class PlanWrite(StrictModel):
     excluded_machine_ids: list[int] = Field(default_factory=list, max_length=5000)
     hour_base: Decimal = Field(default=Decimal('0'), ge=0, le=999999999, decimal_places=2)
     hour_bases: dict[str, Decimal] = Field(default_factory=dict, max_length=5000)
+    hour_mode: Literal['NUEVA', 'EXISTENTE'] = 'NUEVA'
+    hour_modes: dict[str, Literal['NUEVA', 'EXISTENTE']] = Field(default_factory=dict, max_length=5000)
+    hour_history: list[HourServiceHistory] = Field(default_factory=list, max_length=5000)
     first_service_done: bool = False
     element_id: int | None = Field(default=None, gt=0)
     first_due: date
@@ -125,6 +135,10 @@ class PlanWrite(StrictModel):
             raise ValueError('Revisa los horómetros de referencia de las máquinas seleccionadas')
         if any(i <= 0 for i in self.excluded_machine_ids) or len(set(self.excluded_machine_ids)) != len(self.excluded_machine_ids):
             raise ValueError('Revisa las exclusiones de maquinas del plan general')
+        if any(not key.isdigit() or key != str(int(key)) or int(key) <= 0 for key in self.hour_modes):
+            raise ValueError('Revisa las máquinas del modo de horómetro')
+        if any(item.machine_id <= 0 for item in self.hour_history):
+            raise ValueError('Revisa las máquinas del historial de horómetro')
         if self.scope == 'GENERAL':
             if self.machine_id is not None or self.element_id is not None or self.points:
                 raise ValueError('El plan general usa una lista de máquinas, sin elemento ni puntos individuales')
