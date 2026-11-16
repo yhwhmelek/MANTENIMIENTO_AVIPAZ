@@ -15,7 +15,11 @@ BEGIN
     WHERE kc.type = 'PK' AND t.object_id = OBJECT_ID('dbo.PurchaseRequisitionInvoices');
 
     IF @primary_key IS NOT NULL
-        EXEC(N'ALTER TABLE dbo.PurchaseRequisitionInvoices DROP CONSTRAINT ' + QUOTENAME(@primary_key));
+    BEGIN
+        DECLARE @drop_primary_key nvarchar(4000);
+        SET @drop_primary_key = N'ALTER TABLE dbo.PurchaseRequisitionInvoices DROP CONSTRAINT ' + QUOTENAME(@primary_key);
+        EXEC(@drop_primary_key);
+    END;
     EXEC(N'ALTER TABLE dbo.PurchaseRequisitionInvoices ADD CONSTRAINT PK_PurchaseRequisitionInvoices PRIMARY KEY (InvoiceId)');
 END;
 

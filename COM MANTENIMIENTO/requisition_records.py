@@ -152,7 +152,7 @@ def register_requisition_records(app, connect, active_user, admin_user):
                     connection.rollback()
                     raise
         except (pyodbc.Error, RuntimeError):
-            raise HTTPException(503, 'No se pudo completar la operacion. Verifica las migraciones 008 y 009 y la conexion.')
+            raise HTTPException(503, 'No se pudo completar la recepcion. Verifica la conexion y ejecuta las migraciones 008, 009 y 023 antes de reintentar.')
 
     def get_record(cursor, record_id, lock=False):
         row = cursor.execute('SELECT Payload, ReceivedAt, Receipt FROM dbo.PurchaseRequisitions '
