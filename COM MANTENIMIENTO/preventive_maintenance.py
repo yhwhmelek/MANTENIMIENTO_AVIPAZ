@@ -340,13 +340,17 @@ def register_preventive(app, connect, active_user, admin_user):
 
     def repair_orphan_occurrences(cursor):
         """Releases preventive cycles left behind by an old flow deletion."""
+        deleted_schedule = 0
+        deleted_occurrences = 0
         orphaned = cursor.execute('''SELECT o.PlanId,o.DueDate,o.RequestId
             FROM dbo.PreventiveOccurrences o
             LEFT JOIN dbo.MaintenanceRequests r ON r.RequestId=o.RequestId
             WHERE r.RequestId IS NULL''').fetchall()
         for plan_id, due_date, request_id in orphaned:
             cursor.execute('DELETE FROM dbo.PreventiveSchedule WHERE RequestId=?', request_id)
+            deleted_schedule += 1
             cursor.execute('DELETE FROM dbo.PreventiveOccurrences WHERE RequestId=?', request_id)
+            deleted_occurrences += 1
             cursor.execute('''UPDATE dbo.PreventivePlans
                 SET NextDue=?,Revision=Revision+1
                 WHERE PlanId=? AND NextDue>?''', due_date, plan_id, due_date)
@@ -356,7 +360,10 @@ def register_preventive(app, connect, active_user, admin_user):
             WHERE r.RequestId IS NULL''').fetchall()
         for plan_id, request_id in orphaned_hours:
             cursor.execute('DELETE FROM dbo.PreventiveSchedule WHERE RequestId=?', request_id)
+            deleted_schedule += 1
             cursor.execute('DELETE FROM dbo.PreventiveHourOccurrences WHERE RequestId=?', request_id)
+            deleted_occurrences += 1
+        return dict(deleted_schedule=deleted_schedule, deleted_occurrences=deleted_occurrences)
 
     @app.get('/preventivos/horometros')
     def hour_readings(usuario_id: int = Depends(active_user)):
@@ -872,8 +879,13 @@ def register_preventive(app, connect, active_user, admin_user):
     def week_report(week: date, usuario_id: int = Depends(active_user)):
         def operation(cursor):
             staff(cursor, usuario_id)
+            repair_orphan_occurrences(cursor)
             return report(cursor, week)
         return transaction(operation)
+
+    @app.post('/preventivos/calendario/limpiar')
+    def clean_calendar(usuario_id: int = Depends(admin_user)):
+        return transaction(repair_orphan_occurrences)
 
     @app.post('/preventivos/cerrar-semana')
     def close_week(data: WeekWrite, usuario_id: int = Depends(admin_user)):
