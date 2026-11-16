@@ -419,6 +419,16 @@ def register_preventive(app, connect, active_user, admin_user):
         payload = data.model_dump(mode='json', exclude={'revision'})
         if payload['scope'] == 'GENERAL' and not payload.get('plant_id'):
             raise HTTPException(422, 'Selecciona la planta de la actividad general')
+        if not activity_id:
+            validate_frequency_change(payload['frequency'])
+        activity_type = cursor.execute('SELECT RequiresPoints,Active FROM dbo.PreventiveActivityTypes WHERE TypeCode=?', data.kind).fetchone()
+        if not activity_type:
+            raise HTTPException(422, 'Selecciona un tipo de actividad preventiva válido')
+        if len(activity_type) < 2:
+            activity_type = (1 if data.kind in ('ENGRASE', 'RODAMIENTOS', 'BOBINADO') else 0, 1)
+        if not activity_type[1] and not activity_id:
+            raise HTTPException(422, 'El tipo de actividad está inactivo')
+        payload['requires_points'] = bool(activity_type[0])
         if activity_id:
             row = cursor.execute('SELECT Revision,Data FROM dbo.PreventiveActivities WITH (UPDLOCK,HOLDLOCK) WHERE ActivityId=?', activity_id).fetchone()
             if not row:
@@ -429,16 +439,6 @@ def register_preventive(app, connect, active_user, admin_user):
             if json.loads(row[1]).get('scope', 'SPECIFIC') != data.scope and cursor.execute('SELECT TOP 1 PlanId FROM dbo.PreventivePlans WHERE ActivityId=?', activity_id).fetchone():
                 raise HTTPException(422, 'Esta actividad tiene planes. Crea otra actividad para cambiar entre general y específica.')
             cursor.execute('UPDATE dbo.PreventiveActivities SET Data=?,Revision=Revision+1,UpdatedBy=?,UpdatedAt=? WHERE ActivityId=?', dump(payload), user, now(), activity_id)
-        else:
-            validate_frequency_change(payload['frequency'])
-        activity_type = cursor.execute('SELECT RequiresPoints,Active FROM dbo.PreventiveActivityTypes WHERE TypeCode=?', data.kind).fetchone()
-        if not activity_type:
-            raise HTTPException(422, 'Selecciona un tipo de actividad preventiva válido')
-        if len(activity_type) < 2:
-            activity_type = (1 if data.kind in ('ENGRASE', 'RODAMIENTOS', 'BOBINADO') else 0, 1)
-        if not activity_type[1] and not activity_id:
-            raise HTTPException(422, 'El tipo de actividad está inactivo')
-        payload['requires_points'] = bool(activity_type[0])
         if not activity_id:
             activity_id = cursor.execute('SET NOCOUNT ON; INSERT INTO dbo.PreventiveActivities(Data,UpdatedBy,UpdatedAt) VALUES(?,?,?); SELECT CAST(SCOPE_IDENTITY() AS INT)', dump(payload), user, now()).fetchone()[0]
         return {'id': activity_id}

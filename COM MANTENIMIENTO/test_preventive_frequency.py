@@ -77,6 +77,18 @@ class FrequencyEndpointTests(unittest.TestCase):
         self.assertEqual(result, {'id':5})
         self.connection.commit.assert_called_once()
 
+    def test_edit_activity_persists_derived_points_requirement(self):
+        self.data['kind'] = 'ENGRASE'
+        cursor = self.connection.cursor.return_value
+        cursor.execute.return_value.fetchone.side_effect = [
+            (1, 1),
+            (1, json.dumps(self.data)),
+        ]
+        result = self.endpoint('/preventivos/actividades/{activity_id}', 'PUT')(5, ActivityWrite(**self.data, revision=1), usuario_id=1)
+        self.assertEqual(result, {'id':5})
+        update_args = cursor.execute.call_args.args
+        self.assertTrue(json.loads(update_args[1])['requires_points'])
+
 
 if __name__ == '__main__':
     unittest.main()
