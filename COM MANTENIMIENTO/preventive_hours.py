@@ -49,7 +49,7 @@ def latest_readings(cursor):
     return {r[0]:dict(machine_id=r[0],hours=str(r[1]),counter_hours=str(r[3]),observed_at=r[2].isoformat()) for r in rows}
 
 
-def machine_threshold(plan, frequency, machine_id, reading, completed=None, open_request=None):
+def machine_threshold(plan, frequency, machine_id, reading, completed=None, open_request=None, history=None):
     baseline = Decimal(str(plan.get('hour_bases',{}).get(str(machine_id), plan.get('hour_base',0))))
     base = Decimal(str(completed)) if completed is not None else baseline
     mode = plan.get('hour_modes',{}).get(str(machine_id), plan.get('hour_mode'))
@@ -69,7 +69,8 @@ def machine_threshold(plan, frequency, machine_id, reading, completed=None, open
                 service_hours=str(current-base) if current is not None else None,
                 target_hours=str(target), alert_hours=str(max(Decimal(0),target-advance)),
                 remaining_hours=str(target-current) if current is not None else None, first_service=first,
-                state=state, request_id=open_request, observed_at=reading['observed_at'] if reading else None)
+                state=state, request_id=open_request, observed_at=reading['observed_at'] if reading else None,
+                history=history or [])
 
 
 def hour_states(cursor, catalog):
@@ -78,18 +79,22 @@ def hour_states(cursor, catalog):
     if not plans:
         return []
     readings = latest_readings(cursor)
-    history = cursor.execute('''SELECT o.PlanId,o.MachineId,o.CompletedHours,o.RequestId,r.Status
+    history_rows = cursor.execute('''SELECT o.PlanId,o.MachineId,o.CompletedHours,o.RequestId,r.Status,r.CompletedAt
         FROM dbo.PreventiveHourOccurrences o JOIN dbo.MaintenanceRequests r ON r.RequestId=o.RequestId
         ORDER BY o.OccurrenceId''').fetchall()
-    completed, opened = {}, {}
+    completed, opened, service_history = {}, {}, {}
     for plan in plans:
         for item in plan.get('hour_history', []):
             key = (plan['id'], item['machine_id'])
             if key not in completed or item['service_date'] >= completed[key][0]:
                 completed[key] = (item['service_date'], item['service_hours'])
-    for plan_id,machine_id,hours,request_id,status in history:
+            service_history.setdefault(key, []).append(dict(service_hours=str(item['service_hours']), service_date=item['service_date'], notes=item.get('notes',''), source='Histórico registrado'))
+    for row in history_rows:
+        plan_id,machine_id,hours,request_id,status = row[:5]
+        completed_at = row[5] if len(row) > 5 else None
         if hours is not None:
             completed[plan_id,machine_id] = (date.max, hours)
+            service_history.setdefault((plan_id,machine_id), []).append(dict(service_hours=str(hours), service_date=completed_at.isoformat() if completed_at else None, notes=f'Orden preventiva #{request_id}', source='Mantenimiento realizado'))
         if status != 'CERRADA':
             opened[plan_id,machine_id] = request_id
     calendar_open = dict(cursor.execute('''SELECT o.PlanId,o.RequestId FROM dbo.PreventiveOccurrences o
@@ -108,7 +113,7 @@ def hour_states(cursor, catalog):
                 machine_ids = plan.get('machine_ids', [])
         else:
             machine_ids = [plan['machine_id']]
-        machines = [machine_threshold(plan,frequency,i,readings.get(i),completed.get((plan['id'],i), (None, None))[1],opened.get((plan['id'],i)) or calendar_open.get(plan['id'])) for i in machine_ids]
+        machines = [machine_threshold(plan,frequency,i,readings.get(i),completed.get((plan['id'],i), (None, None))[1],opened.get((plan['id'],i)) or calendar_open.get(plan['id']), service_history.get((plan['id'],i))) for i in machine_ids]
         result.append(dict(plan_id=plan['id'], activity=activity['name'], group=activity['group'], frequency=frequency, machines=machines))
     return result
 
