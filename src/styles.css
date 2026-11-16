@@ -414,6 +414,23 @@ body>.schedule-report-document{display:none}
 .selected-machine-photo .request-machine-photo, .selected-machine-photo img { width: 260px; max-width: 100%; }
 .selected-machine-photo img { height: 180px; }
 
+/* Seguimiento de horómetros: mantiene las columnas estables y ajusta nombres largos. */
+.preventive-hours-tracking-table { table-layout: fixed; min-width: 920px; }
+.preventive-hours-tracking-table th,
+.preventive-hours-tracking-table td { vertical-align: top; }
+.preventive-hours-tracking-table th:nth-child(1),
+.preventive-hours-tracking-table td:nth-child(1) { width: 24%; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.preventive-hours-tracking-table th:nth-child(2),
+.preventive-hours-tracking-table td:nth-child(2) { width: 14%; }
+.preventive-hours-tracking-table th:nth-child(3),
+.preventive-hours-tracking-table td:nth-child(3) { width: 20%; white-space: normal; }
+.preventive-hours-tracking-table th:nth-child(4),
+.preventive-hours-tracking-table td:nth-child(4) { width: 15%; white-space: normal; }
+.preventive-hours-tracking-table th:nth-child(5),
+.preventive-hours-tracking-table td:nth-child(5) { width: 15%; white-space: normal; }
+.preventive-hours-tracking-table th:nth-child(6),
+.preventive-hours-tracking-table td:nth-child(6) { width: 12%; white-space: normal; }
+
 .request-activity-photo-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 16px; align-items: start; }
 .request-activity-photo-item { min-width: 0; padding: 12px; border: 1px solid #d4ded9; border-radius: 8px; background: #fff; }
 .request-activity-photo-item > strong { display: block; margin-bottom: 8px; }
