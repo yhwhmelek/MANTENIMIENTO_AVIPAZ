@@ -23,6 +23,54 @@ class HourReading(StrictModel):
         return self
 
 
+def _recalculate_readings(cursor, machine_id):
+    rows = cursor.execute('''SELECT ReadingId,Hours,CounterHours,CounterReset,ObservedAt
+        FROM dbo.MachineHourReadings WHERE MachineId=? ORDER BY ObservedAt,ReadingId''', machine_id).fetchall()
+    accumulated = Decimal(0)
+    previous_counter = None
+    for index, row in enumerate(rows):
+        reading_id, _old_accumulated, counter_hours, counter_reset, _observed_at = row
+        counter_hours = Decimal(str(counter_hours))
+        if index == 0:
+            accumulated = counter_hours
+        else:
+            if counter_hours < previous_counter and not counter_reset:
+                raise HTTPException(422, 'La secuencia queda inválida: marca como reset la lectura donde reinició el contador')
+            accumulated += counter_hours - (Decimal(0) if counter_reset else previous_counter)
+        cursor.execute('UPDATE dbo.MachineHourReadings SET Hours=? WHERE ReadingId=?', accumulated, reading_id)
+        previous_counter = counter_hours
+
+
+def readings_history(cursor, machine_id):
+    rows = cursor.execute('''SELECT ReadingId,Hours,CounterHours,CounterReset,ObservedAt
+        FROM dbo.MachineHourReadings WHERE MachineId=? ORDER BY ObservedAt DESC,ReadingId DESC''', machine_id).fetchall()
+    return [dict(reading_id=row[0], hours=str(row[1]), counter_hours=str(row[2]), counter_reset=bool(row[3]), observed_at=row[4].isoformat()) for row in rows]
+
+
+def update_reading(cursor, reading_id, data):
+    row = cursor.execute('SELECT MachineId FROM dbo.MachineHourReadings WHERE ReadingId=?', reading_id).fetchone()
+    if not row:
+        raise HTTPException(404, 'Lectura no encontrada')
+    machine_id = row[0]
+    duplicate = cursor.execute('''SELECT ReadingId FROM dbo.MachineHourReadings
+        WHERE MachineId=? AND ObservedAt=? AND ReadingId<>?''', machine_id, data.observed_at, reading_id).fetchone()
+    if duplicate:
+        raise HTTPException(409, 'Ya existe otra lectura para ese instante')
+    cursor.execute('UPDATE dbo.MachineHourReadings SET CounterHours=?,CounterReset=?,ObservedAt=? WHERE ReadingId=?', data.hours, data.counter_reset, data.observed_at, reading_id)
+    _recalculate_readings(cursor, machine_id)
+    return readings_history(cursor, machine_id)
+
+
+def delete_reading(cursor, reading_id):
+    row = cursor.execute('SELECT MachineId FROM dbo.MachineHourReadings WHERE ReadingId=?', reading_id).fetchone()
+    if not row:
+        raise HTTPException(404, 'Lectura no encontrada')
+    machine_id = row[0]
+    cursor.execute('DELETE FROM dbo.MachineHourReadings WHERE ReadingId=?', reading_id)
+    _recalculate_readings(cursor, machine_id)
+    return readings_history(cursor, machine_id)
+
+
 def record_reading(cursor, data, user):
     if not cursor.execute('SELECT MachineId FROM dbo.Machines WITH (UPDLOCK,HOLDLOCK) WHERE MachineId=?', data.machine_id).fetchone():
         raise HTTPException(422, 'Máquina no encontrada')

@@ -11,7 +11,7 @@ from fastapi import Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import Field, model_validator
 from request_priority import StrictModel, NIC, ASSIGNMENT_GROUPS, priority
-from preventive_hours import HourReading, hour_states, latest_readings, record_reading
+from preventive_hours import HourReading, delete_reading, hour_states, latest_readings, readings_history, record_reading, update_reading
 from plant_alerts import filter_hour_alerts
 
 
@@ -371,6 +371,21 @@ def register_preventive(app, connect, active_user, admin_user):
             staff(cursor, usuario_id)
             return record_reading(cursor, data, usuario_id)
         return transaction(operation)
+
+    @app.get('/preventivos/horometros/historial')
+    def hour_reading_history(machine_id: int, usuario_id: int = Depends(active_user)):
+        def operation(cursor):
+            staff(cursor, usuario_id)
+            return readings_history(cursor, machine_id)
+        return transaction(operation)
+
+    @app.put('/preventivos/horometros/{reading_id}')
+    def edit_hour_reading(reading_id: int, data: HourReading, usuario_id: int = Depends(admin_user)):
+        return transaction(lambda cursor: update_reading(cursor, reading_id, data))
+
+    @app.delete('/preventivos/horometros/{reading_id}')
+    def remove_hour_reading(reading_id: int, usuario_id: int = Depends(admin_user)):
+        return transaction(lambda cursor: delete_reading(cursor, reading_id))
 
     @app.get('/preventivos/estado-horas')
     def hours_status(usuario_id: int = Depends(active_user)):
