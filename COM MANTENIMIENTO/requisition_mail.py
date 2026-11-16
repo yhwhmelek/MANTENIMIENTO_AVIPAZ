@@ -103,7 +103,7 @@ def supplier_payment_details(requisition, connect):
     return rows
 
 
-def send_requisition(data, connect=None, invoice=None):
+def send_requisition(data, connect=None, invoice=None, invoices=None):
     host = os.getenv('REQUISITION_SMTP_HOST', 'mail.avipaz.ec')
     user = os.getenv('REQUISITION_SMTP_USER', 'mantenimientosamanga@avipaz.ec')
     password = os.getenv('REQUISITION_SMTP_PASSWORD')
@@ -153,11 +153,12 @@ def send_requisition(data, connect=None, invoice=None):
                                subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                filename=f'CO-01-01_Requisicion_{data.requisition.requested_on.isoformat()}.xlsx')
         recipients = list(dict.fromkeys(data.to + data.cc))
-        if invoice is not None:
-            invoice_content, invoice_type = invoice.decoded()
+        invoice_files = invoices or ([invoice] if invoice is not None else [])
+        for invoice_file in invoice_files:
+            invoice_content, invoice_type = invoice_file.decoded()
             maintype, subtype = invoice_type.split('/', 1)
             message.add_attachment(invoice_content, maintype=maintype, subtype=subtype,
-                                   filename=invoice.filename)
+                                   filename=invoice_file.filename)
         for attachment in data.attachments:
             mime_type = mimetypes.guess_type(attachment.filename)[0] or 'application/octet-stream'
             maintype, subtype = mime_type.split('/', 1)

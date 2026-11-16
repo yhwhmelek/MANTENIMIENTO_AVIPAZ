@@ -76,6 +76,7 @@ class ConfirmationMailContent(MailContent):
 class ReceiptWrite(TextModel):
     confirmation: ConfirmationMailContent | None = None
     invoice: InvoiceWrite | None = None
+    invoices: list[InvoiceWrite] = Field(default_factory=list, max_length=10)
     supplier_id: int = Field(gt=0)
     purchased_on: date
     document_number: str = Field(min_length=1, max_length=100)
@@ -87,6 +88,16 @@ class ReceiptWrite(TextModel):
         if self.purchased_on > date.today():
             raise ValueError('La fecha de recepcion no puede ser futura')
         return self
+
+    @model_validator(mode='after')
+    def valid_invoices(self):
+        invoices = self.invoices or ([self.invoice] if self.invoice else [])
+        if sum(len(item.decoded()[0]) for item in invoices) > 15 * 1024 * 1024:
+            raise ValueError('Los documentos de recepción no pueden superar 15 MB en total')
+        return self
+
+    def all_invoices(self):
+        return self.invoices or ([self.invoice] if self.invoice else [])
 
 
 def register_requisition_records(app, connect, active_user, admin_user):
@@ -211,14 +222,27 @@ def register_requisition_records(app, connect, active_user, admin_user):
         return transact(lambda cursor: {'count': cursor.execute(
             'SELECT COUNT(*) FROM dbo.PurchaseRequisitions WHERE ReceivedAt IS NULL').fetchone()[0]})
 
+    def download_invoice_row(cursor, attachment_id=None, record_id=None):
+        if attachment_id is not None:
+            row = cursor.execute('SELECT Filename,MediaType,Content FROM dbo.PurchaseRequisitionInvoices WHERE InvoiceId=?', attachment_id).fetchone()
+        else:
+            row = cursor.execute('SELECT TOP 1 Filename,MediaType,Content FROM dbo.PurchaseRequisitionInvoices WHERE RequisitionId=? ORDER BY InvoiceId', record_id).fetchone()
+        if not row:
+            raise HTTPException(404, 'Esta requisicion no tiene un documento adjunto')
+        return row
+
     @app.get('/requisiciones-compra/{record_id}/factura')
     def invoice_download(record_id: int, user: int = Depends(active_user)):
         def operation(cursor):
-            row = cursor.execute('SELECT Filename,MediaType,Content FROM dbo.PurchaseRequisitionInvoices WHERE RequisitionId=?', record_id).fetchone()
-            if not row:
-                raise HTTPException(404, 'Esta requisicion no tiene una factura adjunta')
-            return row
+            return download_invoice_row(cursor, record_id=record_id)
         row = transact(operation)
+        return Response(bytes(row[2]), media_type=row[1], headers={
+            'Content-Disposition': "attachment; filename*=UTF-8''" + quote(row[0], safe=''),
+            'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+
+    @app.get('/requisiciones-compra/documentos/{attachment_id}')
+    def invoice_download_by_id(attachment_id: int, user: int = Depends(active_user)):
+        row = transact(lambda cursor: download_invoice_row(cursor, attachment_id=attachment_id))
         return Response(bytes(row[2]), media_type=row[1], headers={
             'Content-Disposition': "attachment; filename*=UTF-8''" + quote(row[0], safe=''),
             'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
@@ -269,13 +293,26 @@ def register_requisition_records(app, connect, active_user, admin_user):
                     item.unit_cost, data.currency, part[0], data.document_number,
                     f'Requisicion #{record_id}, item {index+1}', user).fetchone()
                 purchases.append(purchase[0])
-            receipt = data.model_dump(mode='json', exclude={'invoice'}) | {'purchase_ids': purchases}
-            if data.invoice:
-                content, media_type = data.invoice.decoded()
-                cursor.execute('''INSERT INTO dbo.PurchaseRequisitionInvoices
-                    (RequisitionId,Filename,MediaType,Content,CreatedBy) VALUES (?,?,?,?,?)''',
-                    record_id, data.invoice.filename, media_type, pyodbc.Binary(content), user)
-                receipt['invoice'] = {'filename': data.invoice.filename, 'media_type': media_type}
+            invoices = data.all_invoices()
+            receipt = data.model_dump(mode='json', exclude={'invoice', 'invoices'}) | {'purchase_ids': purchases}
+            invoice_metadata = []
+            for invoice in invoices:
+                content, media_type = invoice.decoded()
+                if data.invoices:
+                    attachment_id = cursor.execute('''INSERT INTO dbo.PurchaseRequisitionInvoices
+                        (RequisitionId,Filename,MediaType,Content,CreatedBy)
+                        OUTPUT INSERTED.InvoiceId VALUES (?,?,?,?,?)''',
+                        record_id, invoice.filename, media_type, pyodbc.Binary(content), user).fetchone()[0]
+                    invoice_metadata.append({'id': attachment_id, 'filename': invoice.filename, 'media_type': media_type})
+                else:
+                    cursor.execute('''INSERT INTO dbo.PurchaseRequisitionInvoices
+                        (RequisitionId,Filename,MediaType,Content,CreatedBy) VALUES (?,?,?,?,?)''',
+                        record_id, invoice.filename, media_type, pyodbc.Binary(content), user)
+                    invoice_metadata.append({'filename': invoice.filename, 'media_type': media_type})
+            if invoice_metadata:
+                receipt['invoice'] = invoice_metadata[0]
+                if data.invoices:
+                    receipt['invoices'] = invoice_metadata
             cursor.execute('''UPDATE dbo.PurchaseRequisitions SET ReceivedAt=SYSDATETIME(),
                 ReceivedBy=?,Receipt=? WHERE RequisitionId=?''', user, json.dumps(receipt), record_id)
             return {'id': record_id, 'status': 'RECIBIDA', 'purchase_ids': purchases}
@@ -291,7 +328,10 @@ def register_requisition_records(app, connect, active_user, admin_user):
             try:
                 mail = RequisitionMail(requisition=saved_requisition, **data.confirmation.model_dump())
                 mail.body += summary
-                result['confirmation'] = send_requisition(mail, connect, invoice=data.invoice)
+                if data.invoices:
+                    result['confirmation'] = send_requisition(mail, connect, invoices=data.invoices)
+                else:
+                    result['confirmation'] = send_requisition(mail, connect, invoice=data.invoice)
             except HTTPException as exc:
                 result['confirmation'] = {'error': str(exc.detail)}
             except Exception:

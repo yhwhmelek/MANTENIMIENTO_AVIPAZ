@@ -11,7 +11,7 @@ const fileBase64 = file => new Promise((resolve,reject)=>{const reader=new FileR
 export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revision,onEdit,editingBusy}){
   const [rows,setRows]=useState([]),[selected,setSelected]=useState(null),[receipt,setReceipt]=useState(null)
   const [error,setError]=useState(''),[busy,setBusy]=useState(false),[refresh,setRefresh]=useState(0)
-  const [invoice,setInvoice]=useState(null),[pendingOnly,setPendingOnly]=useState(isAdmin)
+  const [invoices,setInvoices]=useState([]),[pendingOnly,setPendingOnly]=useState(isAdmin)
   const [uploadStage,setUploadStage]=useState('')
   const submitting=useRef(false)
   const [showMail,setShowMail]=useState(false),[message,setMessage]=useState('')
@@ -65,7 +65,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
   function open(row){
     setShowMail(false);setShowRequisitionMail(false);setMessage('');setRequisitionAttachments([]);setConfirmationAttachments([])
     setMail({to:DEFAULT_MAIL_TO,cc:DEFAULT_MAIL_CC,subject:`Confirmación de recepción · Requisición #${row.id}`,body:'Estimados,\n\nConfirmamos la recepción del material de la requisición indicada. Se incluyen los datos de la compra y la factura, si fue adjuntada.\n\nSaludos cordiales,'})
-    setSelected(row);setError('');setInvoice(null)
+    setSelected(row);setError('');setInvoices([])
     const d=new Date(),today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     setReceipt({supplier_id:catalog.suppliers.find(s=>s.name===row.requisition.supplier)?.supplier_id||'',purchased_on:today,document_number:'',currency:'USD',items:row.requisition.items.map(i=>({item_type:i.item_type||'MATERIAL',spare_part_id:i.spare_part_id||'',quantity:i.quantity,unit_cost:''}))})
   }
@@ -108,17 +108,19 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     submitting.current=true;setMessage('')
     setBusy(true);setError('')
     try{
-      let attachment=null
-      if(invoice){
+      const attachments=[]
+      if(invoices.some(file=>file.size>10*1024*1024||!file.size))throw new Error('Cada factura o documento debe tener contenido y pesar como máximo 10 MB.')
+      if(invoices.reduce((total,file)=>total+file.size,0)>15*1024*1024)throw new Error('Los documentos de recepción no pueden superar 15 MB en total.')
+      for(const invoice of invoices){
         if(invoice.size>10*1024*1024||!invoice.size)throw new Error('La factura debe tener contenido y pesar como máximo 10 MB.')
         setUploadStage(invoice.type==='application/pdf'?'Leyendo PDF…':'Comprimiendo foto de la factura…')
         const dataUrl=await imageToDataUrl(invoice)
         const filename=dataUrl.startsWith('data:image/webp,')||dataUrl.startsWith('data:image/webp;') ? invoice.name.replace(/\.[^.]+$/, '')+'.webp' : invoice.name
-        attachment={filename,content_base64:dataUrl.split(',')[1]}
+        attachments.push({filename,content_base64:dataUrl.split(',')[1]})
       }
       setUploadStage(sendEmail?'Guardando recepción y enviando confirmación…':'Guardando recepción…')
       const confirmationFiles=await Promise.all(confirmationAttachments.map(fileBase64))
-      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,items:receipt.items.map(item=>({...item,spare_part_id:item.item_type==='MATERIAL'?item.spare_part_id:null})),invoice:attachment,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc),attachments:confirmationFiles}:null})})
+      const r=await fetch(`${apiUrl}/requisiciones-compra/${selected.id}/recibir`,{method:'POST',headers,body:JSON.stringify({...receipt,items:receipt.items.map(item=>({...item,spare_part_id:item.item_type==='MATERIAL'?item.spare_part_id:null})),invoices:attachments,confirmation:sendEmail?{...mail,to:addresses(mail.to),cc:addresses(mail.cc),attachments:confirmationFiles}:null})})
       const data=await r.json();if(!r.ok)throw new Error(requestValidationError(data))
       setSelected(null);setRefresh(v=>v+1)
       setShowMail(false)
@@ -135,6 +137,15 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
       a.href=url;a.download=selected.receipt.invoice.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)
     }catch(e){setError(e.message)}finally{setBusy(false);setUploadStage('')}
   }
+  async function downloadDocument(attachment){
+    setBusy(true);setError('');setUploadStage('Descargando documento…')
+    try{
+      const r=await fetch(`${apiUrl}/requisiciones-compra/documentos/${attachment.id}`,{headers})
+      if(!r.ok)throw new Error('No se pudo descargar el documento.')
+      const url=URL.createObjectURL(await r.blob()),a=document.createElement('a')
+      a.href=url;a.download=attachment.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)
+    }catch(e){setError(e.message)}finally{setBusy(false);setUploadStage('')}
+  }
   function change(key,value){setReceipt(r=>({...r,[key]:value}))}
   function itemChange(index,key,value){setReceipt(r=>({...r,items:r.items.map((i,n)=>n===index?{...i,[key]:value}:i)}))}
   return <section className="request-detail"><h2>Requisiciones guardadas</h2><button type="button" disabled={busy} onClick={()=>setRefresh(v=>v+1)}>Actualizar historial</button>
@@ -144,7 +155,8 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     {!visibleRows.length&&!error&&<p>{pendingOnly?'No hay requisiciones pendientes de llegada.':'No hay requisiciones guardadas.'}</p>}
     {selected&&<section className="request-detail"><h3>Requisición #{selected.id}</h3><p>{selected.requisition.department} · {selected.requisition.requester} · Entrega: {selected.requisition.urgent?'Urgente':selected.requisition.delivery_on}</p><p>Máquinas: {selected.requisition.machine_codes||'No aplica'}</p><p>{selected.requisition.observations}</p>
       {selected.requisition.items.map((item,i)=><p key={i}><strong>{i+1}. {item.description}</strong> · {item.quantity} {item.unit}<br/>{item.specifications}</p>)}
-      {selected.receipt?.invoice&&<button type="button" disabled={busy} onClick={downloadInvoice}>Descargar factura: {selected.receipt.invoice.filename}</button>}
+      {selected.receipt?.invoice&&!selected.receipt?.invoices&&<button type="button" disabled={busy} onClick={downloadInvoice}>Descargar documento: {selected.receipt.invoice.filename}</button>}
+      {selected.receipt?.invoices?.filter(document=>document.id).map(document=><button key={document.id} type="button" disabled={busy} onClick={()=>downloadDocument(document)}>Descargar documento: {document.filename}</button>)}
       {!showRequisitionMail&&<button type="button" className="secondary-action" disabled={busy} onClick={openRequisitionMail}>Enviar requisición por correo</button>}
       {showRequisitionMail&&<form className="request-detail" onSubmit={sendSavedRequisitionMail}><h3>Enviar requisición por correo</h3><p>Se adjuntará automáticamente el Excel de esta requisición. Puedes agregar archivos adicionales si lo necesitas.</p><div className="motor-form-grid">
         <label>Para *<input required value={requisitionMail.to} onChange={e=>setRequisitionMail(m=>({...m,to:e.target.value}))}/><select aria-label="Añadir contacto a Para" value="" onChange={e=>addRecipientToSaved('to',e.target.value)}><option value="">Añadir contacto a Para…</option>{contacts.map((contact,i)=><option key={`${contact.email}-${i}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</select></label>
@@ -159,7 +171,8 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         <label>Proveedor *<select required value={receipt.supplier_id} onChange={e=>change('supplier_id',e.target.value)}><option value="">Selecciona</option>{catalog.suppliers.map(s=><option key={s.supplier_id} value={s.supplier_id}>{s.name}</option>)}</select></label>
         <label>Fecha de recepción *<input required type="date" min={selected.requisition.requested_on} value={receipt.purchased_on} onChange={e=>change('purchased_on',e.target.value)}/></label>
         <label>Factura / documento *<input required maxLength={100} value={receipt.document_number} onChange={e=>change('document_number',e.target.value)}/></label>
-        <ImageAttachment label="Adjuntar factura (opcional: PDF o foto, máximo 10 MB)" key={selected.id} accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={e=>{setInvoice(e.target.files?.[0]||null);setError('')}} help="" />
+        <label className="full-field">Facturas o documentos (opcional, hasta 10 archivos)<input key={selected.id} type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={e=>{const files=[...invoices,...Array.from(e.target.files||[])];e.target.value='';if(files.length>10){setError('Puedes adjuntar hasta 10 documentos.');return}if(files.some(file=>!file.size||file.size>10*1024*1024)){setError('Cada documento debe pesar como máximo 10 MB.');return}if(files.reduce((total,file)=>total+file.size,0)>15*1024*1024){setError('Los documentos no pueden superar 15 MB en total.');return}setInvoices(files);setError('')}}/><span className="field-help">PDF, JPG, JPEG, PNG o WEBP. Se guardan junto con la recepción.</span></label>
+        {!!invoices.length&&<ul>{invoices.map((file,index)=><li key={`${file.name}-${index}`}>{file.name} · {(file.size/1024/1024).toFixed(2)} MB <button type="button" className="secondary-action" onClick={()=>setInvoices(files=>files.filter((_,i)=>i!==index))}>Quitar</button></li>)}</ul>}
         <label>Moneda *<input required pattern="[A-Z]{3}" maxLength={3} value={receipt.currency} onChange={e=>change('currency',e.target.value.toUpperCase())}/></label>
       </div>{receipt.items.map((item,i)=><div className="request-detail" key={i}><strong>{selected.requisition.items[i].description} · Unidad: {selected.requisition.items[i].unit}</strong><div className="motor-form-grid">
         <label>Tipo de recepción<select value={item.item_type||'MATERIAL'} disabled={selected.requisition.items[i].item_type!=='MATERIAL'} onChange={e=>setReceipt(r=>({...r,items:r.items.map((row,n)=>n===i?{...row,item_type:e.target.value,spare_part_id:''}:row)}))}><option value="MATERIAL">Material / repuesto</option><option value="SERVICIO">Servicio / actividad (sin inventario)</option><option value="CONSUMIBLE">Energía / consumible (sin inventario)</option></select></label>
@@ -167,7 +180,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
         <label>Cantidad recibida *<input required type="number" min="0.01" max="99999999.99" step="0.01" value={item.quantity} onChange={e=>itemChange(i,'quantity',e.target.value)}/></label>
         <label>Precio unitario *<input required type="number" min="0" step="0.0001" value={item.unit_cost} onChange={e=>itemChange(i,'unit_cost',e.target.value)}/></label>
       </div></div>)}
-      {showMail&&<section className="request-detail"><h3>Correo de confirmación de llegada</h3><p>Se guardará la recepción y se enviará el Excel de la requisición, el resumen de lo recibido y la factura seleccionada{invoice?`: ${invoice.name}`:' (sin factura adjunta)'}. La factura también quedará disponible en el historial.</p>
+      {showMail&&<section className="request-detail"><h3>Correo de confirmación de llegada</h3><p>Se guardará la recepción y se enviará el Excel de la requisición, el resumen de lo recibido y los documentos seleccionados{invoices.length?`: ${invoices.map(file=>file.name).join(', ')}`:' (sin documentos adjuntos)'}. Los documentos también quedarán disponibles en el historial.</p>
         {contactsError&&<p role="alert">{contactsError}</p>}
         <div className="motor-form-grid">{[['to','Para *'],['cc','Copia (CC)']].map(([field,label])=><label key={field}>{label}<input value={mail[field]} placeholder="correo@empresa.ec" onChange={e=>setMail(m=>({...m,[field]:e.target.value}))}/><select aria-label={`Añadir contacto a ${label}`} value="" onChange={e=>addRecipient(field,e.target.value)}><option value="">Añadir contacto…</option>{contacts.map((contact,i)=><option key={`${contact.email}-${i}`} value={contact.email}>{contact.name} · {contact.email}</option>)}</select></label>)}
         <label className="full-field">Asunto *<input maxLength={200} value={mail.subject} onChange={e=>setMail(m=>({...m,subject:e.target.value}))}/></label>
