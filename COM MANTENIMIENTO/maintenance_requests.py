@@ -252,6 +252,7 @@ class StartWorkWrite(StrictModel):
 class ReceiptWrite(StrictModel):
     received_at: datetime = Field(default_factory=local_now)
     notes: str | None = Field(default='Entrega conforme', max_length=1000)
+    requisition_id: int | None = Field(default=None, gt=0)
 
     @model_validator(mode='before')
     @classmethod
@@ -919,6 +920,29 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 raise HTTPException(422, 'La recepcion no puede ser anterior al fin del trabajo')
             if new_flow and not original.get('admin_review'):
                 raise HTTPException(409, 'El administrador debe revisar el trabajo antes de solicitar la conformidad')
+            planning = original.get('planning') or {}
+            is_contractor = planning.get('assignment_type') == 'CONTRACTOR'
+            if is_contractor and data.requisition_id is None:
+                raise HTTPException(422, 'Selecciona la requisicion de servicio recibida para cerrar un trabajo de contratista')
+            if data.requisition_id is not None:
+                requisition_row = cursor.execute('''SELECT Payload,ReceivedAt,Receipt
+                    FROM dbo.PurchaseRequisitions WITH (UPDLOCK,HOLDLOCK)
+                    WHERE RequisitionId=?''', data.requisition_id).fetchone()
+                if not requisition_row:
+                    raise HTTPException(404, 'La requisicion seleccionada no existe')
+                if not requisition_row[1]:
+                    raise HTTPException(409, 'La requisicion seleccionada aun no esta marcada como recibida')
+                requisition = json.loads(requisition_row[0])
+                service_items = [item for item in requisition.get('items', []) if item.get('item_type') == 'SERVICIO']
+                if not service_items:
+                    raise HTTPException(422, 'La requisicion seleccionada debe contener al menos un servicio')
+                original['linked_requisition'] = {
+                    'id': data.requisition_id,
+                    'status': 'RECIBIDA',
+                    'received_at': requisition_row[1].isoformat() if hasattr(requisition_row[1], 'isoformat') else str(requisition_row[1]),
+                    'supplier': requisition.get('supplier'),
+                    'items': service_items,
+                }
             original['receipt_recorded_at'] = local_now().isoformat()
             cursor.execute("UPDATE dbo.MaintenanceRequests SET Status='CERRADA', ReceivedAt=?, ReceiptNotes=?, RequestData=?, ReceivedBy=? WHERE RequestId=?", data.received_at, data.notes, json.dumps(original, ensure_ascii=False), usuario_id, request_id)
             return {'id': request_id}

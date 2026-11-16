@@ -55,6 +55,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [plants,setPlants] = useState([]), [towers,setTowers] = useState([])
   const [error,setError] = useState(''), [formError,setFormError] = useState(''), [busy,setBusy] = useState(false)
   const [loaded,setLoaded] = useState(false), [catalogReady,setCatalogReady] = useState(false)
+  const [receivedRequisitions,setReceivedRequisitions] = useState([])
   const [selected,setSelected] = useState(null), [form,setForm] = useState(null), [mode,setMode] = useState('')
   const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [historySearch,setHistorySearch] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
   const [workspace,setWorkspace] = useState(currentUser.rol==='OPERADOR'?'pending':'activities')
@@ -111,6 +112,17 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       .catch(err=>{if(err.name!=='AbortError')setFormError(err.message)})
     return()=>controller.abort()
   },[open,apiUrl,token,isOperator])
+  useEffect(()=>{
+    if(mode!=='receive') { setReceivedRequisitions([]); return }
+    let active=true
+    request('/requisiciones-compra')
+      .then(data=>{
+        if(!active)return
+        setReceivedRequisitions((Array.isArray(data)?data:[]).filter(item=>item.status==='RECIBIDA' && item.requisition?.items?.some(line=>line.item_type==='SERVICIO')))
+      })
+      .catch(error=>{if(active)setFormError(error.message)})
+    return()=>{active=false}
+  },[mode,apiUrl,token])
   useEffect(()=>{
     if(!printRow)return
     let cancelled=false
@@ -193,7 +205,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         parts:planned.map(p=>({spare_part_id:available(p.spare_part_id)?String(p.spare_part_id):'',quantity:String(p.quantity),removed_part:'',position:''})),tools:[]})
       if(planned.some(p=>!available(p.spare_part_id)))setFormError('Hay repuestos previstos que ya no están activos. Selecciona otro repuesto o quita las filas no utilizadas.')
     }
-    if(modeName==='receive')setForm({notes:'',received_at:localInput()})
+    if(modeName==='receive')setForm({notes:'',received_at:localInput(),requisition_id:''})
   }
   function editRequest(id){
     const target=rows.find(item=>item.id===id)
@@ -299,6 +311,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {row.execution_data&&<><h4>Trabajo entregado</h4><p>Realizado por: {row.executor_name || row.assignee_name}</p><p>{row.execution_data.work_done}</p><p>Causa: {row.execution_data.cause || 'No aplica'}</p><p>Recomendaciones: {row.execution_data.recommendations || 'No aplica'}</p><p>Condiciones: {row.execution_data.delivery_conditions || 'No aplica'}</p><p>Reparación: {time(row.execution_data.repair_started_at)} — {time(row.execution_data.repair_finished_at)}. Retorno: {time(row.execution_data.restored_at)}.</p><ul>{row.execution_data.parts.map(p=><li key={p.spare_part_id}>{p.internal_code} · {p.quantity} {p.unit_of_measure} consumidos</li>)}</ul></>}
         {!!workPhotoPaths.length&&<div className="full-field"><p>Foto del trabajo realizado</p>{workPhotosLoaded<workPhotoPaths.length&&<p role="status">Cargando evidencia…</p>}<div className="request-photo-gallery">{workImageUrls.map((url,index)=>url?<a key={index} href={url} target="_blank" rel="noreferrer"><img loading="lazy" src={url} alt={`Evidencia ${index+1} del trabajo ${row.id}`}/></a>:null)}</div></div>}
         {row.received_at&&<p>Recibido por {row.receiver_name || row.requester_name}: {time(row.received_at)}. {row.receipt_notes}</p>}
+        {row.request_data.linked_requisition&&<p>Requisición de servicio vinculada: #{row.request_data.linked_requisition.id} · {row.request_data.linked_requisition.supplier || 'Proveedor no indicado'}.</p>}
         <div className="request-toolbar"><button className="secondary-action" onClick={()=>setPrintRow(row)}>Imprimir / guardar PDF {row.request_data.maintenance_type==='MEJORA_TECNICA'?'MT/02-08':'MT/02-05'}</button>
           {isAdmin&&<button type="button" className="secondary-action" disabled={busy} onClick={()=>start('admin_flow')}>Corregir fechas del flujo</button>}
           {currentUser.rol==='ADMIN'&&<button className="secondary-action" disabled={busy} onClick={deleteRequest}>Eliminar flujo completo</button>}
@@ -356,7 +369,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
           <div className="full-field"><h4>Conciliación de piezas / herramientas</h4>{form.tools.map((t,i)=><div className="request-line" key={i}><label>Descripción<input required maxLength={100} value={t.description} onChange={e=>updateLine('tools',i,'description',e.target.value)}/></label><label>Ingreso<input required type="number" min="0" step="1" value={t.quantity_in} onChange={e=>updateLine('tools',i,'quantity_in',e.target.value)}/></label><label>Salida<input required type="number" min="0" step="1" value={t.quantity_out} onChange={e=>updateLine('tools',i,'quantity_out',e.target.value)}/></label><button type="button" className="secondary-action" onClick={()=>change('tools',form.tools.filter((_,j)=>j!==i))}>Quitar</button></div>)}<button type="button" className="secondary-action" disabled={form.tools.length>=20} onClick={()=>change('tools',[...form.tools,{description:'',quantity_in:'0',quantity_out:'0'}])}>Añadir pieza / herramienta</button></div>
           <ImageAttachment label="Foto del trabajo realizado (opcional)" onChange={event=>setPhoto(event.target.files?.[0]||null)} help="La imagen se comprimirá y guardará como evidencia de la finalización. JPG, PNG o WEBP; máximo 10 MB."/>
         </>}
-        {mode==='receive'&&<><p className="full-field">El servidor registrará la hora de recepción al confirmar.</p><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p><Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
+        {mode==='receive'&&<><p className="full-field">El servidor registrará la hora de recepción al confirmar.</p><p className="full-field">Confirma que recibiste el trabajo realizado para la solicitud #{selected}. La confirmación cerrará la solicitud.</p>{(isContractor(row)||receivedRequisitions.length>0)&&<label className="full-field">Requisición de servicio recibida {isContractor(row)?'*':'(opcional)'}<select required={isContractor(row)} value={form.requisition_id||''} onChange={e=>change('requisition_id',e.target.value?Number(e.target.value):'')}><option value="">Selecciona una requisición recibida</option>{receivedRequisitions.map(item=><option key={item.id} value={item.id}>#{item.id} · {item.requisition?.supplier||'Proveedor'} · {(item.requisition?.items||[]).filter(line=>line.item_type==='SERVICIO').map(line=>line.description).join(' · ').slice(0,120)}</option>)}</select>{!receivedRequisitions.length&&<span className="field-help">No hay requisiciones de servicio recibidas disponibles.</span>}</label>}<Text label="Observaciones de recepción / conformidad" name="notes" form={form} change={change} required={false} placeholder="Si se deja vacío, se registrará Entrega conforme"/></>}
       </div>{formError&&<p className="form-message" role="alert" style={{whiteSpace:'pre-line'}}>{formError}</p>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={()=>{setForm(null);setMode('');setFormError('')}}>Cancelar</button><button className="primary-action">{busy?'Guardando…':mode==='edit'?'Guardar datos de la mejora':mode==='admin_flow'?'Guardar fechas corregidas':mode==='complete'?(isTechnician?'Entregar trabajo':'Entregar trabajo y consumir repuestos'):mode==='receive'?'Confirmar recepción':'Generar solicitud'}</button></div></fieldset></form>}
       </>}
     </section>

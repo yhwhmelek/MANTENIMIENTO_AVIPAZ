@@ -63,6 +63,13 @@ class FrequencyEndpointTests(unittest.TestCase):
         self.assertEqual(json.loads(args[1])['frequency'], {'every':2500,'unit':'HORAS','first_hours':None,'advance_hours':0})
         self.connection.commit.assert_called_once()
 
+    def test_activity_accepts_external_contractor_group(self):
+        self.data['group'] = 'CONTRACTOR'
+        self.connection.cursor.return_value.execute.return_value.fetchone.return_value = (5,)
+        self.endpoint('/preventivos/actividades','POST')(ActivityWrite(**self.data), usuario_id=1)
+        saved = json.loads(self.connection.cursor.return_value.execute.call_args.args[1])
+        self.assertEqual(saved['group'], 'CONTRACTOR')
+
     def test_new_legacy_frequency_rejected_before_insert(self):
         self.data['frequency'] = {'every':1,'unit':'MESES'}
         with self.assertRaises(HTTPException) as error:

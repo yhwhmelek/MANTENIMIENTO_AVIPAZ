@@ -55,7 +55,7 @@ class ActivityWrite(StrictModel):
     plant_id: int | None = Field(default=None, gt=0)
     start_time: time = time(8)
     frequency: Frequency
-    group: Literal['MECANICO', 'ELECTRICO', 'TECNICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO']
+    group: Literal['MECANICO', 'ELECTRICO', 'TECNICO', 'MECANICO_ELECTRICO', 'MANTENIMIENTO', 'CONTRACTOR']
     duration_minutes: int = Field(ge=1, le=525600)
     crew_size: int = Field(default=1, ge=1, le=100)
     factors: NIC
@@ -737,8 +737,11 @@ def register_preventive(app, connect, active_user, admin_user):
                         raise HTTPException(422, 'Un elemento del plan fue desactivado o cambió de máquina')
                     element_name = element[0]
                 starts = datetime.combine(date.fromisoformat(entry['scheduled']), time.fromisoformat(p['start_time']))
-                plan = dict(assignment_type=a['group'], assigned_user_id=None, contractor_id=None,
-                            responsible=ASSIGNMENT_GROUPS[a['group']][0], responsible_role=a['group'], starts_at=starts.isoformat(),
+                assignment_type = 'CONTRACTOR' if a['group'] == 'CONTRACTOR' else a['group']
+                responsible_role = 'CONTRATISTA' if assignment_type == 'CONTRACTOR' else assignment_type
+                responsible = 'Externo / Contratista' if assignment_type == 'CONTRACTOR' else ASSIGNMENT_GROUPS[assignment_type][0]
+                plan = dict(assignment_type=assignment_type, assigned_user_id=None, contractor_id=None,
+                            responsible=responsible, responsible_role=responsible_role, starts_at=starts.isoformat(),
                             ends_at=(starts+timedelta(minutes=a['duration_minutes'])).isoformat(),
                             estimated_duration_days=a['duration_minutes']//1440, estimated_duration_minutes=a['duration_minutes']%1440,
                             resources='N/A', permits='N/A', window='Requiere parada' if a['requires_shutdown'] else 'N/A',

@@ -4,6 +4,7 @@ export const assignmentGroups = {
   TECNICO: {label:'Técnico', roles:['TECNICO']},
   MECANICO_ELECTRICO: {label:'Mecánico / Eléctrico', roles:['MECANICO','ELECTRICO']},
   MANTENIMIENTO: {label:'Mantenimiento (todos)', roles:['MECANICO','ELECTRICO','TECNICO','ADMIN']},
+  CONTRACTOR: {label:'Externo / Contratista', roles:['ADMIN']},
 }
 
 export function canExecuteWork(row, user) {

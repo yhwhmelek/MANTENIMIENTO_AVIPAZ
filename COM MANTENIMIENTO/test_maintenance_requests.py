@@ -502,6 +502,32 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(self.cursor.execute.call_args.args[-2:],(9,5))
         self.connection.commit.assert_called_once()
 
+    def test_contractor_receipt_requires_received_service_requisition(self):
+        self.original['planning']['assignment_type'] = 'CONTRACTOR'
+        self.cursor.execute.return_value.fetchone.return_value = self.locked('POR_RECIBIR')
+        with self.assertRaises(HTTPException) as error:
+            self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(), usuario_id=1)
+        self.assertEqual(error.exception.status_code, 422)
+        self.assertIn('requisicion de servicio', str(error.exception.detail))
+        self.connection.commit.assert_not_called()
+
+    def test_receipt_stores_received_service_requisition_snapshot(self):
+        self.original['planning']['assignment_type'] = 'CONTRACTOR'
+        requisition = {'supplier':'Servicio Montacargas', 'items':[
+            {'item_type':'SERVICIO','description':'Mantenimiento preventivo','unit':'servicio','specifications':''},
+            {'item_type':'MATERIAL','description':'Filtro','unit':'unidad','specifications':''},
+        ]}
+        received_at = datetime(2026, 1, 2, 11, 30)
+        self.cursor.execute.return_value.fetchone.side_effect = [
+            self.locked('POR_RECIBIR'), (json.dumps(requisition), received_at, None)]
+        self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(requisition_id=17), usuario_id=1)
+        update = next(call for call in self.cursor.execute.call_args_list if 'SET Status=\'CERRADA\'' in call.args[0])
+        saved = json.loads(update.args[3])
+        self.assertEqual(saved['linked_requisition']['id'], 17)
+        self.assertEqual(saved['linked_requisition']['supplier'], 'Servicio Montacargas')
+        self.assertEqual(len(saved['linked_requisition']['items']), 1)
+        self.connection.commit.assert_called_once()
+
     def test_completion_creates_event_and_consumption_once(self):
         self.cursor.execute.return_value.fetchone.side_effect = [self.locked(),(33,)]
         with patch.object(mod,'part_stock',return_value=(('MALLA','Malla molino','u'),Decimal(2),None)):
