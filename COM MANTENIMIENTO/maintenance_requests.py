@@ -145,6 +145,7 @@ class ToolReconciliation(StrictModel):
 class CompleteWrite(StrictModel):
     finish_now: bool = Field(default=False, strict=True)
     image_data: str | None = Field(default=None, max_length=14_000_000)
+    attachment_name: str | None = Field(default=None, max_length=255)
     improvement_result: str = Field(default='', max_length=2000)
     other_materials: str = Field(default='', max_length=2000)
     repair_started_at: datetime
@@ -342,6 +343,30 @@ def save_request_image(image_data):
         path.write_bytes(content)
     except OSError:
         raise HTTPException(503, 'No se pudo guardar la foto en el servidor')
+    return str(path)
+
+
+def save_request_attachment(data_url, filename=None):
+    match = re.fullmatch(r'data:([^;,]*);base64,([A-Za-z0-9+/=]+)', data_url or '')
+    if not match:
+        raise HTTPException(422, 'El archivo no es válido')
+    mime, encoded = match.groups()
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(422, 'El archivo no es válido')
+    if not content or len(content) > 10 * 1024 * 1024:
+        raise HTTPException(422, 'El archivo no es válido o supera 10 MB')
+    extension = Path(filename or '').suffix.lower()
+    if not re.fullmatch(r'\.[a-z0-9]{1,10}', extension):
+        subtype = mime.split('/', 1)[-1].lower().split('+', 1)[0]
+        extension = f'.{subtype}' if re.fullmatch(r'[a-z0-9]{1,10}', subtype) else '.bin'
+    path = request_image_directory() / f'{uuid4().hex}{extension}'
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    except OSError:
+        raise HTTPException(503, 'No se pudo guardar el archivo en el servidor')
     return str(path)
 
 
@@ -824,7 +849,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 raise HTTPException(422, '; '.join(error['msg'] for error in exc.errors())) from exc
             if original.get('hour_meter') is not None and (data.hour_meter is None or data.hour_meter < Decimal(original['hour_meter'])):
                 raise HTTPException(422, 'El horometro final debe ser mayor o igual al inicial')
-            payload = data.model_dump(mode='json', exclude={'image_data', 'finish_now'})
+            payload = data.model_dump(mode='json', exclude={'image_data', 'attachment_name', 'finish_now'})
             payload['recorded_at'] = local_now().isoformat()
             payload['repair_started_at'] = recorded_start.isoformat()
             payload['repair_duration_minutes'] = round((data.repair_finished_at-recorded_start).total_seconds()/60, 2)
@@ -839,7 +864,7 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                     raise HTTPException(409, f'Stock insuficiente para {part[0]}: disponible {stock}')
                 payload['parts'].append({**item.model_dump(mode='json'), 'internal_code': part[0], 'description': part[1], 'unit_of_measure': part[2], 'stock_before': str(stock)})
             if data.image_data:
-                new_image[0] = save_request_image(data.image_data)
+                new_image[0] = save_request_attachment(data.image_data, data.attachment_name)
                 payload['image_paths'] = [new_image[0]]
             finish_hour_work(cursor, request_id, original, data.preventive_hours, usuario_id)
             event_id = cursor.execute('''SET NOCOUNT ON; INSERT INTO dbo.MaintenanceEvents
