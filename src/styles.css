@@ -99,6 +99,23 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(45, 103, 86, 0.2
 .admin-title p:last-child { margin: 8px 0 0; color: #68736d; }
 .users-card { overflow: hidden; background: #fff; border: 1px solid #dde2de; border-radius: 10px; box-shadow: 0 8px 25px rgba(23,55,46,0.05); }
 .table-scroll { overflow-x: auto; }
+
+/* La tabla de elementos agrupa los accesos de repuestos, preventivos y data
+   para conservar toda la información visible sin desplazamiento horizontal. */
+.machine-elements-table { overflow-x: hidden; }
+.machine-elements-table table { width: 100%; min-width: 0; table-layout: fixed; font-size: 11px; }
+.machine-elements-table th,
+.machine-elements-table td { min-width: 0; padding: 7px 5px; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.machine-elements-table thead th:nth-child(2) { display: none; }
+.machine-elements-table table:has(tbody td.machine-elements-legacy-module:nth-child(4)) thead th:nth-child(3) { display: none; }
+.machine-elements-table thead th:first-child { font-size: 0; }
+.machine-elements-table thead th:first-child::after { content: 'MÃ³dulos'; font-size: 11px; }
+.machine-elements-table .machine-elements-legacy-module { display: none; }
+.machine-elements-table .machine-elements-modules { width: 13%; }
+.machine-elements-table .machine-elements-modules .secondary-action { display: block; width: 100%; margin: 0 0 4px; padding: 4px 5px; font-size: 10px; line-height: 1.15; white-space: normal; }
+.machine-elements-table .machine-elements-modules .secondary-action:last-of-type { margin-bottom: 0; }
+.machine-elements-table .row-actions { width: 6%; }
+.machine-elements-table img.nameplate-thumb { max-width: 42px; height: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 15px 18px; text-align: left; border-bottom: 1px solid #e8ebe8; white-space: nowrap; }
 th { color: #66716b; background: #f8f9f7; font-size: 12px; letter-spacing: .5px; text-transform: uppercase; }
