@@ -58,7 +58,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   const [loaded,setLoaded] = useState(false), [catalogReady,setCatalogReady] = useState(false)
   const [receivedRequisitions,setReceivedRequisitions] = useState([])
   const [selected,setSelected] = useState(null), [form,setForm] = useState(null), [mode,setMode] = useState('')
-  const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [historySearch,setHistorySearch] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null)
+  const [filter,setFilter] = useState(''), [plantFilter,setPlantFilter] = useState(''), [historySearch,setHistorySearch] = useState(''), [version,setVersion] = useState(0), [printRow,setPrintRow] = useState(null), [flowMessage,setFlowMessage] = useState('')
   const [workspace,setWorkspace] = useState(currentUser.rol==='OPERADOR'?'pending':'activities')
   const [photo,setPhoto] = useState(null), [imageUrls,setImageUrls] = useState([])
   const [workImageUrls,setWorkImageUrls] = useState([]), [workPhotosLoaded,setWorkPhotosLoaded] = useState(0)
@@ -189,7 +189,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   },[open,showingDetail,row?.id])
   function change(name,value){setForm(f=>({...f,[name]:value,...(name==='plant_id'?{tower_id:'',machine_id:''}:name==='tower_id'?{machine_id:''}:{}),...(name==='maintenance_type'?{failure:false,technical_evaluation:null,improvement_proposal:'',requesting_area:'',target_area:'',detected_at:value==='CORRECTIVO'?'':(f.detected_at||localInput())}:{}),...(name==='equipment_stopped'&&!value?{stopped_at:''}:{})}))}
   function start(modeName,targetRow=row){
-    setMode(modeName);setFormError('');setPhoto(null);setRemovedPhotoPaths([])
+    setMode(modeName);setFormError('');setFlowMessage('');setPhoto(null);setRemovedPhotoPaths([])
     if(modeName==='new'){
       const now=localInput()
       setForm({maintenance_type:'CORRECTIVO',preevaluation:{},requested_parts:[],equipment_stopped:false,failure:false,description:'',requested_at:now,detected_at:''})
@@ -216,7 +216,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   async function mutate(suffix,payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
-    try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});setSelected(result.id);setForm(null);setPhoto(null);setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
+    try{const result=await request(`/solicitudes-mantenimiento${suffix}`,{method:'POST',body:payload?JSON.stringify(payload):undefined});const message=suffix.includes('/atender')?'Trabajo aceptado e iniciado.':suffix.includes('/completar')?'Trabajo entregado correctamente.':suffix.includes('/recibir')?'Recepción confirmada y solicitud cerrada.':'Operación completada correctamente.';setFlowMessage(message);setSelected(null);setForm(null);setPhoto(null);setMode('');setVersion(v=>v+1);window.dispatchEvent(new Event('stock-updated'))}
     catch(err){setFormError(err.message);setVersion(v=>v+1)}finally{submitting.current=false;setBusy(false)}
   }
   function startWork(){
@@ -235,13 +235,13 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
   async function saveImprovement(payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
-    try{const result=await request(`/solicitudes-mantenimiento/${selected}/mejora`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setPhoto(null);setRemovedPhotoPaths([]);setMode('');setVersion(v=>v+1);if(result.files_not_deleted)setFormError(`La solicitud se actualizó, pero ${result.files_not_deleted} archivo(s) no se pudieron borrar del servidor.`)}
+    try{const result=await request(`/solicitudes-mantenimiento/${selected}/mejora`,{method:'PUT',body:JSON.stringify(payload)});setFlowMessage('Solicitud actualizada correctamente.');setSelected(null);setForm(null);setPhoto(null);setRemovedPhotoPaths([]);setMode('');setVersion(v=>v+1);if(result.files_not_deleted)setFormError(`La solicitud se actualizó, pero ${result.files_not_deleted} archivo(s) no se pudieron borrar del servidor.`)}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   async function saveAdminFlow(payload){
     if(submitting.current)return
     submitting.current=true;setBusy(true);setFormError('')
-    try{await request(`/solicitudes-mantenimiento/${selected}/flujo`,{method:'PUT',body:JSON.stringify(payload)});setForm(null);setMode('');setVersion(value=>value+1)}
+    try{await request(`/solicitudes-mantenimiento/${selected}/flujo`,{method:'PUT',body:JSON.stringify(payload)});setFlowMessage('Fechas del flujo actualizadas correctamente.');setSelected(null);setForm(null);setMode('');setVersion(value=>value+1)}
     catch(err){setFormError(err.message)}finally{submitting.current=false;setBusy(false)}
   }
   async function save(event){
@@ -291,7 +291,7 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       {!isOperator&&!form&&!row&&<nav className="spare-parts-nav requests-nav" aria-label="Secciones de solicitudes"><button type="button" aria-current={workspace==='pending'?'page':undefined} onClick={()=>setWorkspace('pending')}>{isTechnician?'Trabajos disponibles y en curso':'Pendientes y solicitudes'}</button><button type="button" aria-current={workspace==='activities'?'page':undefined} onClick={()=>setWorkspace('activities')}>Lista de actividades</button>{!isTechnician&&<><button type="button" aria-current={workspace==='schedule'?'page':undefined} onClick={()=>setWorkspace('schedule')}>Cronograma PDF</button><button type="button" aria-current={workspace==='periods'?'page':undefined} onClick={()=>setWorkspace('periods')}>Horas de máquinas</button></>}</nav>}
       {!isOperator&&!form&&!row&&!isTechnician&&workspace==='periods'?<OperatingPeriods request={request} machines={machines} canCreate={canCreate&&catalogReady}/>:<>
       {!form&&!row&&workspace!=='schedule'&&<div className="request-toolbar">{canCreate&&<button className="primary-action" disabled={busy||!catalogReady} onClick={()=>{setSelected(null);start('new')}}>Generar solicitud</button>}<button className="secondary-action" disabled={busy} onClick={()=>setVersion(v=>v+1)}>Actualizar listado</button>{workspace==='search'?<label>Estado <select value={filter} onChange={e=>setFilter(e.target.value)}><option value="">Todos</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>:null}{workspace==='search'&&<label>Planta <select value={plantFilter} onChange={e=>setPlantFilter(e.target.value)}><option value="">Todas</option>{plants.map(p=><option key={p.plant_id} value={p.plant_id}>{p.name}</option>)}</select></label>}{workspace==='search'&&<label>Buscar<input type="search" value={historySearch} onChange={e=>setHistorySearch(e.target.value)} placeholder="N.º, máquina, solicitante o descripción" /></label>}</div>}
-      {error&&<p role="alert">{error}</p>}{formError&&!form&&<p role="alert">{formError}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
+      {error&&<p role="alert">{error}</p>}{formError&&!form&&<p role="alert">{formError}</p>}{flowMessage&&<p role="status">{flowMessage}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
       {!form&&!row&&workspace==='pending'&&!!assignedWork.length&&<section className="request-detail"><h3>Trabajos disponibles y en curso ({assignedWork.length})</h3>{assignedWork.map(work=><div className="request-line" key={work.id}><RequestPhotos apiUrl={apiUrl} token={token} work={work}/><span><strong>Solicitud #{work.id}</strong> · {work.request_data.target_area||work.request_data.machine_name}<br/>{work.status==='PENDIENTE'?'Programada por iniciar':'En proceso'} · {work.request_data.description}</span><button type="button" className="primary-action" onClick={()=>{setSelected(work.id);setFormError('')}}>Abrir trabajo</button></div>)}</section>}
       {!form&&!row&&isTechnician&&workspace==='pending'&&!assignedWork.length&&loaded&&<p className="empty-state">No hay trabajos disponibles para tu grupo ni trabajos tuyos en curso.</p>}
       {!form&&!row&&!isTechnician&&workspace==='pending'&&!!pendingReceipts.length&&<section className="request-detail"><h3>Trabajos pendientes de mi conformidad ({pendingReceipts.length})</h3>{pendingReceipts.map(work=><div className="request-line" key={work.id}><span><strong>Solicitud #{work.id}</strong> · {work.request_data.description}</span><button type="button" className="primary-action" onClick={()=>{setSelected(work.id);setFormError('')}}>Revisar entrega</button></div>)}</section>}
@@ -304,8 +304,8 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
         {row.accepted_at&&<p>Inicio registrado del trabajo: {time(row.accepted_at)} · Tiempo estimado: {duration(row.request_data.estimated_repair_minutes)}.</p>}
         {row.execution_data&&<p>Fin real: {time(row.execution_data.repair_finished_at)} · Tiempo real de trabajo: {duration(row.execution_data.repair_duration_minutes)} · Tiempo de respuesta: {duration(row.execution_data.response_time_minutes)}.</p>}
         {!!photoPaths.length&&<div className="full-field"><p>Archivos de la solicitud ({photoPaths.length})</p>{photosLoaded<photoPaths.length&&<p role="status">Cargando archivos… {photosLoaded} de {photoPaths.length}</p>}<div className="request-photo-gallery">{imageUrls.map((url,index)=>url?<AttachmentPreview key={index} url={url} path={photoPaths[index]} alt={`Archivo ${index+1} de la solicitud ${row.id}`}/>:null)}</div>{photosLoaded===photoPaths.length&&!imageUrls.some(Boolean)&&<p>Archivos no disponibles.</p>}</div>}
-        {row.request_data.preventive&&<PreventiveChecklist key={`preventive-checklist-${row.id}`} row={row} currentUser={currentUser} request={request} onSaved={()=>setVersion(v=>v+1)}/>}
-        {!isOperator&&<PriorityWorkflow key={`priority-workflow-${row.id}`} row={row} isAdmin={isAdmin} request={request} onSaved={()=>setVersion(v=>v+1)}/>}
+        {row.request_data.preventive&&<PreventiveChecklist key={`preventive-checklist-${row.id}`} row={row} currentUser={currentUser} request={request} onSaved={()=>{setFlowMessage('Checklist preventivo actualizado correctamente.');setSelected(null);setVersion(v=>v+1)}}/>}
+        {!isOperator&&<PriorityWorkflow key={`priority-workflow-${row.id}`} row={row} isAdmin={isAdmin} request={request} onSaved={()=>{setFlowMessage('Programación actualizada correctamente.');setSelected(null);setVersion(v=>v+1)}}/>}
         {row.request_data.maintenance_type==='MEJORA_TECNICA'&&<><h4>Mejora técnica MT/02-08</h4><p>Área solicitante: {row.request_data.requesting_area}. Equipo / sistema / área: {row.request_data.target_area||row.request_data.machine_name}</p><p>Propuesta: {row.request_data.improvement_proposal}</p><p>Beneficios: {(row.request_data.benefits||[]).map(b=>benefits[b]).join(', ')||'No registrados'}. {row.request_data.benefit_notes}</p>{row.execution_data&&<><p>Resultado: {row.execution_data.improvement_result}</p><p>Otros materiales: {row.execution_data.other_materials||'No aplica'}</p></>}</>}
         {!!row.request_data.requested_parts?.length&&<div><h4>Repuestos previstos</h4>{row.request_data.requested_parts.map(p=><p key={p.spare_part_id}>{p.internal_code} · {p.description}: {p.quantity} {p.unit_of_measure}. Stock al solicitar: {p.stock_at_request} ({p.stock_sufficient?'suficiente':'insuficiente'}).</p>)}</div>}
         {!row.request_data.requested_parts?.length&&row.request_data.requested_part_id&&<p>Repuesto previsto: {row.request_data.requested_part_code} · {row.request_data.requested_quantity}. Stock al solicitar: {row.request_data.stock_at_request} ({row.request_data.stock_sufficient?'suficiente':'insuficiente'}).</p>}
