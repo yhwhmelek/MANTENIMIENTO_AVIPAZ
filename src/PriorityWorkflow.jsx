@@ -56,7 +56,7 @@ export default function PriorityWorkflow({row,isAdmin,request,onSaved,initialMod
     }catch(err){setError(err.name==='AbortError'?'El servidor tardó demasiado en responder. Verifica la conexión y vuelve a intentarlo.':err.message)}finally{setBusy(false)}
   }
   useEffect(()=>{if(initialMode&&!opened.current){opened.current=true;start(initialMode)}},[initialMode,row.id])
-  return <section className="request-detail">{!compact&&<PrioritySummary row={row}/>}<SupplierField form={mode==='plan'?form:null} suppliers={suppliers} change={change}/>
+  return <section className="request-detail">{!compact&&<PrioritySummary row={row}/>} 
     {showParts&&<SparePartPlanningPicker request={request} requestMachineId={r.machine_id} initial={form.requested_parts||[]} onChange={parts=>change('requested_parts',parts)} onClose={()=>setShowParts(false)}/>}
     {!compact&&isAdmin&&['PENDIENTE','EN_PROCESO'].includes(row.status)&&!mode&&<div className="request-toolbar"><button type="button" disabled={busy} onClick={()=>start('evaluate')}>{r.priority_validation?'Reevaluar prioridad':'Validar prioridad y evaluar'}</button><button type="button" disabled={busy||!r.priority_validation||Boolean(planningBlockedMessage)} title={planningBlockedMessage||'Programar actividad'} onClick={()=>start('plan')}>Programar actividad</button></div>}
     {!mode&&planningBlockedMessage&&<p role="status">{planningBlockedMessage}</p>}
