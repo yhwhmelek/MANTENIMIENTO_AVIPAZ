@@ -82,8 +82,8 @@ class PlanningWrite(StrictModel):
             raise ValueError('La asignación por grupo no permite seleccionar un usuario ni un contratista')
         if self.assignment_type == 'USER' and (self.assigned_user_id is None or self.contractor_id is not None or self.supplier_id is not None):
             raise ValueError('Selecciona un usuario mecánico, eléctrico o técnico')
-        if self.assignment_type == 'CONTRACTOR' and (self.contractor_id is None or self.assigned_user_id is not None):
-            raise ValueError('Selecciona un contratista')
+        if self.assignment_type == 'CONTRACTOR' and (self.contractor_id is None and self.supplier_id is None or self.assigned_user_id is not None):
+            raise ValueError('Selecciona un contratista o proveedor de servicio')
         if self.assignment_type != 'CONTRACTOR' and self.supplier_id is not None:
             raise ValueError('El proveedor de servicio solo aplica a contratistas')
         if self.starts_at and self.starts_at.tzinfo:
@@ -200,16 +200,25 @@ def register_priority(app, write, locked, admin_user, now):
                 planning['responsible'] = ASSIGNMENT_GROUPS[data.assignment_type][0]
                 planning['responsible_role'] = data.assignment_type
             else:
-                contractor = cursor.execute('SELECT Name,Specialty FROM dbo.Contractors WHERE ContractorId=? AND Active=1', data.contractor_id).fetchone()
-                if not contractor:
-                    raise HTTPException(422, 'Selecciona un contratista activo')
-                planning['responsible'] = contractor[0]
-                planning['responsible_role'] = 'CONTRATISTA'
-                planning['contractor_specialty'] = contractor[1]
-                if data.supplier_id is not None:
-                    supplier = cursor.execute('SELECT Name FROM dbo.Suppliers WHERE SupplierId=? AND Active=1', data.supplier_id).fetchone()
+                responsible_id = data.contractor_id or data.supplier_id
+                contractor = cursor.execute('SELECT Name,Specialty FROM dbo.Contractors WHERE ContractorId=? AND Active=1', responsible_id).fetchone()
+                supplier = None
+                if contractor:
+                    planning['responsible'] = contractor[0]
+                    planning['contractor_specialty'] = contractor[1]
+                else:
+                    supplier = cursor.execute('SELECT Name FROM dbo.Suppliers WHERE SupplierId=? AND Active=1', responsible_id).fetchone()
                     if not supplier:
+                        raise HTTPException(422, 'Selecciona un contratista o proveedor activo')
+                    planning['responsible'] = supplier[0]
+                planning['responsible_role'] = 'CONTRATISTA'
+                if data.supplier_id is not None:
+                    selected_supplier = cursor.execute('SELECT Name FROM dbo.Suppliers WHERE SupplierId=? AND Active=1', data.supplier_id).fetchone()
+                    if not selected_supplier:
                         raise HTTPException(422, 'Selecciona un proveedor activo')
+                    planning['supplier_name'] = selected_supplier[0]
+                elif supplier:
+                    planning['supplier_id'] = responsible_id
                     planning['supplier_name'] = supplier[0]
             if request_row[2] == 'EN_PROCESO':
                 raise HTTPException(409, 'No se puede cambiar el ejecutor después de iniciar el trabajo')
