@@ -278,7 +278,10 @@ export default function MaintenanceRequests({ apiUrl, token, currentUser, open, 
       payload.parts=payload.parts.map(p=>({...p,spare_part_id:Number(p.spare_part_id)}))
       payload.tools=payload.tools.map(t=>({...t,quantity_in:Number(t.quantity_in),quantity_out:Number(t.quantity_out)}))
     }
-    if(mode==='receive')delete payload.received_at
+    if(mode==='receive'){
+      delete payload.received_at
+      payload.requisition_id=payload.requisition_id?Number(payload.requisition_id):null
+    }
     mutate(mode==='new'?'':`/${selected}/${mode==='complete'?'completar':'recibir'}`,payload)
   }
   function updateLine(kind,index,key,value){setForm(f=>({...f,[kind]:f[kind].map((line,i)=>i===index?{...line,[key]:value}:line)}))}
