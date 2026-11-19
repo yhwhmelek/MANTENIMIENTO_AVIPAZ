@@ -10,7 +10,7 @@ import GearReducerSpecifications from './GearReducerSpecifications'
 const fields = [['element_code', 'Código', 50], ['name', 'Nombre', 200], ['manufacturer', 'Fabricante', 100], ['model', 'Modelo', 100], ['serial_number', 'Número de serie', 100], ['position', 'Posición', 150]]
 const statuses = { OPERATIVO: 'Operativo', PARADO: 'Parado', REPARACION: 'Reparación', RESERVA: 'Reserva', FUERA_SERVICIO: 'Fuera de servicio' }
 
-export default function MachineElements({ apiUrl, token, isAdmin, canPreventives=false }) {
+export default function MachineElements({ apiUrl, token, isAdmin, initialMachineId='', canPreventives=false }) {
   const [partsElement, setPartsElement] = useState(null)
   const [reducerElement, setReducerElement] = useState(null)
   const [specElement, setSpecElement] = useState(null)
@@ -47,6 +47,21 @@ export default function MachineElements({ apiUrl, token, isAdmin, canPreventives
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [apiUrl, token])
+
+  useEffect(() => {
+    if (!initialMachineId || !machines.length) return
+    const machine = machines.find(item => String(item.machine_id) === String(initialMachineId))
+    if (!machine) return
+    setPlantFilter(machine.plant_id ? String(machine.plant_id) : 'SIN_ASIGNAR')
+    setTowerFilter(machine.tower_id ? String(machine.tower_id) : '')
+    setFilter(String(machine.machine_id))
+    setEditing(null)
+    setMachineId(String(machine.machine_id))
+    setParentId('')
+    setError('')
+    setPhoto(null)
+    setShowForm(true)
+  }, [initialMachineId, machines])
 
   useEffect(() => {
     if (!photo) { setPreview(null); return }
