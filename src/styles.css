@@ -111,6 +111,15 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(45, 103, 86, 0.2
 .machine-elements-table .machine-elements-modules .secondary-action:last-of-type { margin-bottom: 0; }
 .machine-elements-table .row-actions { width: 6%; }
 .machine-elements-table img.nameplate-thumb { max-width: 42px; height: auto; }
+.machines-table { overflow: hidden; }
+.machines-table table { width: 100%; table-layout: fixed; font-size: 11px; }
+.machines-table th,
+.machines-table td { min-width: 0; padding: 7px 5px; vertical-align: top; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.machines-table .machine-modules { width: 14%; }
+.machines-table .machine-modules .secondary-action { display: block; width: 100%; min-height: 0; margin: 0 0 4px; padding: 4px 5px; font-size: 10px; line-height: 1.15; white-space: normal; }
+.machines-table .machine-modules .secondary-action:last-child { margin-bottom: 0; }
+.machines-table .row-actions { width: 7%; display: flex; flex-direction: column; gap: 4px; }
+.machines-table .row-actions button { min-width: 28px; padding: 4px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 15px 18px; text-align: left; border-bottom: 1px solid #e8ebe8; white-space: nowrap; }
 th { color: #66716b; background: #f8f9f7; font-size: 12px; letter-spacing: .5px; text-transform: uppercase; }
