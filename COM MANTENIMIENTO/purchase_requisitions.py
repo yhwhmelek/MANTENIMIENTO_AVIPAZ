@@ -25,7 +25,7 @@ class TextModel(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
 
 class RequisitionItem(TextModel):
-    item_type: Literal['MATERIAL', 'SERVICIO', 'CONSUMIBLE'] = 'MATERIAL'
+    item_type: Literal['MATERIAL', 'MATERIAL_LIBRE', 'SERVICIO', 'CONSUMIBLE'] = 'MATERIAL'
     spare_part_id: int | None = Field(default=None, gt=0)
     consumable_id: int | None = Field(default=None, gt=0)
     tower_id: int | None = Field(default=None, gt=0)
@@ -38,10 +38,12 @@ class RequisitionItem(TextModel):
 
     @model_validator(mode='after')
     def service_without_stock(self):
-        if self.item_type != 'MATERIAL' and self.spare_part_id is not None:
+        if self.item_type not in ('MATERIAL', 'MATERIAL_LIBRE') and self.spare_part_id is not None:
             raise ValueError('Un servicio o consumible no debe vincularse a un repuesto')
-        if self.item_type != 'MATERIAL' and any(value is not None for value in (self.tower_id, self.machine_id)):
+        if self.item_type not in ('MATERIAL', 'MATERIAL_LIBRE') and any(value is not None for value in (self.tower_id, self.machine_id)):
             raise ValueError('Un servicio o consumible no debe vincularse a torre o maquina')
+        if self.item_type == 'MATERIAL_LIBRE' and self.spare_part_id is not None:
+            raise ValueError('El material sin inventario no debe vincularse a un repuesto')
         if self.item_type != 'CONSUMIBLE' and self.consumable_id is not None:
             raise ValueError('El consumible solo puede vincularse a un item tipo CONSUMIBLE')
         return self
@@ -53,6 +55,7 @@ class RequisitionWrite(TextModel):
     delivery_on: date | None = None
     urgent: bool = False
     machine_codes: str = Field(default='', max_length=100)
+    improvement_request_id: int | None = Field(default=None, gt=0)
     observations: str = Field(default='', max_length=1000)
     requester: str = Field(min_length=1, max_length=201)
     items: list[RequisitionItem] = Field(min_length=1, max_length=11)
@@ -124,7 +127,8 @@ def machine_locations(data: RequisitionWrite, connect):
 
 
 def generate_requisition(data: RequisitionWrite, locations: str = ''):
-    observations = '\n'.join(part for part in (locations, data.observations) if part) or 'No aplica'
+    improvement = f'Solicitud de mejora técnica vinculada: #{data.improvement_request_id}' if data.improvement_request_id else ''
+    observations = '\n'.join(part for part in (locations, improvement, data.observations) if part) or 'No aplica'
     output = BytesIO()
     with zipfile.ZipFile(TEMPLATE) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as result:
         root = ET.fromstring(source.read('xl/worksheets/sheet1.xml'))

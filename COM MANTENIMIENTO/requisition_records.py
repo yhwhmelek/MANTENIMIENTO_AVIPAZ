@@ -21,7 +21,7 @@ class RequisitionEdit(TextModel):
 
 
 class ReceivedItem(TextModel):
-    item_type: Literal['MATERIAL', 'SERVICIO', 'CONSUMIBLE'] = 'MATERIAL'
+    item_type: Literal['MATERIAL', 'MATERIAL_LIBRE', 'SERVICIO', 'CONSUMIBLE'] = 'MATERIAL'
     spare_part_id: int | None = Field(default=None, gt=0)
     quantity: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     unit_cost: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
