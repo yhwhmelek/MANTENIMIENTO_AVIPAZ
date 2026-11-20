@@ -1099,6 +1099,9 @@ def validar_relaciones_elemento(cursor, datos, element_id=None):
     if element_id is not None:
         if element_id not in elements:
             raise HTTPException(status_code=404, detail='El elemento no existe')
+        current_machine_id = elements[element_id].MachineId
+        if current_machine_id != datos.machine_id and cursor.execute('''SELECT TOP 1 PlanId FROM dbo.PreventivePlans WHERE ElementId=?''', element_id).fetchone():
+            raise HTTPException(status_code=409, detail='No puedes cambiar de máquina un elemento con planes preventivos. Desactiva el plan y crea uno nuevo para conservar la trazabilidad.')
         validar_data_existente(cursor, element_id, element_type.SpecificationType)
         if any(row.ParentElementId == element_id and row.MachineId != datos.machine_id for row in rows):
             raise HTTPException(status_code=422, detail='No puedes cambiar la maquina de un elemento que tiene hijos en otra maquina')
@@ -1178,7 +1181,10 @@ def actualizar_elemento_maquina(element_id: int, datos: MachineElementWrite, usu
 def eliminar_elemento_maquina(element_id: int, usuario_id: int = Depends(obtener_admin_actual)):
     try:
         with closing(obtener_conexion()) as conexion:
-            row = conexion.cursor().execute('DELETE FROM dbo.MachineElements OUTPUT DELETED.ElementId WHERE ElementId = ?', element_id).fetchone()
+            cursor = conexion.cursor()
+            if cursor.execute('''SELECT TOP 1 PlanId FROM dbo.PreventivePlans WHERE ElementId=?''', element_id).fetchone():
+                raise HTTPException(status_code=409, detail='No puedes eliminar un elemento con planes preventivos. Desactívalo para conservar la trazabilidad y el historial.')
+            row = cursor.execute('DELETE FROM dbo.MachineElements OUTPUT DELETED.ElementId WHERE ElementId = ?', element_id).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail='El elemento no existe')
             conexion.commit()

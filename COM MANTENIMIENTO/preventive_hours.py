@@ -151,6 +151,11 @@ def hour_states(cursor, catalog):
     for plan in plans:
         activity = activities[plan['activity_id']]
         frequency = plan.get('frequency_override') or activity['frequency']
+        element = None
+        if plan.get('element_id'):
+            element = cursor.execute('''SELECT ElementId,Name,ElementCode,MachineId FROM dbo.MachineElements WHERE ElementId=?''', plan['element_id']).fetchone()
+            if element and element[3] != plan.get('machine_id'):
+                raise HTTPException(409, 'El plan preventivo perdió la relación máquina-elemento; revisa la trazabilidad antes de continuar')
         if plan.get('scope') == 'GENERAL':
             if plan.get('plant_id'):
                 machine_ids = [row[0] for row in cursor.execute("SELECT m.MachineId FROM dbo.Machines m JOIN dbo.Towers t ON t.TowerId=m.TowerId WHERE t.PlantId=? AND m.Status<>'FUERA_SERVICIO'", plan['plant_id']).fetchall()]
@@ -162,7 +167,9 @@ def hour_states(cursor, catalog):
         else:
             machine_ids = [plan['machine_id']]
         machines = [machine_threshold(plan,frequency,i,readings.get(i),completed.get((plan['id'],i), (None, None))[1],opened.get((plan['id'],i)) or calendar_open.get(plan['id']), service_history.get((plan['id'],i))) for i in machine_ids]
-        result.append(dict(plan_id=plan['id'], activity=activity['name'], group=activity['group'], frequency=frequency, machines=machines))
+        result.append(dict(plan_id=plan['id'], activity=activity['name'], group=activity['group'], frequency=frequency,
+                           element_id=element[0] if element else None, element_name=element[1] if element else None,
+                           element_code=element[2] if element else None, machines=machines))
     return result
 
 
