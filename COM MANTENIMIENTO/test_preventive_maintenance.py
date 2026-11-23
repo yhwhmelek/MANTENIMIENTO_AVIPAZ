@@ -42,6 +42,14 @@ class RecurrenceTests(unittest.TestCase):
         self.assertEqual(cycles[0]['scheduled'],'2026-09-28')
         self.assertEqual(len({cycle['scheduled'] for cycle in cycles}),len(cycles))
 
+    def test_general_overdue_plan_publishes_only_latest_cycle(self):
+        p={'scope':'GENERAL','next_due':'2026-11-12','first_due':'2026-11-12'}
+        cycles=due_cycles(p,{'frequency':{'every':2,'unit':'SEMANAS'}},date(2026,11,23))
+        self.assertEqual(len(cycles),1)
+        self.assertEqual(cycles[0]['due'],'2026-11-26')
+        self.assertEqual(cycles[0]['scheduled'],'2026-11-26')
+        self.assertEqual(cycles[0]['skipped'],1)
+
     def test_override_frequency(self):
         p={'next_due':'2026-09-28','first_due':'2026-09-28','frequency_override':{'unit':'MESES','every':1}}
         cycles=due_cycles(p,{'frequency':{'unit':'DIAS','every':1}},date(2026,10,1))

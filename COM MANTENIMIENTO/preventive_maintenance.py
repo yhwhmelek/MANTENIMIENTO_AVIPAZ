@@ -215,7 +215,7 @@ def next_due(current, frequency, anchor_day):
 
 
 def due_cycles(plan, activity, week):
-    """Calendario fijo. Un vencimiento atrasado visible y siguientes ciclos de la semana."""
+    """Calcula los ciclos vencidos o previstos dentro de la semana."""
     frequency = plan.get('frequency_override') or activity['frequency']
     if frequency['unit'] == 'HORAS':
         # Evaluated against meter readings by hour_states(), never as calendar days.
@@ -242,6 +242,14 @@ def due_cycles(plan, activity, week):
             result.append(dict(due=current.isoformat(), scheduled=scheduled.isoformat(), next_due=following.isoformat(), skipped=skipped))
             scheduled_dates.add(scheduled)
         current = following
+    # Un plan general representa un trabajo agrupado para todas sus máquinas.
+    # Si quedó atrasado, publicar cada ciclo pendiente produciría varias
+    # órdenes generales para el mismo trabajo. Conservamos únicamente el
+    # ciclo más reciente y acumulamos los ciclos anteriores como informativos.
+    if plan.get('scope') == 'GENERAL' and len(result) > 1:
+        latest = result[-1].copy()
+        latest['skipped'] += sum(1 + cycle['skipped'] for cycle in result[:-1])
+        return [latest]
     return result
 
 
