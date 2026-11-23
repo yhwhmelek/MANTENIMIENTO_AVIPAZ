@@ -10,14 +10,14 @@ import {activityDateEntries,formatActivityDate,latestActivityDate} from './activ
 const typeLabel={MEJORA_TECNICA:'Mejora técnica',CORRECTIVO:'Correctivo',PREVENTIVO:'Preventivo'}
 
 export default function PrioritizedActivities({rows,plants,towers,plantFilter,setPlantFilter,statusFilter,apiUrl,token,onOpen,onEdit,canEdit,isAdmin,onSaved,busy}){
-  const [level,setLevel]=useState(''),[type,setType]=useState(''),[towerId,setTowerId]=useState(''),[activityStatus,setActivityStatus]=useState(statusFilter||'')
+  const [level,setLevel]=useState(''),[type,setType]=useState(''),[towerId,setTowerId]=useState(''),[activityStatus,setActivityStatus]=useState(statusFilter||''),[search,setSearch]=useState('')
   const [report,setReport]=useState(null),[printBusy,setPrintBusy]=useState(false),[printError,setPrintError]=useState('')
   const [planningRow,setPlanningRow]=useState(null)
   const printAbort=useRef(null)
   const planningDialog=useRef(null)
-  const scope=filterPrioritizedActivities(rows,{plantId:plantFilter,towerId,status:activityStatus})
+  const scope=filterPrioritizedActivities(rows,{plantId:plantFilter,towerId,status:activityStatus,search})
   const [dateOrder,setDateOrder]=useState('latest')
-  const filtered=filterPrioritizedActivities(rows,{level,type,plantId:plantFilter,towerId,status:activityStatus})
+  const filtered=filterPrioritizedActivities(rows,{level,type,plantId:plantFilter,towerId,status:activityStatus,search})
   const canPlanRow=row=>row.request_data.maintenance_type!=='MEJORA_TECNICA'||['PROCEDE','CON_MODIFICACIONES'].includes(row.request_data.priority_validation?.technical_review?.feasibility)
   const sorted=[...filtered].sort((a,b)=>{
     const difference=latestActivityDate(a)-latestActivityDate(b)
@@ -110,6 +110,7 @@ export default function PrioritizedActivities({rows,plants,towers,plantFilter,se
       <label>Torre<select value={towerId} onChange={e=>setTowerId(e.target.value)}><option value="">Todas</option><option value="SIN_TORRE">Sin torre</option>{availableTowers.map(t=><option key={t.tower_id} value={t.tower_id}>{t.name}</option>)}</select></label>
       <label>Prioridad<select value={level} onChange={e=>setLevel(e.target.value)}><option value="">Todas</option>{Object.entries(levels).map(([key,label])=><option key={key} value={key}>{label}</option>)}<option value="SIN_VALIDAR">Sin validar</option></select></label>
       <label>Tipo<select value={type} onChange={e=>setType(e.target.value)}><option value="">Todos</option>{Object.entries(typeLabel).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+      <label>Buscar solicitud<input type="search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="N.º de solicitud" /></label>
       <label>Ordenar por fecha<select value={dateOrder} onChange={e=>setDateOrder(e.target.value)}><option value="latest">Última fecha: más reciente</option><option value="oldest">Última fecha: más antigua</option></select></label>
       <button type="button" disabled={!sorted.length||printBusy} onClick={printPdf}>{printBusy?'Preparando fotos…':'Imprimir / guardar PDF'}</button>
     </div>
