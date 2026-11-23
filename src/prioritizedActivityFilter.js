@@ -1,13 +1,12 @@
 import {compareActivities} from './priorityOrder.js'
 
 export function comparePlanningThenPriority(a,b){
-  const plannedA=Boolean(a.request_data.planning)
-  const plannedB=Boolean(b.request_data.planning)
-  return Number(plannedA)-Number(plannedB)||compareActivities(a,b)
+  const statusRank={POR_RECIBIR:0,EN_PROCESO:1,PENDIENTE:2}
+  return (statusRank[a.status]??3)-(statusRank[b.status]??3)||compareActivities(a,b)
 }
 
 export function filterPrioritizedActivities(rows,{level='',type='',plantId='',towerId='',status}={}){
-  return rows.filter(row=>status===undefined ? row.status!=='CERRADA' : (!status||row.status===status))
+  return rows.filter(row=>status ? row.status===status : row.status!=='CERRADA')
     .filter(row=>(!level||(row.priority?.level||'SIN_VALIDAR')===level)
       &&(!type||row.request_data.maintenance_type===type)
       &&(row.request_data.preventive?.machines?.length ? row.request_data.preventive.machines : [row.request_data]).some(location =>
