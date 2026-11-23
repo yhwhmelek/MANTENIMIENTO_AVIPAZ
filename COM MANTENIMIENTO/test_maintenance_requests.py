@@ -511,6 +511,17 @@ class RequestTests(unittest.TestCase):
         self.assertIn('requisicion de servicio', str(error.exception.detail))
         self.connection.commit.assert_not_called()
 
+    def test_technical_improvement_can_be_received_without_requisition(self):
+        self.original['maintenance_type'] = 'MEJORA_TECNICA'
+        self.original['planning']['assignment_type'] = 'CONTRACTOR'
+        self.cursor.execute.return_value.fetchone.return_value = self.locked('POR_RECIBIR')
+        result = self.endpoint('/{request_id}/recibir')(5, mod.ReceiptWrite(), usuario_id=1)
+        self.assertEqual(result, {'id':5})
+        update = next(call for call in self.cursor.execute.call_args_list if 'SET Status=\'CERRADA\'' in call.args[0])
+        saved = json.loads(update.args[3])
+        self.assertNotIn('linked_requisition', saved)
+        self.connection.commit.assert_called_once()
+
     def test_receipt_stores_received_service_requisition_snapshot(self):
         self.original['planning']['assignment_type'] = 'CONTRACTOR'
         requisition = {'supplier':'Servicio Montacargas', 'items':[

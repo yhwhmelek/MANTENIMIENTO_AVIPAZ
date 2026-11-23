@@ -947,7 +947,8 @@ def register_maintenance_requests(app, connect, active_user, admin_user):
                 raise HTTPException(409, 'El administrador debe revisar el trabajo antes de solicitar la conformidad')
             planning = original.get('planning') or {}
             is_contractor = planning.get('assignment_type') == 'CONTRACTOR'
-            if is_contractor and data.requisition_id is None:
+            is_technical_improvement = original.get('maintenance_type') == 'MEJORA_TECNICA'
+            if is_contractor and not is_technical_improvement and data.requisition_id is None:
                 raise HTTPException(422, 'Selecciona la requisicion de servicio recibida para cerrar un trabajo de contratista')
             if data.requisition_id is not None:
                 requisition_row = cursor.execute('''SELECT Payload,ReceivedAt,Receipt
