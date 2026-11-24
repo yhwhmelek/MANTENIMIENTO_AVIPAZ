@@ -100,6 +100,29 @@ button:focus-visible, a:focus-visible { outline: 3px solid rgba(45, 103, 86, 0.2
 .users-card { overflow: hidden; background: #fff; border: 1px solid #dde2de; border-radius: 10px; box-shadow: 0 8px 25px rgba(23,55,46,0.05); }
 .table-scroll { overflow-x: auto; }
 
+/* Historial de requisiciones: toda la tabla cabe en el panel y las acciones se apilan. */
+.request-detail > .table-scroll { overflow-x: hidden; }
+.request-detail > .table-scroll table.requisitions-history-table,
+.request-detail > .table-scroll table { width: 100%; table-layout: fixed; }
+.request-detail > .table-scroll th,
+.request-detail > .table-scroll td { min-width: 0; padding: 8px 6px; white-space: normal; overflow-wrap: anywhere; word-break: break-word; vertical-align: top; }
+.request-detail > .table-scroll th { font-size: 10px; }
+.request-detail > .table-scroll td { font-size: 12px; }
+.request-detail > .table-scroll th:nth-child(1) { width: 8%; }
+.request-detail > .table-scroll th:nth-child(2) { width: 12%; }
+.request-detail > .table-scroll th:nth-child(3) { width: 16%; }
+.request-detail > .table-scroll th:nth-child(4) { width: 28%; }
+.request-detail > .table-scroll th:nth-child(5) { width: 17%; }
+.request-detail > .table-scroll th:nth-child(6) { width: 19%; }
+.request-detail > .table-scroll td:last-child button { display: block; width: 100%; margin: 0 0 5px; padding: 5px 4px; font-size: 11px; line-height: 1.15; white-space: normal; }
+.request-detail > .table-scroll td:last-child button:last-child { margin-bottom: 0; }
+.requisition-filters { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; align-items: end; margin: 18px 0; }
+.requisition-filters label { display: flex; flex-direction: column; gap: 6px; color: #435049; font-size: 12px; font-weight: 700; }
+.requisition-filters input[type='search'] { min-height: 40px; padding: 8px 10px; color: #18201c; background: #fff; border: 1px solid #cad1cd; border-radius: 6px; font: inherit; font-weight: 400; }
+.requisition-filters .checkbox-field { flex-direction: row; align-items: center; min-height: 40px; font-weight: 600; }
+.requisition-filters .checkbox-field input { width: 17px; height: 17px; accent-color: #214c3f; }
+@media (max-width: 700px) { .requisition-filters { grid-template-columns: 1fr; } }
+
 /* La tabla de elementos agrupa los accesos de repuestos, preventivos y data
    para conservar toda la información visible sin desplazamiento horizontal. */
 .machine-elements-table { overflow-x: hidden; }

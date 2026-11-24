@@ -20,6 +20,7 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
   const [requisitionMail,setRequisitionMail]=useState({to:DEFAULT_MAIL_TO,cc:DEFAULT_MAIL_CC,subject:'',body:''})
   const [requisitionAttachments,setRequisitionAttachments]=useState([]),[confirmationAttachments,setConfirmationAttachments]=useState([])
   const [contacts,setContacts]=useState([]),[contactsError,setContactsError]=useState('')
+  const [supplierFilter,setSupplierFilter]=useState(''),[partFilter,setPartFilter]=useState('')
   useEffect(()=>{
     if(!showMail&&!showRequisitionMail)return
     const controller=new AbortController()
@@ -52,7 +53,16 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
     if(files.reduce((total,file)=>total+file.size,0)>15*1024*1024){setError('Los documentos de confirmacion no pueden superar 15 MB en total.');return}
     setConfirmationAttachments(files);setError('')
   }
-  const visibleRows=pendingOnly?rows.filter(row=>row.status==='PENDIENTE'):rows
+  const normalizeSearch=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+  const visibleRows=rows.filter(row=>{
+    if(pendingOnly&&row.status!=='PENDIENTE')return false
+    const items=row.requisition.items||[]
+    const supplierNames=[row.requisition.supplier,...items.map(item=>item.supplier||item.supplier_name)]
+      .concat(items.map(item=>catalog.suppliers.find(s=>String(s.supplier_id)===String(item.supplier_id))?.name))
+      .filter(Boolean).join(' ')
+    const partNames=items.map(item=>[item.description,item.internal_code,item.spare_part].filter(Boolean).join(' ')).join(' ')
+    return normalizeSearch(supplierNames).includes(normalizeSearch(supplierFilter))&&normalizeSearch(partNames).includes(normalizeSearch(partFilter))
+  })
   const headers={Authorization:`Bearer ${token}`,'Content-Type':'application/json'}
   useEffect(()=>{
     const controller=new AbortController()
@@ -149,7 +159,11 @@ export default function RequisitionHistory({apiUrl,token,isAdmin,catalog,revisio
   function change(key,value){setReceipt(r=>({...r,[key]:value}))}
   function itemChange(index,key,value){setReceipt(r=>({...r,items:r.items.map((i,n)=>n===index?{...i,[key]:value}:i)}))}
   return <section className="request-detail"><h2>Requisiciones guardadas</h2><button type="button" disabled={busy} onClick={()=>setRefresh(v=>v+1)}>Actualizar historial</button>
-    <label className="checkbox-field"><input type="checkbox" checked={pendingOnly} onChange={e=>setPendingOnly(e.target.checked)}/> Mostrar solo pendientes de llegada ({rows.filter(row=>row.status==='PENDIENTE').length})</label>
+    <div className="requisition-filters">
+      <label>Buscar por proveedor<input type="search" value={supplierFilter} onChange={e=>setSupplierFilter(e.target.value)} placeholder="Escribe el proveedor..." /></label>
+      <label>Buscar por repuesto<input type="search" value={partFilter} onChange={e=>setPartFilter(e.target.value)} placeholder="Escribe código o descripción..." /></label>
+      <label className="checkbox-field"><input type="checkbox" checked={pendingOnly} onChange={e=>setPendingOnly(e.target.checked)}/> Mostrar solo pendientes ({rows.filter(row=>row.status==='PENDIENTE').length})</label>
+    </div>
     {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}{uploadStage&&<p role="status">{uploadStage}</p>}
     <div className="table-scroll"><table><thead><tr><th>Número</th><th>Fecha</th><th>Solicitante</th><th>Repuesto</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleRows.map(row=><tr key={row.id}><td>#{row.id}</td><td>{row.requisition.requested_on}</td><td>{row.requisition.requester}</td><td>{row.requisition.items.map(item=>item.description).filter(Boolean).join(' · ')||'Sin repuesto'}</td><td>{row.status==='RECIBIDA'?'Recibida':'Pendiente de recepción'}</td><td>{isAdmin&&<button disabled={busy||editingBusy} onClick={()=>{setSelected(null);onEdit(row)}}>Editar</button>} <button disabled={busy} onClick={()=>open(row)}>Ver detalle</button> <button disabled={busy} onClick={()=>excel(row)}>Excel</button>{isAdmin&&<button className="danger" disabled={busy||editingBusy} onClick={()=>deleteRequisition(row)}>Eliminar</button>}</td></tr>)}</tbody></table></div>
     {!visibleRows.length&&!error&&<p>{pendingOnly?'No hay requisiciones pendientes de llegada.':'No hay requisiciones guardadas.'}</p>}
