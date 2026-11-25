@@ -203,6 +203,18 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 18px 0; }
 .request-detail { margin-top: 24px; padding: 18px; border: 1px solid #cad1cd; border-radius: 8px; }
 .request-detail p { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* El detalle de una requisición se presenta como ventana emergente sobre el historial. */
+.request-detail > section.request-detail {
+  position: fixed;
+  z-index: 20;
+  inset: 22px;
+  width: auto;
+  max-height: calc(100vh - 44px);
+  margin: 0;
+  overflow-y: auto;
+  background: #f8f9f7;
+  box-shadow: 0 0 0 100vmax rgba(10, 27, 21, .62), 0 24px 70px rgba(0, 0, 0, .25);
+}
 .request-photo-gallery { display: flex; flex-wrap: wrap; gap: 12px; }
 .request-photo-gallery a { display: block; border: 1px solid #cad1cd; border-radius: 6px; padding: 4px; }
 .request-photo-gallery img { display: block; width: 180px; height: 140px; max-width: 100%; object-fit: contain; }
