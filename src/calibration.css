@@ -1,0 +1,61 @@
+/* Módulo de calibración (borrador). Todas las reglas están acotadas a .calibration-module
+   o a clases propias (cal-*, calibration-*) para no alterar las pantallas existentes. */
+.calibration-draft-note { margin: -12px 0 18px; padding: 8px 12px; color: #6b4e00; background: #fff6dc; border: 1px solid #f0dc9c; border-radius: 6px; font-size: 13px; }
+.calibration-summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.calibration-summary span { padding: 8px 12px; color: #435049; background: #fff; border: 1px solid #dde2de; border-radius: 8px; font-size: 13px; }
+.calibration-summary strong { margin-left: 6px; color: #18201c; font-size: 16px; }
+.calibration-summary .is-danger { border-color: #e6b3ad; background: #fdf1ef; }
+.calibration-summary .is-warning { border-color: #f0dc9c; background: #fff9e8; }
+.calibration-ok { padding: 8px 12px; color: #1f5a3c; background: #eaf5ee; border-radius: 6px; }
+
+.calibration-month-nav { display: flex; align-items: center; gap: 8px; }
+.calibration-month-nav strong { min-width: 150px; text-align: center; text-transform: capitalize; }
+.calibration-month-nav button { display: inline-flex; padding: 6px 10px; color: #31453c; background: #fff; border: 1px solid #cad1cd; border-radius: 6px; cursor: pointer; }
+.calibration-publish { margin: 12px 0 24px; padding: 16px; background: #f4f8f9; border: 1px solid #c9dfe3; border-radius: 10px; }
+.calibration-publish h3 { margin-top: 0; text-transform: capitalize; }
+.calibration-order-banner { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; color: #0a4f58; background: #eaf6f7; border: 1px solid #c9dfe3; border-left: 5px solid #0f7c8a; border-radius: 6px; }
+.calibration-order-banner pre { margin: 6px 0 0; white-space: pre-wrap; font: inherit; font-size: 13px; color: #18201c; }
+.calibration-module .checkbox-inline { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
+.calibration-row-actions button, .calibration-actions button:not(.primary-action) {
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; color: #31453c; background: #fff; border: 1px solid #cad1cd; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer;
+}
+
+.cal-status { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.cal-status.status-CONFORME { color: #1f5a3c; background: #e2f2e8; }
+.cal-status.status-NO_CONFORME { color: #8c1d18; background: #fbe4e1; }
+.cal-status.status-PENDIENTE { color: #5c4300; background: #fff1c2; }
+.cal-status.status-FUERA_DE_USO { color: #4b5550; background: #e7ebe8; }
+.calibration-module .text-danger { color: #b3261e; }
+.calibration-module tr.is-inactive td { opacity: .55; }
+
+.calibration-plan-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 0; border-bottom: 1px dashed #e1e6e2; }
+.calibration-plan-line:last-child { border-bottom: 0; }
+.calibration-row-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.motor-modal.calibration-wide { width: min(1120px, 100%); }
+.calibration-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.calibration-actions input { flex: 1 1 240px; min-height: 40px; padding: 8px 10px; border: 1px solid #cad1cd; border-radius: 6px; font: inherit; }
+.calibration-actions .danger-action { padding: 8px 14px; color: #fff; background: #b3261e; border: 0; border-radius: 6px; font-weight: 700; cursor: pointer; }
+.calibration-actions .danger-action:disabled { opacity: .5; cursor: not-allowed; }
+
+.calibration-standards-pick { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.calibration-standards-pick .is-expired { color: #a3aca7; }
+.calibration-points input { width: 100%; min-width: 80px; min-height: 36px; padding: 6px 8px; border: 1px solid #cad1cd; border-radius: 6px; font: inherit; }
+.calibration-points td:nth-child(2) input { min-width: 200px; }
+.calibration-points button { padding: 4px; background: none; border: 0; color: #8c1d18; cursor: pointer; }
+
+/* Figura de excentricidad del formato MT/03-04: 3 y 4 arriba, 1 al centro, 2 y 5 abajo. */
+.calibration-eccentricity { display: grid; grid-template-columns: repeat(3, 28px); grid-template-rows: repeat(3, 24px); width: max-content; margin: 0 0 12px; padding: 6px; border: 1px solid #cad1cd; border-radius: 6px; font-size: 12px; font-weight: 700; text-align: center; }
+.calibration-eccentricity span:nth-child(1) { grid-area: 1 / 1; }
+.calibration-eccentricity span:nth-child(2) { grid-area: 1 / 3; }
+.calibration-eccentricity span:nth-child(3) { grid-area: 2 / 2; color: #214c3f; }
+.calibration-eccentricity span:nth-child(4) { grid-area: 3 / 1; }
+.calibration-eccentricity span:nth-child(5) { grid-area: 3 / 3; }
+
+.calibration-result { padding: 10px 12px; border-radius: 6px; font-weight: 700; }
+.calibration-result.result-CONFORME { color: #1f5a3c; background: #e2f2e8; }
+.calibration-result.result-NO_CONFORME { color: #8c1d18; background: #fbe4e1; }
+
+.calibration-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.calibration-detail-grid span { display: flex; flex-direction: column; gap: 3px; color: #68736d; font-size: 12px; }
+.calibration-detail-grid strong { color: #18201c; font-size: 14px; }

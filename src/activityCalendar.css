@@ -1,0 +1,49 @@
+/* Calendario mensual estándar (preventivos, solicitudes y calibraciones).
+   Clases propias (activity-*, act-*) para no alterar estilos existentes. */
+.activity-calendar-toolbar { align-items: flex-end; }
+.activity-calendar-month { display: flex; align-items: center; gap: 8px; }
+.activity-calendar-month strong { min-width: 150px; text-align: center; text-transform: capitalize; }
+.activity-calendar-month button, .activity-event-head button {
+  display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; color: #31453c; background: #fff; border: 1px solid #cad1cd; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.activity-source-toggle { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; padding: 4px 8px; border-left: 4px solid transparent; border-radius: 4px; background: #fff; font-size: 13px; }
+.activity-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.activity-legend .act-chip, td .act-chip { display: inline-block; cursor: default; }
+.activity-legend .legend-divider { width: 1px; height: 18px; background: #cad1cd; }
+
+.activity-calendar-scroll { overflow-x: auto; }
+.activity-calendar { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); min-width: 840px; gap: 1px; background: #dde2de; border: 1px solid #dde2de; border-radius: 10px; overflow: hidden; }
+.activity-calendar .calendar-head { padding: 8px; color: #435049; background: #f1f4f2; font-size: 12px; font-weight: 700; text-align: center; }
+.activity-calendar .calendar-day { display: flex; flex-direction: column; gap: 3px; min-height: 110px; padding: 6px; background: #fff; }
+.activity-calendar .calendar-day.is-outside { background: #f8f9f7; }
+.activity-calendar .calendar-day.is-outside .calendar-date { color: #a3aca7; }
+.activity-calendar .calendar-day.is-today { box-shadow: inset 0 0 0 2px #214c3f; }
+.activity-calendar .calendar-date { color: #435049; font-size: 12px; font-weight: 700; }
+
+/* Chip: el borde izquierdo indica la fuente; el fondo indica el estado. */
+.act-chip { display: block; max-width: 100%; padding: 3px 6px; overflow: hidden; color: #1d4f73; background: #eef5fb; border: 1px solid #c9dcec; border-left-width: 4px; border-radius: 4px; font: inherit; font-size: 11px; line-height: 1.3; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.act-chip .act-time { margin-right: 4px; font-weight: 700; opacity: .8; }
+.act-chip.is-selected { outline: 2px solid #214c3f; outline-offset: 1px; }
+.act-chip.src-PM, .activity-source-toggle.src-PM, .activity-event-card.src-PM { border-left-color: #6b3fb0; }
+.act-chip.src-PLAN, .activity-source-toggle.src-PLAN, .activity-event-card.src-PLAN { border-left-color: #b9a2e0; }
+.act-chip.src-REQ, .activity-source-toggle.src-REQ, .activity-event-card.src-REQ { border-left-color: #8a6a3d; }
+.act-chip.src-CAL, .activity-source-toggle.src-CAL, .activity-event-card.src-CAL { border-left-color: #0f7c8a; }
+.act-chip.src-CALPLAN, .activity-source-toggle.src-CALPLAN, .activity-event-card.src-CALPLAN { border-left-color: #7cc3cc; }
+.act-chip.src-PLAN.state-PROGRAMADA, .act-chip.src-CALPLAN.state-PROGRAMADA { border-style: dashed; border-left-style: solid; }
+.act-chip.state-PROGRAMADA { color: #1d4f73; background: #eef5fb; }
+.act-chip.state-PENDIENTE { color: #5c4300; background: #ffe9a8; border-color: #f0d27a; }
+.act-chip.state-VENCIDA { color: #fff; background: #b3261e; border-color: #b3261e; }
+.act-chip.state-EN_PROCESO { color: #fff; background: #2b6cb0; border-color: #2b6cb0; }
+.act-chip.state-REALIZADA { color: #fff; background: #2f7a4f; border-color: #2f7a4f; }
+.act-chip.state-INCUMPLIDA { color: #b3261e; background: #fff; border-color: #b3261e; }
+.act-chip.state-REPROGRAMADA { color: #4b5550; background: #e7ebe8; border-color: #cfd6d2; text-decoration: line-through; }
+.act-chip.src-PM.state-VENCIDA, .act-chip.src-PM.state-EN_PROCESO, .act-chip.src-PM.state-REALIZADA { border-left-color: #3b1f6b; }
+.act-chip.src-CAL.state-VENCIDA, .act-chip.src-CAL.state-REALIZADA { border-left-color: #0a4f58; }
+
+.activity-event-card { display: grid; gap: 10px; margin: 14px 0; padding: 14px 16px; background: #fff; border: 1px solid #dde2de; border-left: 5px solid #214c3f; border-radius: 8px; }
+.activity-event-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.activity-event-head .eyebrow { margin: 0 0 4px; }
+.activity-event-card dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 16px; margin: 0; }
+.activity-event-card dt { color: #68736d; font-size: 12px; }
+.activity-event-card dd { margin: 0; color: #18201c; font-weight: 600; }
+.activity-event-card .primary-action { justify-self: start; }

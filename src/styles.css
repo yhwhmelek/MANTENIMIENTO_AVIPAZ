@@ -204,7 +204,7 @@ td select { min-width: 145px; padding: 8px 10px; color: #263d34; background: #ff
 .request-detail { margin-top: 24px; padding: 18px; border: 1px solid #cad1cd; border-radius: 8px; }
 .request-detail p { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* El detalle de una requisición se presenta como ventana emergente sobre el historial. */
-.request-detail > section.request-detail {
+.request-detail > section.requisition-detail-popup {
   position: fixed;
   z-index: 20;
   inset: 22px;

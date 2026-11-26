@@ -2741,6 +2741,8 @@ from business_contacts import register_business_contacts
 register_business_contacts(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
 from contractors import register_contractors
 register_contractors(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
+from calibration import register_calibration
+register_calibration(app, obtener_conexion, obtener_usuario_activo, obtener_admin_actual)
 from purchase_requisitions import register_purchase_requisitions
 register_purchase_requisitions(app, obtener_usuario_activo, obtener_conexion, obtener_admin_actual)
 

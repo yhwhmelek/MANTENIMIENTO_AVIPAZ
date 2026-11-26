@@ -1,4 +1,6 @@
 import PreventiveMaintenance from './PreventiveMaintenance'
+import Calibration from './Calibration'
+import GeneralCalendar from './GeneralCalendar'
 import ImageAttachment from './ImageAttachment'
 import { imageToDataUrl } from './imageUpload'
 import { useEffect, useRef, useState } from 'react'
@@ -437,6 +439,12 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
   }
 
   const [preventiveElement,setPreventiveElement]=useState(null)
+  const [calibrationAction,setCalibrationAction]=useState(null)
+  useEffect(()=>{
+    const openCalibration=e=>{setCalibrationAction(e.detail||null);setSection('calibration')}
+    window.addEventListener('calibration-open',openCalibration)
+    return()=>window.removeEventListener('calibration-open',openCalibration)
+  },[])
   useEffect(()=>{
     const open=e=>{setPreventiveElement(e.detail||null);setSection('preventive')}
     const request=()=>setSection('requests')
@@ -452,6 +460,8 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
       <div className="brand"><span className="brand-mark"><Wrench size={22} /></span><span>Manteni</span></div>
       <nav className="main-nav">
         {['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)&&<button className={section==='preventive'?'selected':''} onClick={()=>{setPreventiveElement(null);setSection('preventive')}}>Preventivos</button>}
+        {['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)&&<button className={section==='calendar'?'selected':''} onClick={()=>{setMessage('');setSection('calendar')}}>Calendario</button>}
+        {['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)&&<button className={section==='calibration'?'selected':''} onClick={()=>{setMessage('');setSection('calibration')}}>Calibración</button>}
         <button className={section === 'requests' ? 'selected' : ''} onClick={() => { setMessage(''); setSection('requests') }}>Solicitudes</button>
         {!isOperator && <button className={isAssetsSection ? 'selected' : ''} onClick={() => { setMessage(''); setSection('machines') }}>Activos</button>}
         {!isOperator && <button className={isSparePartsSection ? 'selected' : ''} onClick={() => setSection('spare-parts')}>Repuestos</button>}
@@ -478,7 +488,7 @@ export default function Dashboard({ apiUrl, token, currentUser, onUserChange, on
         <button aria-current={section === 'suppliers' ? 'page' : undefined} onClick={() => setSection('suppliers')}>Proveedores</button>
         {isAdmin && <button aria-current={section === 'categories' ? 'page' : undefined} onClick={() => setSection('categories')}>Categorías</button>}
       </nav>}
-       {section === 'preventive' ? <PreventiveMaintenance apiUrl={apiUrl} token={token} currentUser={currentUser} initialElement={preventiveElement}/> : section === 'requests' ? null : section === 'plant-structure' ? <PlantStructure apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'consumables' ? <Consumables apiUrl={apiUrl} token={token} isAdmin={isAdmin} suppliers={suppliers} /> : section === 'requisitions' ? <PurchaseRequisition apiUrl={apiUrl} token={token} currentUser={currentUser} /> : ['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements key={machineElementsMachineId} apiUrl={apiUrl} token={token} isAdmin={isAdmin} initialMachineId={machineElementsMachineId} canPreventives={['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} onElements={(machine) => { setMachineElementsMachineId(String(machine.machine_id)); setMessage(''); setSection('machine-elements') }} /> : section === 'spare-parts' ? <>
+       {section === 'calendar' && ['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol) ? <GeneralCalendar apiUrl={apiUrl} token={token} /> : section === 'calibration' && ['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol) ? <Calibration apiUrl={apiUrl} token={token} currentUser={currentUser} initialAction={calibrationAction} /> : section === 'preventive' ? <PreventiveMaintenance apiUrl={apiUrl} token={token} currentUser={currentUser} initialElement={preventiveElement}/> : section === 'requests' ? null : section === 'plant-structure' ? <PlantStructure apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'consumables' ? <Consumables apiUrl={apiUrl} token={token} isAdmin={isAdmin} suppliers={suppliers} /> : section === 'requisitions' ? <PurchaseRequisition apiUrl={apiUrl} token={token} currentUser={currentUser} /> : ['purchases', 'consumption', 'events'].includes(section) ? <PartsHistory key={`${section}-${historyMachineId}`} initialMachineId={historyMachineId} kind={section} apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'spare-reports' ? <SparePartReports apiUrl={apiUrl} token={token} /> : section === 'machine-elements' ? <MachineElements key={machineElementsMachineId} apiUrl={apiUrl} token={token} isAdmin={isAdmin} initialMachineId={machineElementsMachineId} canPreventives={['ADMIN','MECANICO','ELECTRICO','TECNICO'].includes(currentUser.rol)} /> : section === 'element-types' ? <MachineElementTypes apiUrl={apiUrl} token={token} isAdmin={isAdmin} /> : section === 'machines' ? <Machines apiUrl={apiUrl} token={token} isAdmin={isAdmin} onHistory={(machine) => { setHistoryMachineId(String(machine.machine_id)); setMessage(''); setSection('events') }} onElements={(machine) => { setMachineElementsMachineId(String(machine.machine_id)); setMessage(''); setSection('machine-elements') }} /> : section === 'spare-parts' ? <>
         <div className="page-heading"><div><p className="eyebrow">INVENTARIO</p><h1>Repuestos</h1><p>Catalogo, existencias y costos de repuestos.</p></div>{isAdmin && <button className="primary-action" onClick={() => openSparePartForm()}><Plus size={18} /> Nuevo repuesto</button>}</div>
         <p>Stock de bodega: saldo inicial m?s compras menos consumos posteriores al corte, excluyendo anulados. Se actualiza cada 30 segundos.</p>{stockError && <p role="alert">{stockError}</p>}
         {userPlantError&&<p role="alert">{userPlantError}</p>}<div className="users-card table-scroll"><table><thead><tr>{isAdmin && <th>Acciones</th>}<th>Codigo</th><th>Categoria</th><th>Descripcion</th><th>Marca / Modelo</th><th>N.° parte</th><th>Unidad</th><th>Stock de bodega</th><th>Stock min. / max.</th><th>Costo unit.</th><th>Ubicacion</th><th>Estado</th><th>Imagen</th></tr></thead>
